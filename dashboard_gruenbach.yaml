@@ -322,89 +322,141 @@ views:
                 state: Monat
       - type: grid
         cards:
-          - type: entities
-            entities:
-              - entity: >-
-                  sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
-                name: Erzeugungsprognose
-              - entity: sensor.eigenverbrauchsoptimierung_benotigte_energiemenge
-                name: Noch benötigte Energie
-              - entity: sensor.ohmpilot_temperatur
-                name: 'Warmwasser '
-              - entity: sensor.byd_battery_box_premium_hv_ladezustand
-              - entity: sensor.ohmpilot_leistung
-                name: Heizstableistung
-              - entity: input_select.heizstab
-              - entity: input_number.batterie_ladelimit_kw
-              - entity: sensor.eigenverbrauch
+          - type: markdown
             title: Eigenverbrauchsoptimierung
+            content: >
+              {% set e = 'sensor.energieoptimierung_entscheidung' %}
+
+              {% set grund = state_attr(e, 'begruendung') or '' %}
+
+              {% for line in grund.split('\n') %}
+
+              {% if line.startswith('Strategie:') %}**{{ line }}**
+
+              {% elif line.startswith('→') %}**→** {{ line[2:] }}
+
+              {% elif '✖' in line %}**✖** {{ line | replace('✖ ', '') }}
+
+              {% elif line.startswith('Min-SOC:') %}**Min-SOC:** {{ line[9:] }}
+
+              {% elif line.startswith('Faktor morgen:') %}**Faktor morgen:** {{
+              line[15:] }}
+
+              {% elif line.startswith('  Bedarf:') %}**Bedarf:** {{ line[9:] }}
+
+              {% elif line.strip() != '' %}{{ line }}
+
+              {% endif %}
+
+              {% endfor %}
           - type: entities
-            title: Prognose PV vs. Verbrauch
+            title: PV- und Verbrauchsprognose
             entities:
               - type: custom:multiple-entity-row
-                entity: sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+                entity: >-
+                  sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
                 name: Heute (Rest)
                 icon: mdi:white-balance-sunny
                 format: precision2
+                show_state: false
                 entities:
+                  - entity: >-
+                      sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+                    name: PV
+                    format: precision2
                   - entity: sensor.energieoptimierung_prognose_bis_sonnenuntergang
-                    name: Verbrauch
+                    name: Verbr.
                     format: precision2
               - type: custom:multiple-entity-row
                 entity: sensor.solcast_pv_forecast_prognose_heute
                 name: Heute Gesamt
                 icon: mdi:white-balance-sunny
                 format: precision2
+                show_state: false
                 entities:
-                  - entity: sensor.energieoptimierung_prognose_bis_sonnenuntergang
+                  - entity: sensor.solcast_pv_forecast_prognose_heute
+                    name: PV
+                    format: precision2
+                  - entity: sensor.energieoptimierung_prognose_heute
+                    name: Verbr.
                     format: precision2
               - type: custom:multiple-entity-row
                 entity: sensor.solcast_pv_forecast_prognose_morgen
                 name: Morgen
                 icon: mdi:weather-sunny
                 format: precision2
+                show_state: false
                 entities:
+                  - entity: sensor.solcast_pv_forecast_prognose_morgen
+                    name: PV
+                    format: precision2
                   - entity: sensor.energieoptimierung_prognose_morgen
+                    name: Verbr.
                     format: precision2
               - type: custom:multiple-entity-row
                 entity: sensor.solcast_pv_forecast_prognose_tag_3
                 name: Übermorgen
                 icon: mdi:weather-sunny
                 format: precision2
+                show_state: false
                 entities:
+                  - entity: sensor.solcast_pv_forecast_prognose_tag_3
+                    name: PV
+                    format: precision2
                   - entity: sensor.energieoptimierung_prognose_tag_2
+                    name: Verbr.
                     format: precision2
               - type: custom:multiple-entity-row
                 entity: sensor.solcast_pv_forecast_prognose_tag_4
                 name: Tag 4
                 icon: mdi:weather-sunny
                 format: precision2
+                show_state: false
                 entities:
+                  - entity: sensor.solcast_pv_forecast_prognose_tag_4
+                    name: PV
+                    format: precision2
                   - entity: sensor.energieoptimierung_prognose_tag_3
+                    name: Verbr.
                     format: precision2
               - type: custom:multiple-entity-row
                 entity: sensor.solcast_pv_forecast_prognose_tag_5
                 name: Tag 5
                 icon: mdi:weather-sunny
                 format: precision2
+                show_state: false
                 entities:
+                  - entity: sensor.solcast_pv_forecast_prognose_tag_5
+                    name: PV
+                    format: precision2
                   - entity: sensor.energieoptimierung_prognose_tag_4
+                    name: Verbr.
                     format: precision2
               - type: custom:multiple-entity-row
                 entity: sensor.solcast_pv_forecast_prognose_tag_6
                 name: Tag 6
                 icon: mdi:weather-sunny
                 format: precision2
+                show_state: false
                 entities:
+                  - entity: sensor.solcast_pv_forecast_prognose_tag_6
+                    name: PV
+                    format: precision2
                   - entity: sensor.energieoptimierung_prognose_tag_5
+                    name: Verbr.
                     format: precision2
               - type: custom:multiple-entity-row
                 entity: sensor.solcast_pv_forecast_prognose_tag_7
                 name: Tag 7
                 icon: mdi:weather-sunny
                 format: precision2
+                show_state: false
                 entities:
+                  - entity: sensor.solcast_pv_forecast_prognose_tag_7
+                    name: PV
+                    format: precision2
                   - entity: sensor.energieoptimierung_prognose_tag_6
+                    name: Verbr.
                     format: precision2
       - type: grid
         cards:
@@ -495,68 +547,6 @@ views:
               - entity: sensor.byd_battery_box_premium_hv_temperatur
                 name: Batterietemperatur
             title: Technische Daten
-      - type: grid
-        cards:
-          - type: heading
-            heading_style: title
-            heading: Geschätzter Energiebedarf
-          - type: vertical-stack
-            cards:
-              - type: custom:mushroom-template-card
-                primary: Energiebedarf heute
-                secondary: '{{ states(''sensor.energieoptimierung_energiebedarf_heute'') }} kWh'
-                icon: mdi:sigma
-                icon_color: red
-                card_mod:
-                  style: |
-                    ha-card { --ha-card-background: rgba(244,67,54,0.08); }
-              - type: grid
-                columns: 2
-                square: false
-                cards:
-                  - type: custom:mushroom-template-card
-                    primary: Verbrauch bis SU
-                    secondary: '{{ states(''sensor.prognose_bis_sonnenuntergang'') }} kWh'
-                    icon: mdi:weather-sunset-down
-                    icon_color: orange
-                    layout: vertical
-                  - type: custom:mushroom-template-card
-                    primary: Batterie laden
-                    secondary: '{{ states(''sensor.energieoptimierung_batterie_fehlende_energie'') }} kWh'
-                    icon: mdi:battery-charging-outline
-                    icon_color: green
-                    layout: vertical
-                  - type: custom:mushroom-template-card
-                    primary: Puffer aufheizen
-                    secondary: >-
-                      {{ states('sensor.energieoptimierung_puffer_aufheizenergie') }} kWh ({{
-                      state_attr('sensor.energieoptimierung_puffer_aufheizenergie',
-                      'aktuelle_temperatur') }} → {{
-                      state_attr('sensor.energieoptimierung_puffer_aufheizenergie',
-                      'zieltemperatur') }})
-                    icon: mdi:water-boiler
-                    icon_color: deep-orange
-                    layout: vertical
-                  - type: custom:mushroom-template-card
-                    primary: Tesla laden
-                    secondary: >-
-                      {% if states('sensor.energieoptimierung_tesla_fehlende_ladeenergie') | float
-                      == 0 %}
-                        Nicht in Grünbach
-                      {% else %}
-                        {{ states('sensor.energieoptimierung_tesla_fehlende_ladeenergie') }} kWh
-                        ({{ state_attr('sensor.energieoptimierung_tesla_fehlende_ladeenergie', 'batteriestand') }}
-                        → {{ state_attr('sensor.energieoptimierung_tesla_fehlende_ladeenergie', 'ladelimit') }})
-                      {% endif %}
-                    icon: mdi:car-electric
-                    icon_color: >-
-                      {% if states('sensor.energieoptimierung_tesla_fehlende_ladeenergie') | float
-                      == 0 %}
-                        grey
-                      {% else %}
-                        blue
-                      {% endif %}
-                    layout: vertical
     badges:
       - type: entity
         show_name: true
@@ -597,7 +587,7 @@ views:
         show_name: true
         show_state: true
         show_icon: true
-        entity: input_boolean.fixe_einspeisung
+        entity: switch.energieoptimierung_einspeisung
         tap_action:
           action: toggle
         name: Fixe Einspeisung
@@ -605,7 +595,7 @@ views:
         show_name: true
         show_state: true
         show_icon: true
-        entity: input_number.fixer_einspeisewert
+        entity: number.energieoptimierung_einspeiseleistung
         color: amber
         name: Fixer Einspeisewert
         tap_action:

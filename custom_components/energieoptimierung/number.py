@@ -57,10 +57,13 @@ class EinspeiseleistungNumber(NumberEntity, RestoreEntity):
 
     async def async_added_to_hass(self) -> None:
         """Restore previous value."""
-        last = await self.async_get_last_number_data()
-        if last and last.native_value is not None:
-            self._attr_native_value = last.native_value
-            _LOGGER.info("Einspeiseleistung restored to %s kW", last.native_value)
+        last_state = await self.async_get_last_state()
+        if last_state and last_state.state not in ("unknown", "unavailable", None):
+            try:
+                self._attr_native_value = float(last_state.state)
+                _LOGGER.info("Einspeiseleistung restored to %s kW", self._attr_native_value)
+            except (ValueError, TypeError):
+                pass
 
     async def async_set_native_value(self, value: float) -> None:
         """Set new value and sync to Fronius."""

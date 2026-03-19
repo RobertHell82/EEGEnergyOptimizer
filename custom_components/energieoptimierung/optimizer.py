@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -32,6 +32,7 @@ from .const import (
     CONF_FRONIUS_IP,
     CONF_FRONIUS_PASSWORD,
     CONF_FRONIUS_USER,
+    CONF_GUARD_DELAY_H,
     CONF_HOLZVERGASER_SENSOR,
     CONF_MIN_SOC_ENTLADUNG,
     CONF_MIN_WW_ENTLADUNG,
@@ -52,6 +53,7 @@ from .const import (
     DEFAULT_FRONIUS_IP,
     DEFAULT_FRONIUS_PASSWORD,
     DEFAULT_FRONIUS_USER,
+    DEFAULT_GUARD_DELAY_H,
     DEFAULT_HOLZVERGASER_SENSOR,
     DEFAULT_MIN_SOC_ENTLADUNG,
     DEFAULT_MIN_WW_ENTLADUNG,
@@ -186,6 +188,7 @@ class EnergyOptimizer:
         self._entladeleistung = config.get(CONF_ENTLADELEISTUNG_KW, DEFAULT_ENTLADELEISTUNG_KW)
         self._sicherheitspuffer = config.get(CONF_SICHERHEITSPUFFER_PROZENT, DEFAULT_SICHERHEITSPUFFER_PROZENT)
         self._min_ww_entladung = config.get(CONF_MIN_WW_ENTLADUNG, DEFAULT_MIN_WW_ENTLADUNG)
+        self._guard_delay_h = config.get(CONF_GUARD_DELAY_H, DEFAULT_GUARD_DELAY_H)
         self._ww_target = config.get(CONF_PUFFER_TARGET_TEMP, DEFAULT_PUFFER_TARGET_TEMP)
         self._puffer_volume_l = config.get(CONF_PUFFER_VOLUME_L, DEFAULT_PUFFER_VOLUME_L)
 
@@ -364,6 +367,14 @@ class EnergyOptimizer:
         for _, apply_fn in hoch:
             apply_fn(snap, decision)
 
+        # Guard-Delay Info in Begründung
+        hours = self._hours_since_sunrise(snap.now)
+        if hours is not None and hours < self._guard_delay_h:
+            decision.begruendung += (
+                f"\n☀ Guard-Delay: {hours:.1f}h seit Sonnenaufgang"
+                f" < {self._guard_delay_h:.0f}h → HOCH-Guards unterdrückt (EEG-Vorrang)"
+            )
+
         # ── Step 4: Nachtentladungs-Vorschau (nur tagsüber) ──────────────
         if snap.sun_above_horizon:
             decision.begruendung += self._nachtentladung_vorschau(
@@ -374,13 +385,39 @@ class EnergyOptimizer:
 
     # ── Safety guards ────────────────────────────────────────────────────
 
+    def _hours_since_sunrise(self, now: datetime) -> float | None:
+        """Calculate hours since today's sunrise. Returns None if unknown."""
+        sun = self.hass.states.get("sun.sun")
+        if sun is None:
+            return None
+        if sun.state == "below_horizon":
+            return None  # Nachts – Guard-Delay irrelevant
+        nr = sun.attributes.get("next_rising")
+        if not nr:
+            return None
+        try:
+            next_rising = datetime.fromisoformat(str(nr))
+        except (ValueError, TypeError):
+            return None
+        # Sonne ist oben → next_rising ist morgen → heute ≈ next_rising - 24h
+        today_sunrise = next_rising - timedelta(days=1)
+        delta = (now - today_sunrise).total_seconds() / 3600.0
+        return max(delta, 0.0)
+
     def _check_guards(self, snap: Snapshot) -> list[tuple[str, Any]]:
-        """Check all safety conditions. Returns list of (description, apply_fn)."""
+        """Check all safety conditions. Returns list of (description, apply_fn).
+
+        HOCH-Guards (WW < 55°C, Batterie < 25%) werden in den ersten
+        Stunden nach Sonnenaufgang unterdrückt (guard_delay_h), damit
+        morgens die EEG-Einspeisung Vorrang hat.
+        KRITISCH-Guards sind immer aktiv.
+        """
         guards: list[tuple[str, Any]] = []
 
-        if snap.ww_temp < 45 and snap.ww_temp > 0:
+        # KRITISCH – immer aktiv
+        if snap.ww_temp < 40 and snap.ww_temp > 0:
             guards.append((
-                "KRITISCH: Warmwasser unter 45°C – sofort aufheizen",
+                "KRITISCH: Warmwasser unter 40°C – sofort aufheizen",
                 self._guard_ww_kritisch,
             ))
 
@@ -390,17 +427,32 @@ class EnergyOptimizer:
                 self._guard_battery_kritisch,
             ))
 
-        if 0 < snap.ww_temp < 55:
-            guards.append((
-                "HOCH: Warmwasser unter 55°C – Heizstab Priorität",
-                self._guard_ww_hoch,
-            ))
+        # HOCH – erst nach Guard-Delay aktiv
+        hours = self._hours_since_sunrise(snap.now)
+        guard_delayed = (
+            hours is not None
+            and hours < self._guard_delay_h
+        )
 
-        if 0 < snap.battery_soc < 25:
-            guards.append((
-                "HOCH: Batterie unter 25% – Ladelimit erhöhen",
-                self._guard_battery_hoch,
-            ))
+        if guard_delayed:
+            _LOGGER.debug(
+                "Guard-Delay aktiv: %.1fh seit Sonnenaufgang < %.1fh Delay "
+                "→ HOCH-Guards unterdrückt (WW %.0f°C, SOC %.0f%%)",
+                hours, self._guard_delay_h, snap.ww_temp, snap.battery_soc,
+            )
+
+        if not guard_delayed:
+            if 0 < snap.ww_temp < 55:
+                guards.append((
+                    "HOCH: Warmwasser unter 55°C – Heizstab Priorität",
+                    self._guard_ww_hoch,
+                ))
+
+            if 0 < snap.battery_soc < 25:
+                guards.append((
+                    "HOCH: Batterie unter 25% – Ladelimit erhöhen",
+                    self._guard_battery_hoch,
+                ))
 
         if snap.holzvergaser_active and snap.pv_power_w < 6000:
             guards.append((
@@ -414,24 +466,42 @@ class EnergyOptimizer:
         pv_kw = snap.pv_power_w / 1000.0
         hausverbrauch_kw = snap.hausverbrauch_w / 1000.0
         heizstab_kw_aktuell = snap.heizstab_leistung_w / 1000.0
-        heizstab_kw_soll = HEIZSTAB_POWER_KW[HEIZSTAB_3P]  # 6 kW reserviert
-
-        # hausverbrauch_kw enthält heizstab_kw_aktuell bereits!
-        # Echter Hausverbrauch = hausverbrauch - heizstab_aktuell
-        # Verfügbar für Batterie = PV - echter Haus - Heizstab_soll
-        rest_kw = max(pv_kw + heizstab_kw_aktuell - heizstab_kw_soll - hausverbrauch_kw, 0)
-        ladelimit = round(rest_kw)
         haus_netto_kw = hausverbrauch_kw - heizstab_kw_aktuell
 
-        dec.heizstab_modus = HEIZSTAB_3P
+        # Bei SOC < 50%: 1 kW für Batterie reservieren, Rest für Heizstab
+        bat_reserve = 1.0 if snap.battery_soc < 50 else 0.0
+        verfuegbar_kw = pv_kw + heizstab_kw_aktuell - hausverbrauch_kw
+        heizstab_kw_soll = HEIZSTAB_POWER_KW[HEIZSTAB_3P]  # 6 kW
+
+        if verfuegbar_kw >= heizstab_kw_soll + bat_reserve:
+            # Genug PV für Heizstab 3P + Batterie
+            ladelimit = round(verfuegbar_kw - heizstab_kw_soll)
+            dec.heizstab_modus = HEIZSTAB_3P
+        elif bat_reserve > 0 and verfuegbar_kw >= bat_reserve:
+            # SOC niedrig: Batterie bekommt 1 kW, Heizstab den Rest
+            ladelimit = round(bat_reserve)
+            rest_fuer_heizstab = verfuegbar_kw - bat_reserve
+            if rest_fuer_heizstab >= 1.0:
+                dec.heizstab_modus = HEIZSTAB_1P
+            else:
+                dec.heizstab_modus = HEIZSTAB_3P  # OhmPilot regelt selbst
+        else:
+            ladelimit = 0
+            dec.heizstab_modus = HEIZSTAB_3P
+
         dec.ladelimit_kw = ladelimit
         dec.einspeisung_aktiv = False
         dec.einspeisewert_kw = 0
+
+        bat_info = f"Batterie: {ladelimit} kW"
+        if bat_reserve > 0:
+            bat_info += f" (SOC {snap.battery_soc:.0f}% < 50%)"
+
         dec.begruendung = (
             f"Strategie: Sicherheit\n"
-            f"⚠ Warmwasser nur {snap.ww_temp:.0f}°C (< 45°C)\n"
-            f"PV: {pv_kw:.1f} kW – Heizstab: {heizstab_kw_soll:.0f} kW – Haus: {haus_netto_kw:.1f} kW\n"
-            f"→ Heizstab: 3-Phasig | Batterie: {ladelimit} kW | Einspeisung: gestoppt"
+            f"⚠ Warmwasser nur {snap.ww_temp:.0f}°C (< 40°C)\n"
+            f"PV: {pv_kw:.1f} kW – Heizstab: {dec.heizstab_modus} – Haus: {haus_netto_kw:.1f} kW\n"
+            f"→ Heizstab: {dec.heizstab_modus} | {bat_info} | Einspeisung: gestoppt"
         )
 
     def _guard_battery_kritisch(self, snap: Snapshot, dec: Decision) -> None:
@@ -779,8 +849,7 @@ class EnergyOptimizer:
     def _calc_min_soc_entladung(self, snap: Snapshot) -> float:
         """Calculate minimum SOC for evening discharge.
 
-        Formula: overnight consumption + safety buffer, converted to SOC%.
-        Never below the absolute floor (CONF_MIN_SOC_ENTLADUNG).
+        Formula: absolute min SOC + (overnight consumption × safety buffer) as SOC%.
         """
         if snap.battery_capacity_kwh <= 0:
             return float(self._min_soc)
@@ -789,8 +858,8 @@ class EnergyOptimizer:
         puffer_factor = 1.0 + (self._sicherheitspuffer / 100.0)
         benoetigte_kwh = nacht_kwh * puffer_factor
 
-        benoetigter_soc = (benoetigte_kwh / snap.battery_capacity_kwh) * 100.0
-        return max(math.ceil(benoetigter_soc), self._min_soc)
+        nacht_soc = (benoetigte_kwh / snap.battery_capacity_kwh) * 100.0
+        return math.ceil(self._min_soc + nacht_soc)
 
     # ── Nachtentladung Vorschau ──────────────────────────────────────────
 
@@ -872,7 +941,7 @@ class EnergyOptimizer:
             _LOGGER.info("Optimizer: Ladelimit → %s kW", dec.ladelimit_kw)
             self._prev_ladelimit = dec.ladelimit_kw
 
-        # Einspeiseleistung (number entity → triggers fronius_sync)
+        # Einspeiseleistung ZUERST setzen (bevor Switch fronius_sync triggert)
         if dec.einspeisewert_kw != self._prev_einspeisewert:
             await self.hass.services.async_call(
                 "number", "set_value",
@@ -881,7 +950,7 @@ class EnergyOptimizer:
             _LOGGER.info("Optimizer: Einspeiseleistung → %s kW", dec.einspeisewert_kw)
             self._prev_einspeisewert = dec.einspeisewert_kw
 
-        # Einspeisung Switch (switch entity → triggers fronius_sync)
+        # Einspeisung Switch DANACH (triggers fronius_sync mit korrektem Wert)
         if dec.einspeisung_aktiv != self._prev_einspeisung:
             service = "turn_on" if dec.einspeisung_aktiv else "turn_off"
             await self.hass.services.async_call(

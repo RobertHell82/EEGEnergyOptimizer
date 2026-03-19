@@ -22,7 +22,6 @@ from typing import Any
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
-    SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy
@@ -151,7 +150,7 @@ async def async_setup_entry(
         VerbrauchsprofilSensor(hass, coordinator, meta),
     ] + [
         DailyForecastSensor(hass, coordinator, meta, day_offset=d)
-        for d in range(1, 8)
+        for d in range(0, 8)
     ]
 
     # Fast sensors: live state-based, update every 2min
@@ -205,7 +204,6 @@ class SunriseForecastSensor(SensorEntity):
     _attr_unique_id = "energieoptimierung_prognose_bis_sonnenaufgang"
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:crystal-ball"
     _attr_suggested_display_precision = 2
 
@@ -271,7 +269,6 @@ class SunsetForecastSensor(SensorEntity):
     _attr_unique_id = "energieoptimierung_prognose_bis_sonnenuntergang"
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:weather-sunset-down"
     _attr_suggested_display_precision = 2
 
@@ -360,7 +357,6 @@ class BatteryMissingEnergySensor(SensorEntity):
     _attr_unique_id = "energieoptimierung_batterie_fehlende_energie"
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:battery-charging-outline"
     _attr_suggested_display_precision = 2
 
@@ -427,7 +423,6 @@ class TeslaMissingEnergySensor(SensorEntity):
     _attr_unique_id = "energieoptimierung_tesla_fehlende_ladeenergie"
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:car-electric"
     _attr_suggested_display_precision = 2
 
@@ -501,7 +496,6 @@ class PufferEnergySensor(SensorEntity):
     _attr_unique_id = "energieoptimierung_puffer_aufheizenergie"
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:water-boiler"
     _attr_suggested_display_precision = 2
 
@@ -559,7 +553,6 @@ class EnergyDemandTodaySensor(SensorEntity):
     _attr_unique_id = "energieoptimierung_energiebedarf_heute"
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:sigma"
     _attr_suggested_display_precision = 2
 
@@ -614,7 +607,6 @@ class VerbrauchsprofilSensor(SensorEntity):
     _attr_unique_id = "energieoptimierung_verbrauchsprofil"
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:chart-bell-curve-cumulative"
     _attr_suggested_display_precision = 1
 
@@ -672,7 +664,6 @@ class DailyForecastSensor(SensorEntity):
     _attr_device_info = DEVICE_INFO
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:calendar-clock"
     _attr_suggested_display_precision = 2
 
@@ -681,7 +672,10 @@ class DailyForecastSensor(SensorEntity):
         self._coordinator = coordinator
         self._meta = meta
         self._day_offset = day_offset
-        if day_offset == 1:
+        if day_offset == 0:
+            self._attr_name = "Prognose heute"
+            self._attr_unique_id = "energieoptimierung_prognose_heute"
+        elif day_offset == 1:
             self._attr_name = "Prognose morgen"
             self._attr_unique_id = "energieoptimierung_prognose_morgen"
         else:
@@ -742,6 +736,5 @@ class OptimizerDecisionSensor(SensorEntity):
             return
 
         dec = self._optimizer.last_decision
-        modus = "AKTIV" if dec.ausfuehrung else "NUR BERECHNUNG"
-        self._attr_native_value = f"{dec.strategie} [{modus}]"
+        self._attr_native_value = dec.strategie
         self._attr_extra_state_attributes = dec.as_dict()

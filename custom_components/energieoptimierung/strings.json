@@ -77,7 +77,8 @@
           "solcast_morgen_sensor": "Solcast Prognose morgen (kWh)",
           "holzvergaser_sensor": "Holzvergaser-Pumpe Sensor",
           "einspeiselimit_kw": "Einspeiselimit (kW)",
-          "ueberschuss_faktor": "Überschuss-Faktor (Schwelle)"
+          "ueberschuss_faktor": "Überschuss-Faktor (Schwelle)",
+          "guard_delay_h": "Guard-Delay nach Sonnenaufgang (Stunden)"
         },
         "data_description": {
           "pv_power_sensor": "Aktuelle PV-Erzeugungsleistung in Watt",
@@ -86,7 +87,8 @@
           "solcast_morgen_sensor": "PV-Prognose für morgen (für Abend-Entladung)",
           "holzvergaser_sensor": "Switch/Sensor der Holzvergaser-Pumpe",
           "einspeiselimit_kw": "Maximale Netzeinspeisung (Netzbetreiber-Limit). 0 = kein Limit.",
-          "ueberschuss_faktor": "PV-Prognose / Energiebedarf. Ab diesem Faktor wird die Früh-Einspeise-Strategie aktiv."
+          "ueberschuss_faktor": "PV-Prognose / Energiebedarf. Ab diesem Faktor wird die Früh-Einspeise-Strategie aktiv.",
+          "guard_delay_h": "Stunden nach Sonnenaufgang, in denen WW- und Batterie-HOCH-Guards unterdrückt werden, damit morgens die EEG-Einspeisung Vorrang hat. 0 = Guards immer aktiv."
         }
       },
       "entladung": {
@@ -193,7 +195,8 @@
           "solcast_morgen_sensor": "Solcast Prognose morgen (kWh)",
           "holzvergaser_sensor": "Holzvergaser-Pumpe Sensor",
           "einspeiselimit_kw": "Einspeiselimit (kW)",
-          "ueberschuss_faktor": "Überschuss-Faktor (Schwelle)"
+          "ueberschuss_faktor": "Überschuss-Faktor (Schwelle)",
+          "guard_delay_h": "Guard-Delay nach Sonnenaufgang (Stunden)"
         },
         "data_description": {
           "pv_power_sensor": "Aktuelle PV-Erzeugungsleistung in Watt",
@@ -202,7 +205,8 @@
           "solcast_morgen_sensor": "PV-Prognose für morgen",
           "holzvergaser_sensor": "Switch/Sensor der Holzvergaser-Pumpe",
           "einspeiselimit_kw": "Maximale Netzeinspeisung (0 = kein Limit)",
-          "ueberschuss_faktor": "Ab diesem Faktor wird die Früh-Einspeise-Strategie aktiv"
+          "ueberschuss_faktor": "Ab diesem Faktor wird die Früh-Einspeise-Strategie aktiv",
+          "guard_delay_h": "HOCH-Guards für WW und Batterie werden in dieser Zeit unterdrückt (EEG-Vorrang). 0 = immer aktiv."
         }
       },
       "entladung": {

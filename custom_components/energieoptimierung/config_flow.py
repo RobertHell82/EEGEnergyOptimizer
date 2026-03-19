@@ -14,6 +14,7 @@ from .const import (
     CONF_CONSUMPTION_SENSOR,
     CONF_EINSPEISELIMIT_KW,
     CONF_ENTLADE_STARTZEIT,
+    CONF_GUARD_DELAY_H,
     CONF_ENTLADELEISTUNG_KW,
     CONF_FEED_IN_SENSOR,
     CONF_FRONIUS_IP,
@@ -46,6 +47,7 @@ from .const import (
     DEFAULT_CONSUMPTION_SENSOR,
     DEFAULT_EINSPEISELIMIT_KW,
     DEFAULT_ENTLADE_STARTZEIT,
+    DEFAULT_GUARD_DELAY_H,
     DEFAULT_ENTLADELEISTUNG_KW,
     DEFAULT_FEED_IN_SENSOR,
     DEFAULT_FRONIUS_IP,
@@ -197,6 +199,10 @@ def _optimizer_schema(defaults: dict) -> vol.Schema:
             CONF_UEBERSCHUSS_FAKTOR,
             default=defaults.get(CONF_UEBERSCHUSS_FAKTOR, DEFAULT_UEBERSCHUSS_FAKTOR),
         ): vol.All(vol.Coerce(float), vol.Range(min=1.0, max=5.0)),
+        vol.Required(
+            CONF_GUARD_DELAY_H,
+            default=defaults.get(CONF_GUARD_DELAY_H, DEFAULT_GUARD_DELAY_H),
+        ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=6.0)),
     })
 
 
