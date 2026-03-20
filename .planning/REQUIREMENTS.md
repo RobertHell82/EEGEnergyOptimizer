@@ -71,29 +71,29 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| OPT-01 | TBD | Pending |
-| OPT-02 | TBD | Pending |
-| OPT-03 | TBD | Pending |
-| SAF-01 | TBD | Pending |
-| SAF-02 | TBD | Pending |
-| SAF-03 | TBD | Pending |
-| SAF-04 | TBD | Pending |
-| FCST-01 | TBD | Pending |
-| FCST-02 | TBD | Pending |
-| FCST-03 | TBD | Pending |
-| INF-01 | TBD | Pending |
-| INF-02 | TBD | Pending |
-| INF-03 | TBD | Pending |
-| INF-04 | TBD | Pending |
-| SENS-01 | TBD | Pending |
-| SENS-02 | TBD | Pending |
-| SENS-03 | TBD | Pending |
+| INF-01 | Phase 1 | Pending |
+| INF-02 | Phase 1 | Pending |
+| INF-03 | Phase 1 | Pending |
+| FCST-01 | Phase 2 | Pending |
+| FCST-02 | Phase 2 | Pending |
+| FCST-03 | Phase 2 | Pending |
+| OPT-01 | Phase 3 | Pending |
+| OPT-02 | Phase 3 | Pending |
+| OPT-03 | Phase 3 | Pending |
+| SAF-01 | Phase 3 | Pending |
+| SAF-02 | Phase 3 | Pending |
+| SAF-03 | Phase 3 | Pending |
+| SAF-04 | Phase 3 | Pending |
+| SENS-01 | Phase 3 | Pending |
+| SENS-02 | Phase 3 | Pending |
+| SENS-03 | Phase 3 | Pending |
+| INF-04 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 17 total
-- Mapped to phases: 0
-- Unmapped: 17 ⚠️
+- Mapped to phases: 17
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-20*
-*Last updated: 2026-03-20 after initial definition*
+*Last updated: 2026-03-20 after roadmap creation*
