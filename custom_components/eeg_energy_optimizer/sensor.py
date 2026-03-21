@@ -1,12 +1,13 @@
 """Sensor platform for EEG Energy Optimizer.
 
-Creates 12 sensors:
+Creates 13 sensors:
   1.  Verbrauchsprofil                    (slow, hourly averages per weekday)
   2-8. Tagesverbrauchsprognose heute..Tag 6  (fast, daily consumption forecasts)
   9.  Prognose bis Sonnenaufgang          (fast, consumption now -> next sunrise)
   10. Batterie fehlende Energie           (fast, kWh to full charge)
   11. PV Prognose heute                   (fast, remaining PV today)
   12. PV Prognose morgen                  (fast, PV forecast tomorrow)
+  13. Entscheidung                        (optimizer timer, decision + Markdown dashboard)
 """
 
 from __future__ import annotations
@@ -440,6 +441,52 @@ class PVForecastTomorrowSensor(SensorEntity):
 
 
 # ---------------------------------------------------------------------------
+# Sensor 13: Entscheidung (optimizer timer)
+# ---------------------------------------------------------------------------
+
+class EntscheidungsSensor(SensorEntity):
+    """Optimizer decision sensor with Markdown dashboard attribute.
+
+    State: Next planned action (e.g. 'Abend-Entladung 20:00', 'Normalbetrieb')
+    Attributes: Markdown mini-dashboard, zustand, ueberschuss_faktor,
+                entladung_aktiv, min_soc, letzte_aktualisierung
+
+    Updated by the optimizer timer in __init__.py, NOT by the dual-timer system.
+    No state_class set (no recorder pollution, per Phase 2 decision).
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Entscheidung"
+    _attr_icon = "mdi:robot"
+
+    def __init__(self, entry_id: str) -> None:
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_entscheidung"
+        self._attr_device_info = _device_info(entry_id)
+        self._attr_native_value: str | None = None
+        self._attr_extra_state_attributes: dict[str, Any] = {}
+
+    def update_from_decision(self, decision: Any) -> None:
+        """Update sensor state and attributes from an optimizer Decision.
+
+        Called by the optimizer timer in __init__.py after each cycle.
+        Uses duck typing to avoid circular imports with optimizer.py.
+        """
+        self._attr_native_value = decision.naechste_aktion
+        self._attr_extra_state_attributes = {
+            "markdown": decision.markdown,
+            "zustand": decision.zustand,
+            "ueberschuss_faktor": round(decision.ueberschuss_faktor, 2),
+            "entladung_aktiv": decision.entladung_aktiv,
+            "ladung_blockiert": decision.ladung_blockiert,
+            "min_soc": decision.min_soc_berechnet,
+            "entladeleistung_kw": decision.entladeleistung_kw,
+            "ausfuehrung": decision.ausfuehrung,
+            "letzte_aktualisierung": decision.timestamp,
+        }
+        self.async_write_ha_state()
+
+
+# ---------------------------------------------------------------------------
 # Platform setup
 # ---------------------------------------------------------------------------
 
@@ -485,13 +532,17 @@ async def async_setup_entry(
     pv_today_sensor = PVForecastTodaySensor(hass, entry, provider)
     pv_tomorrow_sensor = PVForecastTomorrowSensor(hass, entry, provider)
 
+    # Sensor 13: Entscheidungs-Sensor (updated by optimizer timer, not by fast/slow timers)
+    decision_sensor = EntscheidungsSensor(entry.entry_id)
+    data["decision_sensor"] = decision_sensor
+
     slow_sensors: list[SensorEntity] = [profil_sensor]
     fast_sensors: list[SensorEntity] = (
         daily_sensors
         + [sunrise_sensor, battery_sensor, pv_today_sensor, pv_tomorrow_sensor]
     )
 
-    async_add_entities(slow_sensors + fast_sensors, True)
+    async_add_entities(slow_sensors + fast_sensors + [decision_sensor], True)
 
     # Dual update timers
     slow_interval = config.get(CONF_UPDATE_INTERVAL_SLOW, DEFAULT_UPDATE_INTERVAL_SLOW)
