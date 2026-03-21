@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation & Inverter Layer** - HACS-compliant integration skeleton with abstract inverter interface and Huawei SUN2000 implementation (completed 2026-03-21)
 - [x] **Phase 2: Forecasting & Consumption Profile** - PV forecast integration (Solcast + Forecast.Solar) and recorder-based consumption profiling (completed 2026-03-21)
-- [ ] **Phase 3: Optimizer & Safety System** - Decision engine with EEG time windows, two-tier safety guards, morning feed-in priority, evening discharge, and sensor platform
+- [ ] **Phase 3: Optimizer & Safety System** - Decision engine with EEG time windows, morning feed-in priority, evening discharge, and decision sensor with Markdown dashboard
 - [ ] **Phase 4: Onboarding Panel** - LitElement sidebar panel with setup wizard, prerequisite checks, and sensor mapping
 
 ## Phase Details
@@ -51,7 +51,7 @@ Plans:
 - [x] 02-03-PLAN.md — Config flow extension (forecast source + consumption steps), translations
 
 ### Phase 3: Optimizer & Safety System
-**Goal**: Users get automated, EEG-optimized battery management -- morning feed-in priority, evening discharge, two-tier safety guards -- with full transparency via decision sensors and discharge preview
+**Goal**: Users get automated, EEG-optimized battery management -- morning feed-in priority, evening discharge, dynamic min-SOC for safe overnight reserve -- with full transparency via a decision sensor with Markdown dashboard
 **Depends on**: Phase 2
 **Requirements**: OPT-01, OPT-02, OPT-03, SAF-01, SAF-02, SAF-03, SAF-04, SENS-01, SENS-02, SENS-03
 **Success Criteria** (what must be TRUE):
@@ -60,12 +60,12 @@ Plans:
   3. Critical safety guards (SOC < 10%) trigger immediate protective action regardless of EEG windows; high-priority guards (SOC < 25%) are suppressible during EEG feed-in windows via configurable guard delay
   4. User can see the current optimizer strategy, reasoning, guard status, and all decision inputs as sensor attributes in Home Assistant
   5. User can enable dry-run mode where the optimizer calculates and displays decisions but does not execute any inverter commands
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
-- [ ] 03-03: TBD
+- [ ] 03-01-PLAN.md — Optimizer engine (Snapshot/Decision, morning blocking, evening discharge, min-SOC) + Select entity (Ein/Test/Aus)
+- [ ] 03-02-PLAN.md — Integration wiring (60s timer, select platform), config flow step 5 (optimizer params), strings, migration
+- [ ] 03-03-PLAN.md — Decision sensor (Entscheidung) with Markdown dashboard attribute, discharge preview
 
 ### Phase 4: Onboarding Panel
 **Goal**: New users get a guided, step-by-step setup experience with prerequisite validation and contextual help, instead of a raw config flow
@@ -90,5 +90,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Foundation & Inverter Layer | 2/2 | Complete   | 2026-03-21 |
 | 2. Forecasting & Consumption Profile | 3/3 | Complete   | 2026-03-21 |
-| 3. Optimizer & Safety System | 0/0 | Not started | - |
+| 3. Optimizer & Safety System | 0/3 | Planning complete | - |
 | 4. Onboarding Panel | 0/0 | Not started | - |
