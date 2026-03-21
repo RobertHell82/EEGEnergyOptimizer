@@ -1,0 +1,13 @@
+{
+  "domain": "eeg_energy_optimizer",
+  "name": "EEG Energy Optimizer",
+  "version": "0.1.0",
+  "documentation": "https://github.com/OWNER/eeg-energy-optimizer",
+  "issue_tracker": "https://github.com/OWNER/eeg-energy-optimizer/issues",
+  "dependencies": [],
+  "after_dependencies": ["huawei_solar"],
+  "codeowners": [],
+  "iot_class": "local_push",
+  "integration_type": "hub",
+  "config_flow": true
+}
