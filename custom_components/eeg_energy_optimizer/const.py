@@ -33,3 +33,29 @@ DEFAULT_UPDATE_INTERVAL_FAST = 1   # minutes
 DEFAULT_UPDATE_INTERVAL_SLOW = 15  # minutes
 
 WEEKDAY_KEYS = ["mo", "di", "mi", "do", "fr", "sa", "so"]
+
+# Phase 3: Optimizer
+CONF_UEBERSCHUSS_SCHWELLE = "ueberschuss_schwelle"
+CONF_MORNING_END_TIME = "morning_end_time"
+CONF_DISCHARGE_START_TIME = "discharge_start_time"
+CONF_DISCHARGE_POWER_KW = "discharge_power_kw"
+CONF_MIN_SOC = "min_soc"
+CONF_SAFETY_BUFFER_PCT = "safety_buffer_pct"
+
+DEFAULT_UEBERSCHUSS_SCHWELLE = 1.25
+DEFAULT_MORNING_END_TIME = "10:00"
+DEFAULT_DISCHARGE_START_TIME = "20:00"
+DEFAULT_DISCHARGE_POWER_KW = 3.0
+DEFAULT_MIN_SOC = 10
+DEFAULT_SAFETY_BUFFER_PCT = 25
+
+# Optimizer modes (D-17)
+MODE_EIN = "Ein"
+MODE_TEST = "Test"
+MODE_AUS = "Aus"
+OPTIMIZER_MODES = [MODE_EIN, MODE_TEST, MODE_AUS]
+
+# Optimizer states (D-22)
+STATE_MORGEN_EINSPEISUNG = "Morgen-Einspeisung"
+STATE_NORMAL = "Normal"
+STATE_ABEND_ENTLADUNG = "Abend-Entladung"
