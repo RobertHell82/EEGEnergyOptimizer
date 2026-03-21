@@ -19,7 +19,7 @@ All code lives in `custom_components/energieoptimierung/`. The integration runs 
 ```
 __init__.py: async_setup_entry()
   → EnergyOptimizer instantiated
-  → Platforms forwarded: sensor, switch, number
+  → Platforms forwarded: sensor, switch, number, select
   → Initial read-only cycle, then 60s timer: async_run_cycle(execute=switch_on)
 
 optimizer.py: async_run_cycle()
@@ -53,8 +53,9 @@ optimizer.py: async_run_cycle()
 | `fronius_api.py` | HTTP Digest Auth client for Fronius inverter battery control |
 | `fronius_sync.py` | Shared sync function between switches/number and Fronius API |
 | `const.py` | All constants, defaults, strategy/mode enums, entity IDs |
-| `switch.py` | Optimizer enable/disable + Einspeisung (feed-in) toggle |
-| `number.py` | Battery discharge power control (0–12 kW) |
+| `select.py` | Optimizer mode select entity (Ein/EV-Modi/Aus), restores state across restarts |
+| `switch.py` | Einspeisung (feed-in) toggle, triggers Fronius sync |
+| `number.py` | Feed-in power control (0–12 kW), triggers Fronius sync |
 
 ### Sensors (16 total)
 
@@ -74,7 +75,7 @@ optimizer.py: async_run_cycle()
 
 | Entity | Type | Description |
 |--------|------|-------------|
-| `switch.energieoptimierung_optimizer` | Switch | ON = execute actions, OFF = read-only/dry-run |
+| `select.energieoptimierung_optimizer` | Select | Optimizer mode: Ein / EV Heizstab / EV Batterie / EV Balanciert / Aus |
 | `switch.energieoptimierung_einspeisung` | Switch | Feed-in toggle, triggers Fronius sync |
 | `number.energieoptimierung_einspeiseleistung` | Number | Feed-in power 0–12 kW, triggers Fronius sync |
 
@@ -125,7 +126,9 @@ optimizer.py: async_run_cycle()
 
 - No build system, tests, or CI — component is deployed by copying files to HA's `custom_components/` directory
 - All UI strings are in German (`strings.json`, `translations/de.json`)
-- The optimizer always calculates but only executes actions when `switch.energieoptimierung_optimizer` is on
+- The optimizer always calculates but only executes actions when `select.energieoptimierung_optimizer` is not "Aus"
+- Optimizer modes: Ein (full optimization), Eigenverbrauch Heizstab/Batterie/Balanciert (self-consumption variants), Aus (dry-run)
 - Config changes trigger full integration reload via `_async_update_listener`
 - `HOME_ASSISTANT_OVERVIEW.md` contains a complete inventory of all HA entities (3,400+) across both locations
 - Fronius Gen24 uses hybrid digest auth: HA1=MD5, HA2+response=SHA256, URI without query string
+- `INSTALL.md` contains detailed documentation of all strategies, guards, Fronius integration, and sensor details in German
