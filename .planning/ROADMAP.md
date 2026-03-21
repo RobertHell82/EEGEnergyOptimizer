@@ -41,13 +41,14 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Integration reads today's remaining and tomorrow's PV production forecast from a user-selected Solcast Solar integration
   2. Integration reads PV forecasts from Forecast.Solar as an alternative to Solcast, selectable during setup
-  3. Integration calculates hourly consumption averages from HA recorder statistics using rolling window with 4 weekday zones (Mo-Do / Fr / Sa / So)
+  3. Integration calculates hourly consumption averages from HA recorder statistics using rolling window with 7 weekday groups (Mo / Di / Mi / Do / Fr / Sa / So)
   4. Forecast data is exposed as HA sensor entities that update on a configurable interval
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md — Constants, forecast provider (Solcast + Forecast.Solar), consumption coordinator, tests
+- [ ] 02-02-PLAN.md — Sensor platform (12 sensors), integration wiring (__init__.py, manifest.json)
+- [ ] 02-03-PLAN.md — Config flow extension (forecast source + consumption steps), translations
 
 ### Phase 3: Optimizer & Safety System
 **Goal**: Users get automated, EEG-optimized battery management -- morning feed-in priority, evening discharge, two-tier safety guards -- with full transparency via decision sensors and discharge preview
@@ -88,6 +89,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & Inverter Layer | 2/2 | Complete   | 2026-03-21 |
-| 2. Forecasting & Consumption Profile | 0/0 | Not started | - |
+| 2. Forecasting & Consumption Profile | 0/3 | Planning complete | - |
 | 3. Optimizer & Safety System | 0/0 | Not started | - |
 | 4. Onboarding Panel | 0/0 | Not started | - |
