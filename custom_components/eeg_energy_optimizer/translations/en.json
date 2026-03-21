@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Inverter Type",
+        "description": "Select the inverter type for battery control.",
+        "data": {
+          "inverter_type": "Inverter"
+        }
+      },
+      "sensors": {
+        "title": "Sensor Mapping",
+        "description": "Map the sensors for SOC, capacity, and PV power.",
+        "data": {
+          "battery_soc_sensor": "Battery State of Charge (SOC)",
+          "battery_capacity_sensor": "Battery Capacity",
+          "pv_power_sensor": "PV Power",
+          "huawei_device_id": "Huawei Battery Device"
+        }
+      }
+    },
+    "error": {
+      "prerequisite_not_installed": "The {integration_name} integration must be installed and loaded.",
+      "unknown": "Unexpected error. Please try again."
+    },
+    "abort": {
+      "already_configured": "EEG Energy Optimizer is already configured."
+    }
+  }
+}

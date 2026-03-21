@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Wechselrichter-Typ",
+        "description": "Waehle den Wechselrichter-Typ fuer die Batteriesteuerung.",
+        "data": {
+          "inverter_type": "Wechselrichter"
+        }
+      },
+      "sensors": {
+        "title": "Sensor-Zuordnung",
+        "description": "Ordne die Sensoren fuer SOC, Kapazitaet und PV-Leistung zu.",
+        "data": {
+          "battery_soc_sensor": "Batterie-Ladezustand (SOC)",
+          "battery_capacity_sensor": "Batterie-Kapazitaet",
+          "pv_power_sensor": "PV-Leistung",
+          "huawei_device_id": "Huawei Batterie-Geraet"
+        }
+      }
+    },
+    "error": {
+      "prerequisite_not_installed": "Die {integration_name}-Integration muss installiert und geladen sein.",
+      "unknown": "Unerwarteter Fehler. Bitte versuche es erneut."
+    },
+    "abort": {
+      "already_configured": "EEG Energy Optimizer ist bereits eingerichtet."
+    }
+  }
+}
