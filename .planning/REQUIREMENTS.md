@@ -24,7 +24,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **FCST-01**: Solcast PV-Produktionsprognose — verbleibende Produktion heute + Prognose morgen aus Solcast Solar HA-Integration lesen
 - [ ] **FCST-02**: Forecast.Solar als Alternative — kostenlose PV-Produktionsprognose als zweite Quelle, wählbar im Setup
-- [ ] **FCST-03**: Verbrauchsprofil — automatische Verbrauchsprognose aus HA Recorder Langzeit-Statistiken (rollende Durchschnitte, 4 Wochentag-Zonen: Mo-Do/Fr/Sa/So)
+- [ ] **FCST-03**: Verbrauchsprofil — automatische Verbrauchsprognose aus HA Recorder Langzeit-Statistiken (rollende Durchschnitte, 7 Einzeltage: Mo/Di/Mi/Do/Fr/Sa/So)
 
 ### Infrastruktur
 
