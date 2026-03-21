@@ -35,8 +35,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Sensoren & Dashboard
 
-- [ ] **SENS-01**: Entscheidungs-Sensor — aktuelle Strategie als State, vollständige Decision (Begründung, Inputs, Guards, Zeitstempel) als Attribute
-- [ ] **SENS-02**: Entladungs-Vorschau — tagsüber anzeigen ob heute Nacht Entladung geplant ist (Min-SOC, PV-Prognose vs. Bedarf)
+- [x] **SENS-01**: Entscheidungs-Sensor — aktuelle Strategie als State, vollständige Decision (Begründung, Inputs, Guards, Zeitstempel) als Attribute
+- [x] **SENS-02**: Entladungs-Vorschau — tagsüber anzeigen ob heute Nacht Entladung geplant ist (Min-SOC, PV-Prognose vs. Bedarf)
 - [ ] **SENS-03**: EEG Zeitfenster — konfigurierbare Morgen- und Abend-Fenster (z.B. 6:00-9:00, 17:00-22:00) die definieren wann EEG-Einspeisung priorisiert wird
 
 ## v2 Requirements
@@ -84,8 +84,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | SAF-02 | Phase 3 | Complete |
 | SAF-03 | Phase 3 | Complete |
 | SAF-04 | Phase 3 | Complete |
-| SENS-01 | Phase 3 | Pending |
-| SENS-02 | Phase 3 | Pending |
+| SENS-01 | Phase 3 | Complete |
+| SENS-02 | Phase 3 | Complete |
 | SENS-03 | Phase 3 | Pending |
 | INF-04 | Phase 4 | Pending |
 
