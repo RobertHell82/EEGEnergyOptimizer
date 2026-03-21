@@ -11,10 +11,23 @@ from .const import (
     CONF_BATTERY_CAPACITY_KWH,
     CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
+    CONF_CONSUMPTION_SENSOR,
+    CONF_FORECAST_REMAINING_ENTITY,
+    CONF_FORECAST_SOURCE,
+    CONF_FORECAST_TOMORROW_ENTITY,
     CONF_HUAWEI_DEVICE_ID,
     CONF_INVERTER_TYPE,
+    CONF_LOOKBACK_WEEKS,
     CONF_PV_POWER_SENSOR,
+    CONF_UPDATE_INTERVAL_FAST,
+    CONF_UPDATE_INTERVAL_SLOW,
+    DEFAULT_CONSUMPTION_SENSOR,
+    DEFAULT_LOOKBACK_WEEKS,
+    DEFAULT_UPDATE_INTERVAL_FAST,
+    DEFAULT_UPDATE_INTERVAL_SLOW,
     DOMAIN,
+    FORECAST_SOURCE_FORECAST_SOLAR,
+    FORECAST_SOURCE_SOLCAST,
     INVERTER_PREREQUISITES,
     INVERTER_TYPE_HUAWEI,
 )
@@ -84,10 +97,12 @@ class EegEnergyOptimizerConfigFlow(ConfigFlow, domain=DOMAIN):
 
     Step 1 (user): Select inverter type with prerequisite validation.
     Step 2 (sensors): Map SOC, capacity, and PV sensors.
+    Step 3 (forecast): Select PV forecast source and entity IDs.
+    Step 4 (consumption): Configure consumption sensor and intervals.
     The Huawei battery device is auto-detected from the device registry.
     """
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self) -> None:
         """Initialize config flow."""
@@ -207,13 +222,107 @@ class EegEnergyOptimizerConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors[CONF_BATTERY_CAPACITY_KWH] = "capacity_required"
             else:
                 self._data.update(user_input)
-                return self.async_create_entry(
-                    title="EEG Energy Optimizer",
-                    data=self._data,
-                )
+                return await self.async_step_forecast()
 
         return self.async_show_form(
             step_id="sensors",
             data_schema=self._build_sensors_schema(),
             errors=errors,
+        )
+
+    async def async_step_forecast(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle the forecast source selection step."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            forecast_source = user_input[CONF_FORECAST_SOURCE]
+
+            # Validate that the selected forecast integration is installed and loaded
+            entries = self.hass.config_entries.async_entries(forecast_source)
+            loaded = [e for e in entries if e.state.value == "loaded"]
+            if not loaded:
+                errors["base"] = "forecast_not_installed"
+            else:
+                self._data.update(user_input)
+                return await self.async_step_consumption()
+
+        return self.async_show_form(
+            step_id="forecast",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_FORECAST_SOURCE): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[
+                                {"value": FORECAST_SOURCE_SOLCAST, "label": "Solcast Solar"},
+                                {"value": FORECAST_SOURCE_FORECAST_SOLAR, "label": "Forecast.Solar"},
+                            ],
+                            mode=SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                    vol.Required(CONF_FORECAST_REMAINING_ENTITY): EntitySelector(
+                        EntitySelectorConfig(domain="sensor")
+                    ),
+                    vol.Required(CONF_FORECAST_TOMORROW_ENTITY): EntitySelector(
+                        EntitySelectorConfig(domain="sensor")
+                    ),
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_consumption(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle the consumption sensor configuration step."""
+        if user_input is not None:
+            self._data.update(user_input)
+            return self.async_create_entry(
+                title="EEG Energy Optimizer",
+                data=self._data,
+            )
+
+        return self.async_show_form(
+            step_id="consumption",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONSUMPTION_SENSOR,
+                        default=DEFAULT_CONSUMPTION_SENSOR,
+                    ): EntitySelector(
+                        EntitySelectorConfig(domain="sensor")
+                    ),
+                    vol.Required(
+                        CONF_LOOKBACK_WEEKS,
+                        default=DEFAULT_LOOKBACK_WEEKS,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=1, max=52, step=1,
+                            unit_of_measurement="Wochen",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_UPDATE_INTERVAL_FAST,
+                        default=DEFAULT_UPDATE_INTERVAL_FAST,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=1, max=60, step=1,
+                            unit_of_measurement="Minuten",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_UPDATE_INTERVAL_SLOW,
+                        default=DEFAULT_UPDATE_INTERVAL_SLOW,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=5, max=120, step=5,
+                            unit_of_measurement="Minuten",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                }
+            ),
         )

@@ -45,6 +45,7 @@ for selector_name in [
     "SelectSelector", "SelectSelectorConfig", "SelectSelectorMode",
     "EntitySelector", "EntitySelectorConfig",
     "DeviceSelector", "DeviceSelectorConfig",
+    "NumberSelector", "NumberSelectorConfig", "NumberSelectorMode",
 ]:
     setattr(sys.modules["homeassistant.helpers.selector"], selector_name, MagicMock())
 
@@ -54,10 +55,22 @@ from custom_components.eeg_energy_optimizer.config_flow import (
 from custom_components.eeg_energy_optimizer.const import (
     CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
+    CONF_CONSUMPTION_SENSOR,
+    CONF_FORECAST_REMAINING_ENTITY,
+    CONF_FORECAST_SOURCE,
+    CONF_FORECAST_TOMORROW_ENTITY,
     CONF_HUAWEI_DEVICE_ID,
     CONF_INVERTER_TYPE,
+    CONF_LOOKBACK_WEEKS,
     CONF_PV_POWER_SENSOR,
+    CONF_UPDATE_INTERVAL_FAST,
+    CONF_UPDATE_INTERVAL_SLOW,
+    DEFAULT_CONSUMPTION_SENSOR,
+    DEFAULT_LOOKBACK_WEEKS,
+    DEFAULT_UPDATE_INTERVAL_FAST,
+    DEFAULT_UPDATE_INTERVAL_SLOW,
     DOMAIN,
+    FORECAST_SOURCE_SOLCAST,
 )
 
 
@@ -149,8 +162,8 @@ class TestStepSensors:
         assert result["type"] == "form"
         assert result["step_id"] == "sensors"
 
-    async def test_creates_entry_with_all_data(self, flow):
-        """Step 'sensors' creates entry with merged data from both steps."""
+    async def test_advances_to_forecast_with_valid_data(self, flow):
+        """Step 'sensors' advances to 'forecast' when valid data provided."""
         flow._data = {CONF_INVERTER_TYPE: "huawei_sun2000"}
         sensor_input = {
             CONF_BATTERY_SOC_SENSOR: "sensor.battery_soc",
@@ -159,14 +172,151 @@ class TestStepSensors:
             CONF_HUAWEI_DEVICE_ID: "device_123",
         }
         result = await flow.async_step_sensors(user_input=sensor_input)
+        # Should advance to forecast step (show forecast form)
+        assert result["type"] == "form"
+        assert result["step_id"] == "forecast"
+        # Data should be accumulated
+        assert flow._data[CONF_INVERTER_TYPE] == "huawei_sun2000"
+        assert flow._data[CONF_BATTERY_SOC_SENSOR] == "sensor.battery_soc"
+
+
+class TestStepForecast:
+    """Tests for config flow step 'forecast' (forecast source selection)."""
+
+    async def test_shows_form_on_first_call(self, flow):
+        """Step 'forecast' shows form when user_input is None."""
+        result = await flow.async_step_forecast(user_input=None)
+        assert result["type"] == "form"
+        assert result["step_id"] == "forecast"
+
+    async def test_forecast_step_solcast_valid(self, flow, mock_hass):
+        """Step 'forecast' advances to 'consumption' when Solcast is installed."""
+        mock_hass.config_entries.async_entries = MagicMock(
+            return_value=[_make_loaded_entry()]
+        )
+        flow._data = {CONF_INVERTER_TYPE: "huawei_sun2000"}
+        result = await flow.async_step_forecast(user_input={
+            CONF_FORECAST_SOURCE: "solcast_solar",
+            CONF_FORECAST_REMAINING_ENTITY: "sensor.solcast_pv_forecast_remaining_today",
+            CONF_FORECAST_TOMORROW_ENTITY: "sensor.solcast_pv_forecast_tomorrow",
+        })
+        assert result["type"] == "form"
+        assert result["step_id"] == "consumption"
+        assert flow._data[CONF_FORECAST_SOURCE] == "solcast_solar"
+        assert flow._data[CONF_FORECAST_REMAINING_ENTITY] == "sensor.solcast_pv_forecast_remaining_today"
+
+    async def test_forecast_step_not_installed(self, flow, mock_hass):
+        """Step 'forecast' returns error when forecast integration not installed."""
+        mock_hass.config_entries.async_entries = MagicMock(return_value=[])
+        result = await flow.async_step_forecast(user_input={
+            CONF_FORECAST_SOURCE: "solcast_solar",
+            CONF_FORECAST_REMAINING_ENTITY: "sensor.solcast_pv_forecast_remaining_today",
+            CONF_FORECAST_TOMORROW_ENTITY: "sensor.solcast_pv_forecast_tomorrow",
+        })
+        assert result["type"] == "form"
+        assert result["step_id"] == "forecast"
+        assert result["errors"]["base"] == "forecast_not_installed"
+
+    async def test_forecast_step_not_loaded(self, flow, mock_hass):
+        """Step 'forecast' returns error when forecast integration exists but not loaded."""
+        entry = MagicMock()
+        entry.state = MagicMock()
+        entry.state.value = "setup_error"
+        mock_hass.config_entries.async_entries = MagicMock(return_value=[entry])
+        result = await flow.async_step_forecast(user_input={
+            CONF_FORECAST_SOURCE: "forecast_solar",
+            CONF_FORECAST_REMAINING_ENTITY: "sensor.energy_production_today_remaining",
+            CONF_FORECAST_TOMORROW_ENTITY: "sensor.energy_production_tomorrow",
+        })
+        assert result["type"] == "form"
+        assert result["step_id"] == "forecast"
+        assert result["errors"]["base"] == "forecast_not_installed"
+
+
+class TestStepConsumption:
+    """Tests for config flow step 'consumption' (consumption sensor config)."""
+
+    async def test_shows_form_on_first_call(self, flow):
+        """Step 'consumption' shows form when user_input is None."""
+        result = await flow.async_step_consumption(user_input=None)
+        assert result["type"] == "form"
+        assert result["step_id"] == "consumption"
+
+    async def test_consumption_step_creates_entry(self, flow):
+        """Step 'consumption' creates entry with all accumulated data."""
+        flow._data = {
+            CONF_INVERTER_TYPE: "huawei_sun2000",
+            CONF_BATTERY_SOC_SENSOR: "sensor.battery_soc",
+            CONF_PV_POWER_SENSOR: "sensor.pv_power",
+            CONF_FORECAST_SOURCE: "solcast_solar",
+            CONF_FORECAST_REMAINING_ENTITY: "sensor.solcast_remaining",
+            CONF_FORECAST_TOMORROW_ENTITY: "sensor.solcast_tomorrow",
+        }
+        result = await flow.async_step_consumption(user_input={
+            CONF_CONSUMPTION_SENSOR: "sensor.power_meter_verbrauch",
+            CONF_LOOKBACK_WEEKS: 8,
+            CONF_UPDATE_INTERVAL_FAST: 1,
+            CONF_UPDATE_INTERVAL_SLOW: 15,
+        })
+        assert result["type"] == "create_entry"
+        assert result["title"] == "EEG Energy Optimizer"
+        data = result["data"]
+        assert data[CONF_INVERTER_TYPE] == "huawei_sun2000"
+        assert data[CONF_FORECAST_SOURCE] == "solcast_solar"
+        assert data[CONF_CONSUMPTION_SENSOR] == "sensor.power_meter_verbrauch"
+        assert data[CONF_LOOKBACK_WEEKS] == 8
+        assert data[CONF_UPDATE_INTERVAL_FAST] == 1
+        assert data[CONF_UPDATE_INTERVAL_SLOW] == 15
+
+
+class TestFullFlow:
+    """Tests for the complete 4-step config flow."""
+
+    async def test_full_flow_4_steps(self, flow, mock_hass):
+        """Full flow: user -> sensors -> forecast -> consumption -> entry created."""
+        # Step 1: user (inverter type)
+        mock_hass.config_entries.async_entries = MagicMock(
+            return_value=[_make_loaded_entry()]
+        )
+        result = await flow.async_step_user(
+            user_input={CONF_INVERTER_TYPE: "huawei_sun2000"}
+        )
+        assert result["type"] == "form"
+        assert result["step_id"] == "sensors"
+
+        # Step 2: sensors
+        result = await flow.async_step_sensors(user_input={
+            CONF_BATTERY_SOC_SENSOR: "sensor.battery_soc",
+            CONF_BATTERY_CAPACITY_SENSOR: "sensor.battery_capacity",
+            CONF_PV_POWER_SENSOR: "sensor.pv_power",
+        })
+        assert result["type"] == "form"
+        assert result["step_id"] == "forecast"
+
+        # Step 3: forecast
+        result = await flow.async_step_forecast(user_input={
+            CONF_FORECAST_SOURCE: "solcast_solar",
+            CONF_FORECAST_REMAINING_ENTITY: "sensor.solcast_remaining",
+            CONF_FORECAST_TOMORROW_ENTITY: "sensor.solcast_tomorrow",
+        })
+        assert result["type"] == "form"
+        assert result["step_id"] == "consumption"
+
+        # Step 4: consumption -> creates entry
+        result = await flow.async_step_consumption(user_input={
+            CONF_CONSUMPTION_SENSOR: "sensor.power_meter_verbrauch",
+            CONF_LOOKBACK_WEEKS: 8,
+            CONF_UPDATE_INTERVAL_FAST: 1,
+            CONF_UPDATE_INTERVAL_SLOW: 15,
+        })
         assert result["type"] == "create_entry"
         assert result["title"] == "EEG Energy Optimizer"
         data = result["data"]
         assert data[CONF_INVERTER_TYPE] == "huawei_sun2000"
         assert data[CONF_BATTERY_SOC_SENSOR] == "sensor.battery_soc"
-        assert data[CONF_BATTERY_CAPACITY_SENSOR] == "sensor.battery_capacity"
-        assert data[CONF_PV_POWER_SENSOR] == "sensor.pv_power"
-        assert data[CONF_HUAWEI_DEVICE_ID] == "device_123"
+        assert data[CONF_FORECAST_SOURCE] == "solcast_solar"
+        assert data[CONF_CONSUMPTION_SENSOR] == "sensor.power_meter_verbrauch"
+        assert data[CONF_LOOKBACK_WEEKS] == 8
 
 
 class TestAbortAlreadyConfigured:
