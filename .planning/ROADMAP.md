@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — HACS skeleton, abstract inverter interface, factory pattern, test infrastructure
+- [x] 01-01-PLAN.md — HACS skeleton, abstract inverter interface, factory pattern, test infrastructure
 - [ ] 01-02-PLAN.md — Huawei SUN2000 implementation, config flow, translations
 
 ### Phase 2: Forecasting & Consumption Profile

@@ -28,9 +28,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Infrastruktur
 
-- [ ] **INF-01**: Abstraktes Wechselrichter-Interface — Python ABC mit Methoden für Lade-/Entlade-Steuerung (set_charge_limit, set_discharge, stop_forcible, get_soc, get_capacity), unabhängig vom WR-Typ
+- [x] **INF-01**: Abstraktes Wechselrichter-Interface — Python ABC mit Methoden für Lade-/Entlade-Steuerung (set_charge_limit, set_discharge, stop_forcible, get_soc, get_capacity), unabhängig vom WR-Typ
 - [ ] **INF-02**: Huawei SUN2000 Implementierung — konkrete Implementierung des WR-Interface via HA Huawei Solar Integration Services (forcible_charge, forcible_discharge_soc, stop_forcible_charge)
-- [ ] **INF-03**: HACS-kompatible Repo-Struktur — manifest.json, hacs.json, korrekte Verzeichnisstruktur, Brand-Assets von Anfang an
+- [x] **INF-03**: HACS-kompatible Repo-Struktur — manifest.json, hacs.json, korrekte Verzeichnisstruktur, Brand-Assets von Anfang an
 - [ ] **INF-04**: Onboarding Panel — HA Sidebar Panel (LitElement/JS) mit Step-by-Step Setup-Wizard, Voraussetzungsprüfung (Solcast/Forecast.Solar installiert? WR-Integration aktiv?), Sensor-Mapping mit Kontext-Hilfe, Anleitungen für Abhängigkeiten
 
 ### Sensoren & Dashboard
@@ -71,9 +71,9 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INF-01 | Phase 1 | Pending |
+| INF-01 | Phase 1 | Complete |
 | INF-02 | Phase 1 | Pending |
-| INF-03 | Phase 1 | Pending |
+| INF-03 | Phase 1 | Complete |
 | FCST-01 | Phase 2 | Pending |
 | FCST-02 | Phase 2 | Pending |
 | FCST-03 | Phase 2 | Pending |
