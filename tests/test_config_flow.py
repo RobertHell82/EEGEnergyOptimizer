@@ -46,6 +46,7 @@ for selector_name in [
     "EntitySelector", "EntitySelectorConfig",
     "DeviceSelector", "DeviceSelectorConfig",
     "NumberSelector", "NumberSelectorConfig", "NumberSelectorMode",
+    "TimeSelector", "TimeSelectorConfig",
 ]:
     setattr(sys.modules["homeassistant.helpers.selector"], selector_name, MagicMock())
 
@@ -56,13 +57,19 @@ from custom_components.eeg_energy_optimizer.const import (
     CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
     CONF_CONSUMPTION_SENSOR,
+    CONF_DISCHARGE_POWER_KW,
+    CONF_DISCHARGE_START_TIME,
     CONF_FORECAST_REMAINING_ENTITY,
     CONF_FORECAST_SOURCE,
     CONF_FORECAST_TOMORROW_ENTITY,
     CONF_HUAWEI_DEVICE_ID,
     CONF_INVERTER_TYPE,
     CONF_LOOKBACK_WEEKS,
+    CONF_MIN_SOC,
+    CONF_MORNING_END_TIME,
     CONF_PV_POWER_SENSOR,
+    CONF_SAFETY_BUFFER_PCT,
+    CONF_UEBERSCHUSS_SCHWELLE,
     CONF_UPDATE_INTERVAL_FAST,
     CONF_UPDATE_INTERVAL_SLOW,
     DEFAULT_CONSUMPTION_SENSOR,
@@ -242,8 +249,8 @@ class TestStepConsumption:
         assert result["type"] == "form"
         assert result["step_id"] == "consumption"
 
-    async def test_consumption_step_creates_entry(self, flow):
-        """Step 'consumption' creates entry with all accumulated data."""
+    async def test_consumption_step_proceeds_to_optimizer(self, flow):
+        """Step 'consumption' proceeds to optimizer step (no longer creates entry)."""
         flow._data = {
             CONF_INVERTER_TYPE: "huawei_sun2000",
             CONF_BATTERY_SOC_SENSOR: "sensor.battery_soc",
@@ -258,22 +265,15 @@ class TestStepConsumption:
             CONF_UPDATE_INTERVAL_FAST: 1,
             CONF_UPDATE_INTERVAL_SLOW: 15,
         })
-        assert result["type"] == "create_entry"
-        assert result["title"] == "EEG Energy Optimizer"
-        data = result["data"]
-        assert data[CONF_INVERTER_TYPE] == "huawei_sun2000"
-        assert data[CONF_FORECAST_SOURCE] == "solcast_solar"
-        assert data[CONF_CONSUMPTION_SENSOR] == "sensor.power_meter_verbrauch"
-        assert data[CONF_LOOKBACK_WEEKS] == 8
-        assert data[CONF_UPDATE_INTERVAL_FAST] == 1
-        assert data[CONF_UPDATE_INTERVAL_SLOW] == 15
+        assert result["type"] == "form"
+        assert result["step_id"] == "optimizer"
 
 
 class TestFullFlow:
     """Tests for the complete 4-step config flow."""
 
-    async def test_full_flow_4_steps(self, flow, mock_hass):
-        """Full flow: user -> sensors -> forecast -> consumption -> entry created."""
+    async def test_full_flow_5_steps(self, flow, mock_hass):
+        """Full flow: user -> sensors -> forecast -> consumption -> optimizer -> entry created."""
         # Step 1: user (inverter type)
         mock_hass.config_entries.async_entries = MagicMock(
             return_value=[_make_loaded_entry()]
@@ -302,12 +302,24 @@ class TestFullFlow:
         assert result["type"] == "form"
         assert result["step_id"] == "consumption"
 
-        # Step 4: consumption -> creates entry
+        # Step 4: consumption -> optimizer form
         result = await flow.async_step_consumption(user_input={
             CONF_CONSUMPTION_SENSOR: "sensor.power_meter_verbrauch",
             CONF_LOOKBACK_WEEKS: 8,
             CONF_UPDATE_INTERVAL_FAST: 1,
             CONF_UPDATE_INTERVAL_SLOW: 15,
+        })
+        assert result["type"] == "form"
+        assert result["step_id"] == "optimizer"
+
+        # Step 5: optimizer -> creates entry
+        result = await flow.async_step_optimizer(user_input={
+            CONF_UEBERSCHUSS_SCHWELLE: 1.25,
+            CONF_MORNING_END_TIME: "10:00",
+            CONF_DISCHARGE_START_TIME: "20:00",
+            CONF_DISCHARGE_POWER_KW: 3.0,
+            CONF_MIN_SOC: 10,
+            CONF_SAFETY_BUFFER_PCT: 25,
         })
         assert result["type"] == "create_entry"
         assert result["title"] == "EEG Energy Optimizer"
@@ -317,6 +329,9 @@ class TestFullFlow:
         assert data[CONF_FORECAST_SOURCE] == "solcast_solar"
         assert data[CONF_CONSUMPTION_SENSOR] == "sensor.power_meter_verbrauch"
         assert data[CONF_LOOKBACK_WEEKS] == 8
+        assert data[CONF_UEBERSCHUSS_SCHWELLE] == 1.25
+        assert data[CONF_MORNING_END_TIME] == "10:00"
+        assert data[CONF_DISCHARGE_START_TIME] == "20:00"
 
 
 class TestAbortAlreadyConfigured:

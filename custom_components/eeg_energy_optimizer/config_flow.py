@@ -12,17 +12,29 @@ from .const import (
     CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
     CONF_CONSUMPTION_SENSOR,
+    CONF_DISCHARGE_POWER_KW,
+    CONF_DISCHARGE_START_TIME,
     CONF_FORECAST_REMAINING_ENTITY,
     CONF_FORECAST_SOURCE,
     CONF_FORECAST_TOMORROW_ENTITY,
     CONF_HUAWEI_DEVICE_ID,
     CONF_INVERTER_TYPE,
     CONF_LOOKBACK_WEEKS,
+    CONF_MIN_SOC,
+    CONF_MORNING_END_TIME,
     CONF_PV_POWER_SENSOR,
+    CONF_SAFETY_BUFFER_PCT,
+    CONF_UEBERSCHUSS_SCHWELLE,
     CONF_UPDATE_INTERVAL_FAST,
     CONF_UPDATE_INTERVAL_SLOW,
     DEFAULT_CONSUMPTION_SENSOR,
+    DEFAULT_DISCHARGE_POWER_KW,
+    DEFAULT_DISCHARGE_START_TIME,
     DEFAULT_LOOKBACK_WEEKS,
+    DEFAULT_MIN_SOC,
+    DEFAULT_MORNING_END_TIME,
+    DEFAULT_SAFETY_BUFFER_PCT,
+    DEFAULT_UEBERSCHUSS_SCHWELLE,
     DEFAULT_UPDATE_INTERVAL_FAST,
     DEFAULT_UPDATE_INTERVAL_SLOW,
     DOMAIN,
@@ -46,6 +58,8 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TimeSelector,
+    TimeSelectorConfig,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -102,7 +116,7 @@ class EegEnergyOptimizerConfigFlow(ConfigFlow, domain=DOMAIN):
     The Huawei battery device is auto-detected from the device registry.
     """
 
-    VERSION = 2
+    VERSION = 3
 
     def __init__(self) -> None:
         """Initialize config flow."""
@@ -278,10 +292,7 @@ class EegEnergyOptimizerConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the consumption sensor configuration step."""
         if user_input is not None:
             self._data.update(user_input)
-            return self.async_create_entry(
-                title="EEG Energy Optimizer",
-                data=self._data,
-            )
+            return await self.async_step_optimizer()
 
         return self.async_show_form(
             step_id="consumption",
@@ -320,6 +331,76 @@ class EegEnergyOptimizerConfigFlow(ConfigFlow, domain=DOMAIN):
                         NumberSelectorConfig(
                             min=5, max=120, step=5,
                             unit_of_measurement="Minuten",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                }
+            ),
+        )
+
+    async def async_step_optimizer(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle the optimizer settings step."""
+        if user_input is not None:
+            self._data.update(user_input)
+            return self.async_create_entry(
+                title="EEG Energy Optimizer",
+                data=self._data,
+            )
+
+        return self.async_show_form(
+            step_id="optimizer",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_UEBERSCHUSS_SCHWELLE,
+                        default=DEFAULT_UEBERSCHUSS_SCHWELLE,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=0.5, max=3.0, step=0.05,
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_MORNING_END_TIME,
+                        default=DEFAULT_MORNING_END_TIME,
+                    ): TimeSelector(
+                        TimeSelectorConfig()
+                    ),
+                    vol.Required(
+                        CONF_DISCHARGE_START_TIME,
+                        default=DEFAULT_DISCHARGE_START_TIME,
+                    ): TimeSelector(
+                        TimeSelectorConfig()
+                    ),
+                    vol.Required(
+                        CONF_DISCHARGE_POWER_KW,
+                        default=DEFAULT_DISCHARGE_POWER_KW,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=0.5, max=10.0, step=0.5,
+                            unit_of_measurement="kW",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_MIN_SOC,
+                        default=DEFAULT_MIN_SOC,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=5, max=50, step=1,
+                            unit_of_measurement="%",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_SAFETY_BUFFER_PCT,
+                        default=DEFAULT_SAFETY_BUFFER_PCT,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=0, max=100, step=5,
+                            unit_of_measurement="%",
                             mode=NumberSelectorMode.BOX,
                         )
                     ),

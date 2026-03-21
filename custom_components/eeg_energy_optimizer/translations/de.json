@@ -53,6 +53,26 @@
           "update_interval_fast_min": "Update-Intervall für PV-Prognose und Batterie-Sensoren in Minuten (Standard: 1 Min).",
           "update_interval_slow_min": "Update-Intervall für das Verbrauchsprofil in Minuten (Standard: 15 Min)."
         }
+      },
+      "optimizer": {
+        "title": "Optimizer-Einstellungen",
+        "description": "Konfiguriere die Parameter für Morgen-Einspeisung und Abend-Entladung.",
+        "data": {
+          "ueberschuss_schwelle": "Überschuss-Schwelle",
+          "morning_end_time": "Morgen-Einspeisung Ende",
+          "discharge_start_time": "Entladung Startzeit",
+          "discharge_power_kw": "Entladeleistung",
+          "min_soc": "Minimaler Ladezustand (SOC)",
+          "safety_buffer_pct": "Sicherheitspuffer"
+        },
+        "data_description": {
+          "ueberschuss_schwelle": "Ab welchem PV/Verbrauch-Verhältnis ein Tag als Überschuss-Tag gilt (Standard: 1.25 = 25% mehr PV als Verbrauch).",
+          "morning_end_time": "Bis wann morgens die Batterieladung blockiert wird, damit PV ins Netz fließt.",
+          "discharge_start_time": "Ab wann abends die Batterie ins Netz entladen wird.",
+          "discharge_power_kw": "Entladeleistung der Batterie in kW.",
+          "min_soc": "Minimaler Ladezustand, unter den die Batterie nicht entladen wird (Basis-Wert, wird dynamisch erhöht).",
+          "safety_buffer_pct": "Sicherheitsaufschlag auf den prognostizierten Nachtverbrauch bei der Min-SOC Berechnung."
+        }
       }
     },
     "error": {
@@ -63,6 +83,18 @@
     },
     "abort": {
       "already_configured": "EEG Energy Optimizer ist bereits eingerichtet."
+    }
+  },
+  "entity": {
+    "select": {
+      "optimizer": {
+        "name": "Optimizer",
+        "state": {
+          "Ein": "Ein",
+          "Test": "Test",
+          "Aus": "Aus"
+        }
+      }
     }
   }
 }
