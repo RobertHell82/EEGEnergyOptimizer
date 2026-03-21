@@ -22,9 +22,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Prognose
 
-- [ ] **FCST-01**: Solcast PV-Produktionsprognose — verbleibende Produktion heute + Prognose morgen aus Solcast Solar HA-Integration lesen
-- [ ] **FCST-02**: Forecast.Solar als Alternative — kostenlose PV-Produktionsprognose als zweite Quelle, wählbar im Setup
-- [ ] **FCST-03**: Verbrauchsprofil — automatische Verbrauchsprognose aus HA Recorder Langzeit-Statistiken (rollende Durchschnitte, 7 Einzeltage: Mo/Di/Mi/Do/Fr/Sa/So)
+- [x] **FCST-01**: Solcast PV-Produktionsprognose — verbleibende Produktion heute + Prognose morgen aus Solcast Solar HA-Integration lesen
+- [x] **FCST-02**: Forecast.Solar als Alternative — kostenlose PV-Produktionsprognose als zweite Quelle, wählbar im Setup
+- [x] **FCST-03**: Verbrauchsprofil — automatische Verbrauchsprognose aus HA Recorder Langzeit-Statistiken (rollende Durchschnitte, 7 Einzeltage: Mo/Di/Mi/Do/Fr/Sa/So)
 
 ### Infrastruktur
 
@@ -74,9 +74,9 @@ Deferred to future release. Tracked but not in current roadmap.
 | INF-01 | Phase 1 | Complete |
 | INF-02 | Phase 1 | Complete |
 | INF-03 | Phase 1 | Complete |
-| FCST-01 | Phase 2 | Pending |
-| FCST-02 | Phase 2 | Pending |
-| FCST-03 | Phase 2 | Pending |
+| FCST-01 | Phase 2 | Complete |
+| FCST-02 | Phase 2 | Complete |
+| FCST-03 | Phase 2 | Complete |
 | OPT-01 | Phase 3 | Pending |
 | OPT-02 | Phase 3 | Pending |
 | OPT-03 | Phase 3 | Pending |

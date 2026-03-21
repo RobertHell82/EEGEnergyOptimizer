@@ -46,7 +46,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Constants, forecast provider (Solcast + Forecast.Solar), consumption coordinator, tests
+- [x] 02-01-PLAN.md — Constants, forecast provider (Solcast + Forecast.Solar), consumption coordinator, tests
 - [ ] 02-02-PLAN.md — Sensor platform (12 sensors), integration wiring (__init__.py, manifest.json)
 - [ ] 02-03-PLAN.md — Config flow extension (forecast source + consumption steps), translations
 
@@ -89,6 +89,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & Inverter Layer | 2/2 | Complete   | 2026-03-21 |
-| 2. Forecasting & Consumption Profile | 0/3 | Planning complete | - |
+| 2. Forecasting & Consumption Profile | 1/3 | In Progress|  |
 | 3. Optimizer & Safety System | 0/0 | Not started | - |
 | 4. Onboarding Panel | 0/0 | Not started | - |
