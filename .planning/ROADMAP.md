@@ -68,18 +68,19 @@ Plans:
 - [x] 03-03-PLAN.md — Decision sensor (Entscheidung) with Markdown dashboard attribute, discharge preview
 
 ### Phase 4: Onboarding Panel
-**Goal**: New users get a guided, step-by-step setup experience with prerequisite validation and contextual help, instead of a raw config flow
+**Goal**: Permanent HA sidebar panel with dashboard (live optimizer status, forecasts, charts) and setup wizard (8-step guided configuration replacing the config flow), plus 1-click config flow and WebSocket API
 **Depends on**: Phase 3
 **Requirements**: INF-04
 **Success Criteria** (what must be TRUE):
   1. A dedicated sidebar panel appears in Home Assistant after installation with a step-by-step setup wizard
   2. The wizard checks prerequisites (Solcast or Forecast.Solar installed, inverter integration active) and shows clear guidance when dependencies are missing
   3. User can map their specific sensor entities (SOC, PV power, consumption, grid feed-in) during setup with contextual help explaining what each sensor is for
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
+- [ ] 04-01-PLAN.md — Backend infrastructure: WebSocket API, panel registration, 1-click config flow, migration v3-v4, panel shell JS
+- [ ] 04-02-PLAN.md — 8-step setup wizard with prerequisite checks, sensor auto-detection, entity pickers, config save
+- [ ] 04-03-PLAN.md — Live dashboard with status cards, metrics, SVG bar chart (7-day forecast), SVG line chart (hourly profile)
 
 ## Progress
 
@@ -90,5 +91,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Foundation & Inverter Layer | 2/2 | Complete   | 2026-03-21 |
 | 2. Forecasting & Consumption Profile | 3/3 | Complete   | 2026-03-21 |
-| 3. Optimizer & Safety System | 1/3 | In Progress|  |
-| 4. Onboarding Panel | 0/0 | Not started | - |
+| 3. Optimizer & Safety System | 3/3 | Complete   | 2026-03-21 |
+| 4. Onboarding Panel | 0/3 | Not started | - |
