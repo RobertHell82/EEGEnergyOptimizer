@@ -23,10 +23,41 @@
           "battery_capacity_kwh": "Alternatively: enter the total battery capacity in kWh manually (e.g. 10 for LUNA2000-10, 15 for LUNA2000-15).",
           "pv_power_sensor": "Sensor showing the current solar panel output power in kW."
         }
+      },
+      "forecast": {
+        "title": "Forecast Source",
+        "description": "Select the PV forecast source. The chosen integration must be installed and loaded.",
+        "data": {
+          "forecast_source": "Forecast Integration",
+          "forecast_remaining_entity": "PV Forecast Remaining Today",
+          "forecast_tomorrow_entity": "PV Forecast Tomorrow"
+        },
+        "data_description": {
+          "forecast_source": "Solcast Solar (HACS) or Forecast.Solar (HA Core) as source for PV production forecasts.",
+          "forecast_remaining_entity": "Sensor showing the remaining PV production for today in kWh.",
+          "forecast_tomorrow_entity": "Sensor showing the forecasted PV production for tomorrow in kWh."
+        }
+      },
+      "consumption": {
+        "title": "Consumption Measurement",
+        "description": "Configure the consumption sensor and calculation parameters.",
+        "data": {
+          "consumption_sensor": "Consumption Sensor",
+          "lookback_weeks": "Lookback Period",
+          "update_interval_fast_min": "Fast Update Interval",
+          "update_interval_slow_min": "Slow Update Interval"
+        },
+        "data_description": {
+          "consumption_sensor": "Sensor measuring total power consumption in kWh (total_increasing). Default: Power Meter Consumption.",
+          "lookback_weeks": "Number of weeks for the rolling consumption average (default: 8 weeks).",
+          "update_interval_fast_min": "Update interval for PV forecast and battery sensors in minutes (default: 1 min).",
+          "update_interval_slow_min": "Update interval for the consumption profile in minutes (default: 15 min)."
+        }
       }
     },
     "error": {
       "prerequisite_not_installed": "The {integration_name} integration must be installed and loaded.",
+      "forecast_not_installed": "The selected forecast integration is not installed or not loaded. Please install it first.",
       "capacity_required": "Please either select a capacity sensor or enter the capacity manually.",
       "unknown": "Unexpected error. Please try again."
     },

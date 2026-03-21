@@ -23,10 +23,41 @@
           "battery_capacity_kwh": "Alternativ: Gesamtkapazität der Batterie in kWh manuell eingeben (z.B. 10 für LUNA2000-10, 15 für LUNA2000-15).",
           "pv_power_sensor": "Sensor der die aktuelle Erzeugungsleistung der Solaranlage in kW anzeigt."
         }
+      },
+      "forecast": {
+        "title": "Prognose-Quelle",
+        "description": "Wähle die PV-Prognose-Quelle. Die gewählte Integration muss installiert und geladen sein.",
+        "data": {
+          "forecast_source": "Prognose-Integration",
+          "forecast_remaining_entity": "PV Prognose verbleibend heute",
+          "forecast_tomorrow_entity": "PV Prognose morgen"
+        },
+        "data_description": {
+          "forecast_source": "Solcast Solar (HACS) oder Forecast.Solar (HA Core) als Quelle für die PV-Produktionsprognose.",
+          "forecast_remaining_entity": "Sensor der die verbleibende PV-Produktion für heute in kWh anzeigt.",
+          "forecast_tomorrow_entity": "Sensor der die prognostizierte PV-Produktion für morgen in kWh anzeigt."
+        }
+      },
+      "consumption": {
+        "title": "Verbrauchsmessung",
+        "description": "Konfiguriere den Verbrauchssensor und die Berechnungsparameter.",
+        "data": {
+          "consumption_sensor": "Verbrauchssensor",
+          "lookback_weeks": "Rückblick-Zeitraum",
+          "update_interval_fast_min": "Schnelles Update-Intervall",
+          "update_interval_slow_min": "Langsames Update-Intervall"
+        },
+        "data_description": {
+          "consumption_sensor": "Sensor der den Gesamt-Stromverbrauch in kWh misst (total_increasing). Standard: Stromzähler Verbrauch.",
+          "lookback_weeks": "Anzahl Wochen für den rollenden Verbrauchsdurchschnitt (Standard: 8 Wochen).",
+          "update_interval_fast_min": "Update-Intervall für PV-Prognose und Batterie-Sensoren in Minuten (Standard: 1 Min).",
+          "update_interval_slow_min": "Update-Intervall für das Verbrauchsprofil in Minuten (Standard: 15 Min)."
+        }
       }
     },
     "error": {
       "prerequisite_not_installed": "Die {integration_name}-Integration muss installiert und geladen sein.",
+      "forecast_not_installed": "Die gewählte Prognose-Integration ist nicht installiert oder nicht geladen. Bitte zuerst installieren.",
       "capacity_required": "Bitte entweder einen Kapazitäts-Sensor auswählen oder die Kapazität manuell eingeben.",
       "unknown": "Unerwarteter Fehler. Bitte versuche es erneut."
     },
