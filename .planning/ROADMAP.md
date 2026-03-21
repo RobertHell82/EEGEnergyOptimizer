@@ -28,11 +28,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. User can add the integration via HA config flow and select Huawei SUN2000 as inverter type
   3. Integration can read current battery SOC from Huawei inverter and issue charge/discharge commands via HA services
   4. Adding a second inverter type requires only a new implementation file -- no changes to optimizer or config flow logic
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md — HACS skeleton, abstract inverter interface, factory pattern, test infrastructure
+- [ ] 01-02-PLAN.md — Huawei SUN2000 implementation, config flow, translations
 
 ### Phase 2: Forecasting & Consumption Profile
 **Goal**: The integration reads PV production forecasts from either Solcast or Forecast.Solar and calculates consumption forecasts from HA recorder history -- all data the optimizer needs to make decisions
@@ -87,7 +87,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Inverter Layer | 0/0 | Not started | - |
+| 1. Foundation & Inverter Layer | 0/2 | Planning complete | - |
 | 2. Forecasting & Consumption Profile | 0/0 | Not started | - |
 | 3. Optimizer & Safety System | 0/0 | Not started | - |
 | 4. Onboarding Panel | 0/0 | Not started | - |
