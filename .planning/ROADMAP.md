@@ -12,7 +12,7 @@ This roadmap delivers a Home Assistant custom integration that optimizes residen
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation & Inverter Layer** - HACS-compliant integration skeleton with abstract inverter interface and Huawei SUN2000 implementation
+- [x] **Phase 1: Foundation & Inverter Layer** - HACS-compliant integration skeleton with abstract inverter interface and Huawei SUN2000 implementation (completed 2026-03-21)
 - [ ] **Phase 2: Forecasting & Consumption Profile** - PV forecast integration (Solcast + Forecast.Solar) and recorder-based consumption profiling
 - [ ] **Phase 3: Optimizer & Safety System** - Decision engine with EEG time windows, two-tier safety guards, morning feed-in priority, evening discharge, and sensor platform
 - [ ] **Phase 4: Onboarding Panel** - LitElement sidebar panel with setup wizard, prerequisite checks, and sensor mapping
@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md — HACS skeleton, abstract inverter interface, factory pattern, test infrastructure
-- [ ] 01-02-PLAN.md — Huawei SUN2000 implementation, config flow, translations
+- [x] 01-02-PLAN.md — Huawei SUN2000 implementation, config flow, translations
 
 ### Phase 2: Forecasting & Consumption Profile
 **Goal**: The integration reads PV production forecasts from either Solcast or Forecast.Solar and calculates consumption forecasts from HA recorder history -- all data the optimizer needs to make decisions
@@ -87,7 +87,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Inverter Layer | 0/2 | Planning complete | - |
+| 1. Foundation & Inverter Layer | 2/2 | Complete   | 2026-03-21 |
 | 2. Forecasting & Consumption Profile | 0/0 | Not started | - |
 | 3. Optimizer & Safety System | 0/0 | Not started | - |
 | 4. Onboarding Panel | 0/0 | Not started | - |

@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-03-21T06:43:39.042Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-03-21T09:42:43.832Z"
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -47,6 +47,7 @@ Plan: 2 of 2
 
 *Updated after each plan completion*
 | Phase 01 P01 | 4min | 2 tasks | 14 files |
+| Phase 01 P02 | 90 | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -58,6 +59,9 @@ Recent decisions affecting current work:
 - [Roadmap]: 4 phases derived from 17 requirements. Phase 3 (Optimizer) is the heaviest (10 reqs) because OPT/SAF/SENS are tightly coupled -- splitting would create artificial boundaries.
 - [Roadmap]: Research suggested 5 phases but Phase 5 (HACS Publication) had no mapped requirement. HACS scaffolding is covered by INF-03 in Phase 1. Publication tasks will be handled as part of Phase 4 completion.
 - [Phase 01]: TYPE_CHECKING guards for HA imports: dev environment cannot install homeassistant package, using type-hint-only imports
+- [Phase 01]: Huawei SOC sensor has no device_class='battery' — EntitySelector filter removed
+- [Phase 01]: Auto-detect Huawei device from device registry instead of DeviceSelector
+- [Phase 01]: Manual battery capacity (kWh) input added as fallback when capacity sensor unavailable
 
 ### Pending Todos
 
@@ -70,6 +74,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T06:43:39.039Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-03-21T09:42:43.829Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None
