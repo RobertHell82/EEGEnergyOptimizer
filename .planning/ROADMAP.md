@@ -47,8 +47,8 @@ Plans:
 
 Plans:
 - [x] 02-01-PLAN.md — Constants, forecast provider (Solcast + Forecast.Solar), consumption coordinator, tests
-- [ ] 02-02-PLAN.md — Sensor platform (12 sensors), integration wiring (__init__.py, manifest.json)
-- [ ] 02-03-PLAN.md — Config flow extension (forecast source + consumption steps), translations
+- [x] 02-02-PLAN.md — Sensor platform (12 sensors), integration wiring (__init__.py, manifest.json)
+- [x] 02-03-PLAN.md — Config flow extension (forecast source + consumption steps), translations
 
 ### Phase 3: Optimizer & Safety System
 **Goal**: Users get automated, EEG-optimized battery management -- morning feed-in priority, evening discharge, two-tier safety guards -- with full transparency via decision sensors and discharge preview
