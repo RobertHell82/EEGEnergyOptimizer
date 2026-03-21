@@ -64,7 +64,7 @@ Plans:
 
 Plans:
 - [x] 03-01-PLAN.md — Optimizer engine (Snapshot/Decision, morning blocking, evening discharge, min-SOC) + Select entity (Ein/Test/Aus)
-- [ ] 03-02-PLAN.md — Integration wiring (60s timer, select platform), config flow step 5 (optimizer params), strings, migration
+- [x] 03-02-PLAN.md — Integration wiring (60s timer, select platform), config flow step 5 (optimizer params), strings, migration
 - [x] 03-03-PLAN.md — Decision sensor (Entscheidung) with Markdown dashboard attribute, discharge preview
 
 ### Phase 4: Onboarding Panel

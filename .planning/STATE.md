@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-03-21T21:24:56.388Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-03-21T21:27:30.843Z"
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
@@ -53,6 +53,7 @@ Plan: 3 of 3
 | Phase 02 P02 | 3min | 2 tasks | 4 files |
 | Phase 03 P01 | 4min | 2 tasks | 6 files |
 | Phase 03 P03 | 2min | 2 tasks | 2 files |
+| Phase 03 P02 | 4min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -76,6 +77,8 @@ Recent decisions affecting current work:
 - [Phase 03]: Dynamic min-SOC as discharge calculation only (D-14/D-16), not as guard
 - [Phase 03]: Three optimizer modes: Ein/Test/Aus with inverter deduplication via _prev_zustand
 - [Phase 03]: Duck typing for update_from_decision avoids circular imports between sensor.py and optimizer.py
+- [Phase 03]: Optimizer created after platform setup (coordinator/provider injected by sensor.py)
+- [Phase 03]: Config flow VERSION bumped to 3 with async_migrate_entry defaults for Phase 3 keys
 
 ### Pending Todos
 
@@ -88,6 +91,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T21:24:56.380Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-03-21T21:27:30.833Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
