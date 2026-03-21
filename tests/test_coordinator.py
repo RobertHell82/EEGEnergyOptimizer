@@ -66,8 +66,13 @@ def two_weeks_stats():
     return {"sensor.consumption": entries}
 
 
+def _as_local_cet(dt_obj):
+    """Convert a datetime to CET (UTC+1) for test purposes."""
+    return dt_obj.astimezone(CET)
+
+
 def _patch_recorder(stats_data):
-    """Context manager to patch recorder statistics_during_period."""
+    """Return context managers to patch recorder and timezone functions."""
     mock_stats = AsyncMock(return_value=stats_data)
     mock_get_instance = MagicMock()
     mock_recorder = MagicMock()
@@ -83,6 +88,10 @@ def _patch_recorder(stats_data):
             "custom_components.eeg_energy_optimizer.coordinator.get_instance",
             new=mock_get_instance,
         ),
+        patch(
+            "custom_components.eeg_energy_optimizer.coordinator._as_local",
+            new=_as_local_cet,
+        ),
         mock_stats,
         mock_recorder,
     )
@@ -95,8 +104,8 @@ class TestWeekdayGrouping:
     async def test_weekday_grouping(self, mock_hass, two_weeks_stats):
         coordinator = ConsumptionCoordinator(mock_hass, "sensor.consumption", 8)
 
-        patch_sdp, patch_gi, mock_stats, mock_recorder = _patch_recorder(two_weeks_stats)
-        with patch_sdp, patch_gi:
+        patch_sdp, patch_gi, patch_tz, mock_stats, mock_recorder = _patch_recorder(two_weeks_stats)
+        with patch_sdp, patch_gi, patch_tz:
             await coordinator.async_update()
 
         # Should have all 7 weekday keys
@@ -120,8 +129,8 @@ class TestWeekdayGrouping:
     async def test_each_weekday_has_24_hours(self, mock_hass, two_weeks_stats):
         coordinator = ConsumptionCoordinator(mock_hass, "sensor.consumption", 8)
 
-        patch_sdp, patch_gi, mock_stats, mock_recorder = _patch_recorder(two_weeks_stats)
-        with patch_sdp, patch_gi:
+        patch_sdp, patch_gi, patch_tz, mock_stats, mock_recorder = _patch_recorder(two_weeks_stats)
+        with patch_sdp, patch_gi, patch_tz:
             await coordinator.async_update()
 
         for day in ["mo", "di", "mi", "do", "fr", "sa", "so"]:
@@ -135,8 +144,8 @@ class TestCalculatePeriod:
     async def test_calculate_period_full_hours(self, mock_hass, two_weeks_stats):
         coordinator = ConsumptionCoordinator(mock_hass, "sensor.consumption", 8)
 
-        patch_sdp, patch_gi, mock_stats, mock_recorder = _patch_recorder(two_weeks_stats)
-        with patch_sdp, patch_gi:
+        patch_sdp, patch_gi, patch_tz, mock_stats, mock_recorder = _patch_recorder(two_weeks_stats)
+        with patch_sdp, patch_gi, patch_tz:
             await coordinator.async_update()
 
         # Monday 08:00-10:00 -> 2 full hours: mo[8] + mo[9]
@@ -155,8 +164,8 @@ class TestCalculatePeriod:
     async def test_calculate_period_partial_hours(self, mock_hass, two_weeks_stats):
         coordinator = ConsumptionCoordinator(mock_hass, "sensor.consumption", 8)
 
-        patch_sdp, patch_gi, mock_stats, mock_recorder = _patch_recorder(two_weeks_stats)
-        with patch_sdp, patch_gi:
+        patch_sdp, patch_gi, patch_tz, mock_stats, mock_recorder = _patch_recorder(two_weeks_stats)
+        with patch_sdp, patch_gi, patch_tz:
             await coordinator.async_update()
 
         # Monday 08:30-10:00 -> 0.5h of hour 8 + 1.0h of hour 9
@@ -175,8 +184,8 @@ class TestCalculatePeriod:
     async def test_calculate_period_cross_midnight(self, mock_hass, two_weeks_stats):
         coordinator = ConsumptionCoordinator(mock_hass, "sensor.consumption", 8)
 
-        patch_sdp, patch_gi, mock_stats, mock_recorder = _patch_recorder(two_weeks_stats)
-        with patch_sdp, patch_gi:
+        patch_sdp, patch_gi, patch_tz, mock_stats, mock_recorder = _patch_recorder(two_weeks_stats)
+        with patch_sdp, patch_gi, patch_tz:
             await coordinator.async_update()
 
         # Sunday 23:00 to Monday 01:00 -> so[23] + mo[0]
@@ -244,8 +253,8 @@ class TestFallbackChain:
         stats_data = {"sensor.consumption": entries}
         coordinator = ConsumptionCoordinator(mock_hass, "sensor.consumption", 8)
 
-        patch_sdp, patch_gi, mock_stats, mock_recorder = _patch_recorder(stats_data)
-        with patch_sdp, patch_gi:
+        patch_sdp, patch_gi, patch_tz, mock_stats, mock_recorder = _patch_recorder(stats_data)
+        with patch_sdp, patch_gi, patch_tz:
             await coordinator.async_update()
 
         # Saturday should fall back to Sunday (first in sa fallback chain)
@@ -278,8 +287,8 @@ class TestFallbackChain:
         stats_data = {"sensor.consumption": entries}
         coordinator = ConsumptionCoordinator(mock_hass, "sensor.consumption", 8)
 
-        patch_sdp, patch_gi, mock_stats, mock_recorder = _patch_recorder(stats_data)
-        with patch_sdp, patch_gi:
+        patch_sdp, patch_gi, patch_tz, mock_stats, mock_recorder = _patch_recorder(stats_data)
+        with patch_sdp, patch_gi, patch_tz:
             await coordinator.async_update()
 
         # Saturday falls back: so (no data) -> fr (350W)
@@ -296,8 +305,8 @@ class TestEmptyStatistics:
         coordinator = ConsumptionCoordinator(mock_hass, "sensor.consumption", 8)
 
         stats_data = {"sensor.consumption": []}
-        patch_sdp, patch_gi, mock_stats, mock_recorder = _patch_recorder(stats_data)
-        with patch_sdp, patch_gi:
+        patch_sdp, patch_gi, patch_tz, mock_stats, mock_recorder = _patch_recorder(stats_data)
+        with patch_sdp, patch_gi, patch_tz:
             await coordinator.async_update()
 
         assert coordinator.stats_count == 0
@@ -311,8 +320,8 @@ class TestEmptyStatistics:
         coordinator = ConsumptionCoordinator(mock_hass, "sensor.consumption", 8)
 
         stats_data = {}  # No data at all
-        patch_sdp, patch_gi, mock_stats, mock_recorder = _patch_recorder(stats_data)
-        with patch_sdp, patch_gi:
+        patch_sdp, patch_gi, patch_tz, mock_stats, mock_recorder = _patch_recorder(stats_data)
+        with patch_sdp, patch_gi, patch_tz:
             await coordinator.async_update()
 
         assert coordinator.stats_count == 0
