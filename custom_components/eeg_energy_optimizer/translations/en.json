@@ -12,15 +12,22 @@
         "title": "Sensor Mapping",
         "description": "Map the sensors for SOC, capacity, and PV power.",
         "data": {
-          "battery_soc_sensor": "Battery State of Charge (SOC)",
-          "battery_capacity_sensor": "Battery Capacity",
-          "pv_power_sensor": "PV Power",
-          "huawei_device_id": "Huawei Battery Device"
+          "battery_soc_sensor": "Current Battery State of Charge (SOC)",
+          "battery_capacity_sensor": "Battery Capacity (Sensor)",
+          "battery_capacity_kwh": "Battery Capacity (Manual)",
+          "pv_power_sensor": "Current PV Production (Solar Power)"
+        },
+        "data_description": {
+          "battery_soc_sensor": "Sensor showing the current charge level of the home battery in %.",
+          "battery_capacity_sensor": "Sensor for the total battery capacity in Wh. For Huawei: enable the 'Storage Rated Capacity' sensor under Settings → Devices → Entities (disabled by default).",
+          "battery_capacity_kwh": "Alternatively: enter the total battery capacity in kWh manually (e.g. 10 for LUNA2000-10, 15 for LUNA2000-15).",
+          "pv_power_sensor": "Sensor showing the current solar panel output power in kW."
         }
       }
     },
     "error": {
       "prerequisite_not_installed": "The {integration_name} integration must be installed and loaded.",
+      "capacity_required": "Please either select a capacity sensor or enter the capacity manually.",
       "unknown": "Unexpected error. Please try again."
     },
     "abort": {
