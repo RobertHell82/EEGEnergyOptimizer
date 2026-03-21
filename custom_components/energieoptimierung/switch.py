@@ -1,4 +1,4 @@
-"""Switch to enable/disable the energy optimizer execution."""
+"""Switch entities for Energieoptimierung."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.device_registry import DeviceEntryType
 
-from .const import DATA_OPTIMIZER, DOMAIN
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,70 +31,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up switches."""
-    optimizer = hass.data[DOMAIN].get(DATA_OPTIMIZER)
-    if optimizer is None:
-        _LOGGER.warning("Optimizer not initialized – switches not created")
-        return
-
-    async_add_entities([
-        OptimizerSwitch(hass, optimizer),
-        EinspeisungSwitch(hass),
-    ], True)
-
-
-class OptimizerSwitch(SwitchEntity, RestoreEntity):
-    """Switch to enable/disable optimizer EXECUTION.
-
-    The optimizer always calculates decisions (visible in the decision sensor).
-    When this switch is ON, it also writes to the actuators (heizstab, ladelimit, etc.).
-    When OFF, it's read-only / dry-run mode.
-    """
-
-    _attr_has_entity_name = True
-    _attr_device_info = DEVICE_INFO
-    _attr_name = "Optimizer"
-    _attr_unique_id = "energieoptimierung_optimizer"
-    _attr_icon = "mdi:robot"
-
-    def __init__(self, hass: HomeAssistant, optimizer) -> None:
-        self.hass = hass
-        self._optimizer = optimizer
-        self._attr_is_on = False
-
-    async def async_added_to_hass(self) -> None:
-        """Restore previous state (default: OFF)."""
-        last_state = await self.async_get_last_state()
-        if last_state and last_state.state == "on":
-            self._attr_is_on = True
-            _LOGGER.info("Optimizer restored to ON")
-
-    async def async_turn_on(self, **kwargs) -> None:
-        """Enable optimizer execution."""
-        self._attr_is_on = True
-        self.async_write_ha_state()
-        _LOGGER.info("Optimizer execution enabled")
-
-    async def async_turn_off(self, **kwargs) -> None:
-        """Disable optimizer execution (calculations continue)."""
-        self._attr_is_on = False
-        self.async_write_ha_state()
-
-        # Reset Fronius to auto mode when disabling
-        from .fronius_sync import async_sync_to_fronius
-        # Turn off Einspeisung switch
-        einsp = self.hass.states.get("switch.energieoptimierung_einspeisung")
-        if einsp and einsp.state == "on":
-            await self.hass.services.async_call(
-                "switch", "turn_off",
-                {"entity_id": "switch.energieoptimierung_einspeisung"},
-            )
-
-        _LOGGER.info("Optimizer execution disabled (read-only mode)")
-
-    @property
-    def is_executing(self) -> bool:
-        """Whether the optimizer should execute actions."""
-        return self._attr_is_on
+    async_add_entities([EinspeisungSwitch(hass)], True)
 
 
 class EinspeisungSwitch(SwitchEntity, RestoreEntity):

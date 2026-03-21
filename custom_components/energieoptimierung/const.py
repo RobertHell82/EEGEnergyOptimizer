@@ -80,6 +80,17 @@ DEFAULT_FRONIUS_IP = "192.168.100.57"
 DEFAULT_FRONIUS_USER = "customer"
 DEFAULT_FRONIUS_PASSWORD = ""
 
+# ── Optimizer modes (select entity) ──────────────────────────────────────
+MODE_EIN = "Ein"
+MODE_EV_HEIZSTAB = "Eigenverbrauch Heizstab"
+MODE_EV_BATTERIE = "Eigenverbrauch Batterie"
+MODE_EV_BALANCIERT = "Eigenverbrauch Balanciert"
+MODE_AUS = "Aus"
+
+OPTIMIZER_MODES = [MODE_EIN, MODE_EV_HEIZSTAB, MODE_EV_BATTERIE, MODE_EV_BALANCIERT, MODE_AUS]
+
+ENTITY_OPTIMIZER_MODE = "select.energieoptimierung_optimizer"
+
 # ── Strategies ───────────────────────────────────────────────────────────
 STRATEGY_UEBERSCHUSS = "Überschuss"
 STRATEGY_BALANCIERT = "Balanciert"

@@ -2,7 +2,7 @@
 Sensors for Energieoptimierung.
 
 Creates 15 sensors:
-  1.  sensor.prognose_bis_sonnenaufgang             (jetzt → Sonnenaufgang+1h)
+  1.  sensor.prognose_bis_sonnenaufgang             (Entlade-Start → Sonnenaufgang+Offset)
   2.  sensor.prognose_bis_sonnenuntergang           (jetzt → Sonnenuntergang)
   3.  sensor.batterie_fehlende_energie              (kWh bis Batterie voll)
   4.  sensor.tesla_fehlende_ladeenergie             (kWh bis Tesla auf Ladelimit)
@@ -47,6 +47,7 @@ from .const import (
     CONF_TESLA_LIMIT_SENSOR,
     CONF_TESLA_SOC_SENSOR,
     CONF_TESLA_TRACKER,
+    CONF_ENTLADE_STARTZEIT,
     CONF_UPDATE_INTERVAL,
     DATA_COORDINATOR,
     DATA_OPTIMIZER,
@@ -55,6 +56,7 @@ from .const import (
     DEFAULT_CONSUMPTION_SENSOR,
     DEFAULT_HEIZSTAB_SENSOR,
     DEFAULT_WALLBOX_SENSOR,
+    DEFAULT_ENTLADE_STARTZEIT,
     DEFAULT_LOOKBACK_WEEKS,
     DEFAULT_PUFFER_TARGET_TEMP,
     DEFAULT_PUFFER_TEMP_SENSOR,
@@ -212,30 +214,49 @@ class SunriseForecastSensor(SensorEntity):
         self._coordinator = coordinator
         self._meta = meta
         self._sunrise_offset = config.get(CONF_SUNRISE_OFFSET, DEFAULT_SUNRISE_OFFSET_H)
+        # Parse discharge start time
+        startzeit = config.get(CONF_ENTLADE_STARTZEIT, DEFAULT_ENTLADE_STARTZEIT)
+        try:
+            parts = startzeit.split(":")
+            self._entlade_start_h = int(parts[0])
+            self._entlade_start_m = int(parts[1]) if len(parts) > 1 else 0
+        except (ValueError, AttributeError):
+            self._entlade_start_h = 20
+            self._entlade_start_m = 0
         self._attr_native_value = None
         self._attr_extra_state_attributes = {}
 
     async def async_update(self):
         now = dt_util.now()
+        start = self._get_entlade_start(now)
         target = self._get_target_time(now)
-        if target is None or target <= now:
+        if target is None or start >= target:
             self._attr_native_value = 0.0
             self._attr_extra_state_attributes = {"hinweis": "Kein Ziel"}
             return
 
-        result = self._coordinator.calculate_period(now, target)
-        zone = ZONE_MAP[now.weekday()]
+        result = self._coordinator.calculate_period(start, target)
+        zone = ZONE_MAP[start.weekday()]
 
+        start_str = start.strftime("%H:%M")
         target_str = target.strftime("%H:%M")
         self._attr_native_value = round(result["verbrauch_kwh"], 2)
         attrs = {
-            "zeitraum": f"Jetzt → {target_str} ({result['stunden']:.1f}h)",
-            "tag": f"{WEEKDAY_NAMES_DE[now.weekday()]} ({zone})",
+            "zeitraum": f"{start_str} → {target_str} ({result['stunden']:.1f}h)",
+            "tag": f"{WEEKDAY_NAMES_DE[start.weekday()]} ({zone})",
             "verbrauch": f"{result['verbrauch_kwh']:.2f} kWh",
             "grundlage": f"Ø {self._meta['lookback_weeks']} Wo, Zone {zone}, {self._coordinator.stats_count} Punkte",
         }
         attrs.update(format_stundenprofil(result["stundenprofil"]))
         self._attr_extra_state_attributes = attrs
+
+    def _get_entlade_start(self, now):
+        """Return today's discharge start time (or yesterday's if before midnight)."""
+        return now.replace(
+            hour=self._entlade_start_h,
+            minute=self._entlade_start_m,
+            second=0, microsecond=0,
+        )
 
     def _get_sunrise(self, now):
         sun = self.hass.states.get("sun.sun")

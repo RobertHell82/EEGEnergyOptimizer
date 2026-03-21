@@ -70,13 +70,23 @@ Es folgt ein 6-stufiger Config Flow:
 |--------|-----------|-------------|
 | Entscheidung | `sensor.energieoptimierung_entscheidung` | Aktuelle Strategie als State, vollständige Decision als Attribute |
 
-## Switches & Number
+## Select, Switches & Number
 
 | Entity | Typ | Beschreibung |
 |--------|-----|-------------|
-| `switch.energieoptimierung_optimizer` | Switch | AN = Aktionen werden ausgeführt, AUS = nur Berechnung (Dry-Run) |
+| `select.energieoptimierung_optimizer` | Select | Optimizer-Modus: Ein / Eigenverbrauch Heizstab / Eigenverbrauch Batterie / Eigenverbrauch Balanciert / Aus |
 | `switch.energieoptimierung_einspeisung` | Switch | Einspeisung an/aus, triggert Fronius-Sync |
 | `number.energieoptimierung_einspeiseleistung` | Number | Einspeiseleistung 0–12 kW, triggert Fronius-Sync |
+
+### Optimizer-Modi
+
+| Modus | Beschreibung |
+|-------|-------------|
+| **Ein** | Volle Optimierung: Strategien, Guards, Nachtentladung, Einspeiseoptimierung |
+| **Eigenverbrauch Heizstab** | Heizstab 3P Priorität, Batterie bekommt nur Überschuss > 6 kW. Keine Einspeisung, keine Nachtentladung |
+| **Eigenverbrauch Batterie** | Batterie Priorität (Ladelimit bis 10 kW), Heizstab 3P bekommt den Rest |
+| **Eigenverbrauch Balanciert** | Verteilung nach Füllstand: je leerer Batterie/kälter WW, desto mehr Anteil |
+| **Aus** | Nur Berechnung, keine Aktionen (Dry-Run) |
 
 ## Output-Entities (vom Optimizer geschrieben)
 

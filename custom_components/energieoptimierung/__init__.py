@@ -13,12 +13,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 
-from .const import DOMAIN, DATA_OPTIMIZER
+from .const import DOMAIN, DATA_OPTIMIZER, ENTITY_OPTIMIZER_MODE, MODE_AUS
 from .optimizer import EnergyOptimizer
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["sensor", "switch", "number"]
+PLATFORMS = ["sensor", "switch", "number", "select"]
 
 DATA_CANCEL_TIMER = "cancel_optimizer_timer"
 
@@ -36,14 +36,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Sofort eine Read-Only-Berechnung damit Strategie und Faktor nicht leer sind
-    await optimizer.async_run_cycle(execute=False)
+    await optimizer.async_run_cycle(mode=MODE_AUS)
 
     # Start the 60-second calculation timer (always runs).
     # The optimizer checks the switch state to decide execute vs. read-only.
     async def _optimizer_cycle(_now=None):
-        switch_entity = hass.states.get("switch.energieoptimierung_optimizer")
-        execute = switch_entity is not None and switch_entity.state == "on"
-        await optimizer.async_run_cycle(execute=execute)
+        mode_entity = hass.states.get(ENTITY_OPTIMIZER_MODE)
+        mode = mode_entity.state if mode_entity else MODE_AUS
+        await optimizer.async_run_cycle(mode=mode)
 
     # Nochmal nach 10s (dann sind alle Sensoren sicher initialisiert)
     async_call_later(hass, 10, _optimizer_cycle)

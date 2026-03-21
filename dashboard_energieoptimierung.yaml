@@ -10,7 +10,7 @@ views:
           - type: entities
             title: Optimizer Status
             entities:
-              - entity: switch.energieoptimierung_optimizer
+              - entity: select.energieoptimierung_optimizer
                 name: Ausführung
               - entity: sensor.energieoptimierung_entscheidung
                 name: Strategie

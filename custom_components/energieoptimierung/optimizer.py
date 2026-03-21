@@ -76,6 +76,11 @@ from .const import (
     HEIZSTAB_3P,
     HEIZSTAB_AUS,
     HEIZSTAB_POWER_KW,
+    MODE_AUS,
+    MODE_EIN,
+    MODE_EV_BALANCIERT,
+    MODE_EV_BATTERIE,
+    MODE_EV_HEIZSTAB,
     STRATEGY_BALANCIERT,
     STRATEGY_ENGPASS,
     STRATEGY_INAKTIV,
@@ -220,21 +225,30 @@ class EnergyOptimizer:
 
     # ── Main cycle ───────────────────────────────────────────────────────
 
-    async def async_run_cycle(self, execute: bool = False) -> None:
+    async def async_run_cycle(self, mode: str = MODE_AUS) -> None:
         """One optimization cycle.
 
         Always calculates the decision (visible in sensor).
-        Only writes to actuators when execute=True (switch is ON).
+        Only writes to actuators when mode != Aus.
         """
         try:
             snap = self._gather_inputs()
-            decision = self._evaluate(snap)
+            execute = mode != MODE_AUS
+
+            if mode == MODE_EIN:
+                decision = self._evaluate(snap)
+            elif mode in (MODE_EV_HEIZSTAB, MODE_EV_BATTERIE, MODE_EV_BALANCIERT):
+                decision = self._evaluate_eigenverbrauch(snap, mode)
+            else:
+                # Aus — still evaluate for display
+                decision = self._evaluate(snap)
+
             decision.ausfuehrung = execute
 
             if execute:
                 await self._execute(decision)
             else:
-                decision.begruendung += "\n[Nur Berechnung – Optimizer-Switch ist aus]"
+                decision.begruendung += "\n[Nur Berechnung – Optimizer ist aus]"
 
             self.last_decision = decision
         except Exception:
@@ -890,6 +904,181 @@ class EnergyOptimizer:
             f"\nNachtentladung: geplant"
             f" (Min-SOC {min_soc:.0f}%,"
             f" PV morgen {snap.solcast_morgen_kwh:.0f} kWh >= Bedarf {bedarf['gesamt_kwh']:.1f} kWh)"
+        )
+
+    # ── Eigenverbrauch-Modi ─────────────────────────────────────────────
+
+    def _evaluate_eigenverbrauch(self, snap: Snapshot, mode: str) -> Decision:
+        """Evaluate for Eigenverbrauch modes (no feed-in optimization, no night discharge)."""
+        decision = Decision(
+            timestamp=snap.now.isoformat(),
+            inputs={
+                "pv_leistung_w": snap.pv_power_w,
+                "einspeisung_w": snap.einspeisung_w,
+                "batterie_soc": snap.battery_soc,
+                "batterie_kapazitaet_kwh": snap.battery_capacity_kwh,
+                "warmwasser_temp": snap.ww_temp,
+                "stunde": snap.current_hour,
+                "modus": mode,
+            },
+        )
+
+        # No feed-in, no night discharge in Eigenverbrauch modes
+        decision.einspeisung_aktiv = False
+        decision.einspeisewert_kw = 0
+        decision.entladung_aktiv = False
+
+        pv_kw = snap.pv_power_w / 1000.0
+        hausverbrauch_kw = snap.hausverbrauch_w / 1000.0
+        heizstab_kw_aktuell = snap.heizstab_leistung_w / 1000.0
+        verfuegbar_kw = pv_kw + heizstab_kw_aktuell - hausverbrauch_kw
+
+        if verfuegbar_kw <= 0:
+            # Not enough PV — defaults, inverter handles the rest
+            decision.heizstab_modus = HEIZSTAB_3P
+            decision.ladelimit_kw = 4
+            decision.strategie = mode
+            decision.begruendung = (
+                f"Modus: {mode}\n"
+                f"PV: {pv_kw:.1f} kW | Haus: {hausverbrauch_kw:.1f} kW (kein Überschuss)\n"
+                f"→ Heizstab: 3-Phasig | Ladelimit: 4 kW (Defaults, kein PV-Überschuss)"
+            )
+            return decision
+
+        if mode == MODE_EV_HEIZSTAB:
+            self._apply_ev_heizstab(snap, decision, verfuegbar_kw, pv_kw, hausverbrauch_kw)
+        elif mode == MODE_EV_BATTERIE:
+            self._apply_ev_batterie(snap, decision, verfuegbar_kw, pv_kw, hausverbrauch_kw)
+        elif mode == MODE_EV_BALANCIERT:
+            self._apply_ev_balanciert(snap, decision, verfuegbar_kw, pv_kw, hausverbrauch_kw)
+
+        return decision
+
+    def _apply_ev_heizstab(
+        self, snap: Snapshot, dec: Decision,
+        verfuegbar_kw: float, pv_kw: float, hausverbrauch_kw: float,
+    ) -> None:
+        """Eigenverbrauch Heizstab: Heizstab 3P priority, battery gets excess above 6 kW.
+
+        Ladelimit wird so gesetzt, dass der Heizstab (6 kW) Vorrang hat.
+        Erst wenn mehr als 6 kW verfügbar sind, wird die Batterie mit dem Rest geladen.
+        """
+        dec.strategie = MODE_EV_HEIZSTAB
+        heizstab_kw = HEIZSTAB_POWER_KW[HEIZSTAB_3P]  # 6 kW
+
+        if snap.ww_temp >= snap.ww_target:
+            # Puffer voll → alles für Batterie
+            dec.heizstab_modus = HEIZSTAB_AUS
+            dec.ladelimit_kw = round(verfuegbar_kw)
+            dec.begruendung = (
+                f"Modus: {MODE_EV_HEIZSTAB}\n"
+                f"PV: {pv_kw:.1f} kW (verfügbar: {verfuegbar_kw:.1f} kW)\n"
+                f"→ Heizstab: Aus (WW {snap.ww_temp:.0f}°C >= Ziel {snap.ww_target:.0f}°C)\n"
+                f"→ Batterie: {dec.ladelimit_kw} kW (SOC {snap.battery_soc:.0f}%)"
+            )
+        else:
+            # Heizstab 3P hat Vorrang — Ladelimit auf das was über 6 kW hinausgeht
+            # Damit nimmt der Fronius zuerst den Heizstab und der Rest geht in die Batterie
+            rest_fuer_batterie = max(verfuegbar_kw - heizstab_kw, 0)
+            dec.heizstab_modus = HEIZSTAB_3P
+            dec.ladelimit_kw = round(rest_fuer_batterie)
+            dec.begruendung = (
+                f"Modus: {MODE_EV_HEIZSTAB}\n"
+                f"PV: {pv_kw:.1f} kW (verfügbar: {verfuegbar_kw:.1f} kW)\n"
+                f"→ Heizstab: 3-Phasig ({heizstab_kw:.0f} kW, WW {snap.ww_temp:.0f}°C → {snap.ww_target:.0f}°C)\n"
+                f"→ Batterie: {dec.ladelimit_kw} kW (SOC {snap.battery_soc:.0f}%, nur Überschuss > {heizstab_kw:.0f} kW)"
+            )
+
+    def _apply_ev_batterie(
+        self, snap: Snapshot, dec: Decision,
+        verfuegbar_kw: float, pv_kw: float, hausverbrauch_kw: float,
+    ) -> None:
+        """Eigenverbrauch Batterie: Battery priority (10 kW limit), Heizstab 3P always on.
+
+        Ladelimit hoch (10 kW), Heizstab 3P. Der Fronius lädt zuerst die Batterie,
+        der OhmPilot bekommt den Rest automatisch.
+        """
+        dec.strategie = MODE_EV_BATTERIE
+        batterie_limit = min(round(verfuegbar_kw), 10)
+
+        dec.heizstab_modus = HEIZSTAB_3P
+        dec.ladelimit_kw = batterie_limit
+
+        if snap.battery_soc >= 99:
+            # Batterie voll → Ladelimit runter, alles für Heizstab
+            dec.ladelimit_kw = 0
+            dec.begruendung = (
+                f"Modus: {MODE_EV_BATTERIE}\n"
+                f"PV: {pv_kw:.1f} kW (verfügbar: {verfuegbar_kw:.1f} kW)\n"
+                f"→ Batterie: voll (SOC {snap.battery_soc:.0f}%)\n"
+                f"→ Heizstab: 3-Phasig (WW {snap.ww_temp:.0f}°C, bekommt alles)"
+            )
+        else:
+            dec.begruendung = (
+                f"Modus: {MODE_EV_BATTERIE}\n"
+                f"PV: {pv_kw:.1f} kW (verfügbar: {verfuegbar_kw:.1f} kW)\n"
+                f"→ Batterie: {dec.ladelimit_kw} kW (SOC {snap.battery_soc:.0f}%, Priorität)\n"
+                f"→ Heizstab: 3-Phasig (WW {snap.ww_temp:.0f}°C, bekommt Überschuss)"
+            )
+
+    def _apply_ev_balanciert(
+        self, snap: Snapshot, dec: Decision,
+        verfuegbar_kw: float, pv_kw: float, hausverbrauch_kw: float,
+    ) -> None:
+        """Eigenverbrauch Balanciert: Balance between battery and Heizstab based on fill levels.
+
+        Je niedriger der SOC, desto mehr geht in die Batterie.
+        Je kälter das Wasser, desto mehr geht in den Heizstab.
+        """
+        dec.strategie = MODE_EV_BALANCIERT
+
+        # Normalisierte Füllstände (0.0 = leer/kalt, 1.0 = voll/heiß)
+        soc_fill = min(snap.battery_soc / 100.0, 1.0)
+        ww_fill = min(max((snap.ww_temp - 30) / (snap.ww_target - 30), 0.0), 1.0) if snap.ww_target > 30 else 1.0
+
+        # Batterie-Anteil: Inverse des Füllstands, gewichtet
+        # Wenn Batterie leer und WW voll → 100% Batterie
+        # Wenn Batterie voll und WW kalt → 100% Heizstab
+        # Wenn beide halb → ~50/50
+        bat_need = 1.0 - soc_fill   # 0..1, höher = Batterie braucht mehr
+        ww_need = 1.0 - ww_fill     # 0..1, höher = WW braucht mehr
+
+        total_need = bat_need + ww_need
+        if total_need <= 0:
+            # Beides voll
+            dec.heizstab_modus = HEIZSTAB_AUS
+            dec.ladelimit_kw = 0
+            dec.begruendung = (
+                f"Modus: {MODE_EV_BALANCIERT}\n"
+                f"PV: {pv_kw:.1f} kW (verfügbar: {verfuegbar_kw:.1f} kW)\n"
+                f"→ Batterie: voll (SOC {snap.battery_soc:.0f}%)\n"
+                f"→ Heizstab: Aus (WW {snap.ww_temp:.0f}°C >= Ziel)\n"
+                f"→ Überschuss geht ins Netz"
+            )
+            return
+
+        bat_share = bat_need / total_need
+        ww_share = ww_need / total_need
+
+        batterie_kw = round(verfuegbar_kw * bat_share)
+        dec.ladelimit_kw = min(batterie_kw, 10)
+
+        # Heizstab basierend auf WW-Anteil und verfügbarer Leistung
+        heizstab_kw_verfuegbar = verfuegbar_kw - dec.ladelimit_kw
+        if snap.ww_temp >= snap.ww_target:
+            dec.heizstab_modus = HEIZSTAB_AUS
+        elif heizstab_kw_verfuegbar >= 2.0:
+            dec.heizstab_modus = HEIZSTAB_3P
+        else:
+            dec.heizstab_modus = HEIZSTAB_3P  # OhmPilot regelt selbst
+
+        dec.begruendung = (
+            f"Modus: {MODE_EV_BALANCIERT}\n"
+            f"PV: {pv_kw:.1f} kW (verfügbar: {verfuegbar_kw:.1f} kW)\n"
+            f"Füllstand: Batterie {snap.battery_soc:.0f}% | WW {snap.ww_temp:.0f}°C"
+            f" → Verteilung: Batterie {bat_share*100:.0f}% / WW {ww_share*100:.0f}%\n"
+            f"→ Batterie: {dec.ladelimit_kw} kW (SOC {snap.battery_soc:.0f}%)\n"
+            f"→ Heizstab: {dec.heizstab_modus} (WW {snap.ww_temp:.0f}°C → {snap.ww_target:.0f}°C)"
         )
 
     # ── Heizstab selection ───────────────────────────────────────────────
