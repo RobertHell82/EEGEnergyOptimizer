@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-03-21T20:20:24.202Z"
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-03-21T21:21:21.642Z"
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 8
+  completed_plans: 6
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Feed solar energy into the grid when the community actually needs it, not when everyone else is feeding in too.
-**Current focus:** Phase 02 — forecasting-consumption-profile
+**Current focus:** Phase 03 — optimizer-safety-system
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
+Phase: 03 (optimizer-safety-system) — EXECUTING
+Plan: 2 of 3
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Plan: Not started
 | Phase 02 P01 | 5min | 2 tasks | 5 files |
 | Phase 02 P03 | 3min | 2 tasks | 5 files |
 | Phase 02 P02 | 3min | 2 tasks | 4 files |
+| Phase 03 P01 | 4min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Config flow VERSION bumped to 2 due to schema change (new forecast/consumption keys)
 - [Phase 02]: Forecast sensors omit state_class to prevent HA recorder pollution
 - [Phase 02]: Battery sensor falls back to manual capacity config when sensor unavailable
+- [Phase 03]: Dynamic min-SOC as discharge calculation only (D-14/D-16), not as guard
+- [Phase 03]: Three optimizer modes: Ein/Test/Aus with inverter deduplication via _prev_zustand
 
 ### Pending Todos
 
@@ -83,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T20:16:21.144Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-03-21T21:21:21.636Z
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None

@@ -9,16 +9,16 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Optimierung
 
-- [ ] **OPT-01**: Morgen-Einspeisevorrang — Batterie-Laden verzögern, PV morgens ins Netz einspeisen (konfigurierbarer Zeitraum, z.B. bis 10:00-11:00)
-- [ ] **OPT-02**: Abend-Entladung — Batterie abends ins Netz entladen unter konfigurierbaren Bedingungen (SOC-Schwelle, PV-Prognose morgen, Nachtverbrauchsreserve)
-- [ ] **OPT-03**: Optimale Entlade-Strategie — vollständige Logik aus bestehender Integration (dynamischer Min-SOC basierend auf Nachtverbrauch + Sicherheitspuffer, Überschuss-Check inkl. Batterie + Puffer + Hausverbrauch)
+- [x] **OPT-01**: Morgen-Einspeisevorrang — Batterie-Laden verzögern, PV morgens ins Netz einspeisen (konfigurierbarer Zeitraum, z.B. bis 10:00-11:00)
+- [x] **OPT-02**: Abend-Entladung — Batterie abends ins Netz entladen unter konfigurierbaren Bedingungen (SOC-Schwelle, PV-Prognose morgen, Nachtverbrauchsreserve)
+- [x] **OPT-03**: Optimale Entlade-Strategie — vollständige Logik aus bestehender Integration (dynamischer Min-SOC basierend auf Nachtverbrauch + Sicherheitspuffer, Überschuss-Check inkl. Batterie + Puffer + Hausverbrauch)
 
 ### Sicherheit
 
-- [ ] **SAF-01**: SOC-Guards — zweistufig: KRITISCH (<10%: sofort laden, immer aktiv) und HOCH (<25%: Ladelimit erhöhen, unterdrückbar während EEG-Fenster via Guard-Delay)
-- [ ] **SAF-02**: Dynamischer Min-SOC — Formel: Basis-Min-SOC + (prognostizierter Nachtverbrauch × Sicherheitspuffer-%) als SOC-Prozent
-- [ ] **SAF-03**: Nächster-Tag-Check — Entladung nur wenn PV-Prognose morgen >= Gesamtbedarf morgen (Hausverbrauch + Batterie von Min-SOC auf 100% + Puffer-Aufheizung)
-- [ ] **SAF-04**: Dry-Run Modus — Optimizer berechnet und zeigt Entscheidungen, führt aber keine Aktionen aus
+- [x] **SAF-01**: SOC-Guards — zweistufig: KRITISCH (<10%: sofort laden, immer aktiv) und HOCH (<25%: Ladelimit erhöhen, unterdrückbar während EEG-Fenster via Guard-Delay)
+- [x] **SAF-02**: Dynamischer Min-SOC — Formel: Basis-Min-SOC + (prognostizierter Nachtverbrauch × Sicherheitspuffer-%) als SOC-Prozent
+- [x] **SAF-03**: Nächster-Tag-Check — Entladung nur wenn PV-Prognose morgen >= Gesamtbedarf morgen (Hausverbrauch + Batterie von Min-SOC auf 100% + Puffer-Aufheizung)
+- [x] **SAF-04**: Dry-Run Modus — Optimizer berechnet und zeigt Entscheidungen, führt aber keine Aktionen aus
 
 ### Prognose
 
@@ -77,13 +77,13 @@ Deferred to future release. Tracked but not in current roadmap.
 | FCST-01 | Phase 2 | Complete |
 | FCST-02 | Phase 2 | Complete |
 | FCST-03 | Phase 2 | Complete |
-| OPT-01 | Phase 3 | Pending |
-| OPT-02 | Phase 3 | Pending |
-| OPT-03 | Phase 3 | Pending |
-| SAF-01 | Phase 3 | Pending |
-| SAF-02 | Phase 3 | Pending |
-| SAF-03 | Phase 3 | Pending |
-| SAF-04 | Phase 3 | Pending |
+| OPT-01 | Phase 3 | Complete |
+| OPT-02 | Phase 3 | Complete |
+| OPT-03 | Phase 3 | Complete |
+| SAF-01 | Phase 3 | Complete |
+| SAF-02 | Phase 3 | Complete |
+| SAF-03 | Phase 3 | Complete |
+| SAF-04 | Phase 3 | Complete |
 | SENS-01 | Phase 3 | Pending |
 | SENS-02 | Phase 3 | Pending |
 | SENS-03 | Phase 3 | Pending |

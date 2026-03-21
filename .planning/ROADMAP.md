@@ -63,7 +63,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Optimizer engine (Snapshot/Decision, morning blocking, evening discharge, min-SOC) + Select entity (Ein/Test/Aus)
+- [x] 03-01-PLAN.md — Optimizer engine (Snapshot/Decision, morning blocking, evening discharge, min-SOC) + Select entity (Ein/Test/Aus)
 - [ ] 03-02-PLAN.md — Integration wiring (60s timer, select platform), config flow step 5 (optimizer params), strings, migration
 - [ ] 03-03-PLAN.md — Decision sensor (Entscheidung) with Markdown dashboard attribute, discharge preview
 
@@ -90,5 +90,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Foundation & Inverter Layer | 2/2 | Complete   | 2026-03-21 |
 | 2. Forecasting & Consumption Profile | 3/3 | Complete   | 2026-03-21 |
-| 3. Optimizer & Safety System | 0/3 | Planning complete | - |
+| 3. Optimizer & Safety System | 1/3 | In Progress|  |
 | 4. Onboarding Panel | 0/0 | Not started | - |
