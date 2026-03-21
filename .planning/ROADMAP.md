@@ -13,7 +13,7 @@ This roadmap delivers a Home Assistant custom integration that optimizes residen
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation & Inverter Layer** - HACS-compliant integration skeleton with abstract inverter interface and Huawei SUN2000 implementation (completed 2026-03-21)
-- [ ] **Phase 2: Forecasting & Consumption Profile** - PV forecast integration (Solcast + Forecast.Solar) and recorder-based consumption profiling
+- [x] **Phase 2: Forecasting & Consumption Profile** - PV forecast integration (Solcast + Forecast.Solar) and recorder-based consumption profiling (completed 2026-03-21)
 - [ ] **Phase 3: Optimizer & Safety System** - Decision engine with EEG time windows, two-tier safety guards, morning feed-in priority, evening discharge, and sensor platform
 - [ ] **Phase 4: Onboarding Panel** - LitElement sidebar panel with setup wizard, prerequisite checks, and sensor mapping
 
@@ -89,6 +89,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & Inverter Layer | 2/2 | Complete   | 2026-03-21 |
-| 2. Forecasting & Consumption Profile | 1/3 | In Progress|  |
+| 2. Forecasting & Consumption Profile | 3/3 | Complete   | 2026-03-21 |
 | 3. Optimizer & Safety System | 0/0 | Not started | - |
 | 4. Onboarding Panel | 0/0 | Not started | - |
