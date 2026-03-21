@@ -5,11 +5,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from .base import InverterBase
+from .huawei import HuaweiInverter
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-INVERTER_TYPES: dict[str, type[InverterBase]] = {}
+INVERTER_TYPES: dict[str, type[InverterBase]] = {
+    "huawei_sun2000": HuaweiInverter,
+}
 
 
 def create_inverter(
