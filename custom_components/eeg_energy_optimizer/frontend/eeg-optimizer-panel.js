@@ -1042,9 +1042,9 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="content">
           <div class="card setup-card">
             <img src="/eeg_optimizer_panel/logo.png" alt="EEG Energy Optimizer" class="setup-logo">
-            <h2>Setup noch nicht abgeschlossen</h2>
+            <h2>Die Einrichtung wurde noch nicht abgeschlossen</h2>
             <p>Richte den EEG Energy Optimizer ein, um die Batteriesteuerung für deine Energiegemeinschaft zu optimieren.</p>
-            <button class="btn-primary" data-action="start-wizard">Setup starten</button>
+            <button class="btn-primary" data-action="start-wizard">Einrichtung starten</button>
           </div>
         </div>`;
     } else {
