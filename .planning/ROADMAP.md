@@ -93,8 +93,10 @@ Plans:
   1. HuaweiInverter handles missing `huawei_device_id` gracefully with `.get()` and guard instead of bare dict access
   2. `create_inverter` factory has proper error handling — caller catches ValueError for unknown inverter types
   3. If coordinator or forecast provider fails to initialize, an error is logged and surfaced to the user (not silently skipped)
+**Plans**: 1 plan
 
 Plans:
+- [ ] 05-01-PLAN.md — Guard HuaweiInverter dict access, catch inverter factory errors, surface silent init failures
 
 ### Phase 6: Polish & Tech Debt
 **Goal**: Clean up implicit behavior, improve wizard UX, and reduce fragility in dashboard entity references
@@ -120,5 +122,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 2. Forecasting & Consumption Profile | 3/3 | Complete   | 2026-03-21 |
 | 3. Optimizer & Safety System | 3/3 | Complete   | 2026-03-21 |
 | 4. Onboarding Panel | 2/3 | In Progress|  |
-| 5. Robustness & Error Handling | 0/0 | Pending |  |
+| 5. Robustness & Error Handling | 0/1 | Pending |  |
 | 6. Polish & Tech Debt | 0/0 | Pending |  |
