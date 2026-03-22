@@ -6,7 +6,23 @@
  * consumption, optimizer params, and summary with config save.
  */
 
-const WATCHED = [
+// Sensor suffixes matching sensor.py unique_id pattern
+const SENSOR_SUFFIXES = {
+  entscheidung: "entscheidung",
+  pv_heute: "pv_prognose_heute",
+  pv_morgen: "pv_prognose_morgen",
+  verbrauchsprofil: "verbrauchsprofil",
+  prognose_heute: "tagesverbrauchsprognose_heute",
+  prognose_morgen: "tagesverbrauchsprognose_morgen",
+  prognose_tag2: "tagesverbrauchsprognose_tag_2",
+  prognose_tag3: "tagesverbrauchsprognose_tag_3",
+  prognose_tag4: "tagesverbrauchsprognose_tag_4",
+  prognose_tag5: "tagesverbrauchsprognose_tag_5",
+  prognose_tag6: "tagesverbrauchsprognose_tag_6",
+};
+const SELECT_SUFFIX = "optimizer";
+
+const DEFAULT_WATCHED = [
   "select.eeg_energy_optimizer_optimizer",
   "sensor.eeg_energy_optimizer_entscheidung",
   "sensor.eeg_energy_optimizer_pv_prognose_heute",
@@ -634,7 +650,7 @@ class EegOptimizerPanel extends HTMLElement {
     // Selective re-render for dashboard: only if watched entities changed
     if (oldHass && this._view === "dashboard") {
       let changed = false;
-      const watchList = [...WATCHED];
+      const watchList = [...(this._watchedEntities || DEFAULT_WATCHED)];
       if (this._config?.battery_soc_sensor) {
         watchList.push(this._config.battery_soc_sensor);
       }
@@ -666,6 +682,7 @@ class EegOptimizerPanel extends HTMLElement {
       });
       this._config = result;
       this._setupComplete = !!result.setup_complete;
+      this._resolveEntityIds();
     } catch (err) {
       if (err.code === "not_configured") {
         this._setupComplete = false;
@@ -674,6 +691,46 @@ class EegOptimizerPanel extends HTMLElement {
     }
     this._initialized = true;
     this._render();
+  }
+
+  _resolveEntityIds() {
+    const entryId = this._config?.entry_id;
+    if (!entryId) return;
+
+    // Build entity IDs from the unique_id pattern used in sensor.py
+    // unique_id = f"eeg_energy_optimizer_{entry_id}_{suffix}"
+    // HA entity registry maps unique_id -> entity_id
+    const domain = "eeg_energy_optimizer";
+    this._entityIds = {};
+
+    for (const [key, suffix] of Object.entries(SENSOR_SUFFIXES)) {
+      // Try exact match first (works for first installation)
+      const defaultId = `sensor.${domain}_${suffix}`;
+      const state = this._hass?.states?.[defaultId];
+      if (state) {
+        this._entityIds[key] = defaultId;
+      } else {
+        // Fallback: search all states for matching entity
+        const pattern = `sensor.${domain}_${suffix}`;
+        const found = Object.keys(this._hass?.states || {}).find(
+          eid => eid === pattern || eid.startsWith(pattern + "_")
+        );
+        this._entityIds[key] = found || defaultId;
+      }
+    }
+
+    // Select entity
+    const selectDefault = `select.${domain}_${SELECT_SUFFIX}`;
+    const selectFound = Object.keys(this._hass?.states || {}).find(
+      eid => eid === selectDefault || eid.startsWith(selectDefault + "_")
+    );
+    this._entityIds.select = selectFound || selectDefault;
+
+    // Build watched list for state subscriptions
+    this._watchedEntities = [
+      this._entityIds.select,
+      ...Object.values(this._entityIds).filter(id => id.startsWith("sensor."))
+    ];
   }
 
   /* ── Entity picker helper ─────────────────────── */
@@ -1395,11 +1452,11 @@ class EegOptimizerPanel extends HTMLElement {
     if (!h) return "<p>Lade...</p>";
 
     // --- Status card ---
-    const modeState = this._readState("select.eeg_energy_optimizer_optimizer");
+    const modeState = this._readState(this._entityIds?.select || "select.eeg_energy_optimizer_optimizer");
     const modeValue = modeState ? modeState.state : "---";
     const modeBadgeClass = modeValue === "Ein" ? "green" : modeValue === "Test" ? "yellow" : modeValue === "Aus" ? "gray" : "gray";
 
-    const decisionState = this._readState("sensor.eeg_energy_optimizer_entscheidung");
+    const decisionState = this._readState(this._entityIds?.entscheidung || "sensor.eeg_energy_optimizer_entscheidung");
     const zustand = decisionState?.attributes?.zustand || decisionState?.state || "---";
     const zustandBadgeClass =
       zustand === "Morgen-Einspeisung" ? "blue" :
@@ -1416,21 +1473,21 @@ class EegOptimizerPanel extends HTMLElement {
     const socText = socVal != null ? `${Math.round(socVal)}` : (socSensor ? "---" : "Nicht konfiguriert");
     const socColorClass = socVal == null ? "" : socVal > 50 ? "soc-green" : socVal >= 25 ? "soc-yellow" : "soc-red";
 
-    const pvHeute = this._readFloat("sensor.eeg_energy_optimizer_pv_prognose_heute");
+    const pvHeute = this._readFloat(this._entityIds?.pv_heute || "sensor.eeg_energy_optimizer_pv_prognose_heute");
     const pvHeuteText = pvHeute != null ? `${pvHeute.toFixed(1)}` : "---";
 
-    const pvMorgen = this._readFloat("sensor.eeg_energy_optimizer_pv_prognose_morgen");
+    const pvMorgen = this._readFloat(this._entityIds?.pv_morgen || "sensor.eeg_energy_optimizer_pv_prognose_morgen");
     const pvMorgenText = pvMorgen != null ? `${pvMorgen.toFixed(1)}` : "---";
 
     // --- 7-day forecast chart ---
     const forecastSensors = [
-      "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_heute",
-      "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_morgen",
-      "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_2",
-      "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_3",
-      "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_4",
-      "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_5",
-      "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_6",
+      this._entityIds?.prognose_heute || "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_heute",
+      this._entityIds?.prognose_morgen || "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_morgen",
+      this._entityIds?.prognose_tag2 || "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_2",
+      this._entityIds?.prognose_tag3 || "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_3",
+      this._entityIds?.prognose_tag4 || "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_4",
+      this._entityIds?.prognose_tag5 || "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_5",
+      this._entityIds?.prognose_tag6 || "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_6",
     ];
     const today = new Date();
     const forecastData = forecastSensors.map((eid, i) => {
@@ -1447,7 +1504,7 @@ class EegOptimizerPanel extends HTMLElement {
     });
 
     // --- Hourly profile chart ---
-    const profilState = this._readState("sensor.eeg_energy_optimizer_verbrauchsprofil");
+    const profilState = this._readState(this._entityIds?.verbrauchsprofil || "sensor.eeg_energy_optimizer_verbrauchsprofil");
     const dayKey = this._getWeekdayKey(today);
     const dayLabel = this._getWeekdayLabel(today);
     let hourlyWatts = profilState?.attributes?.[`${dayKey}_watts`] || null;
@@ -1546,9 +1603,17 @@ class EegOptimizerPanel extends HTMLElement {
           <p style="color:var(--secondary-text-color);font-size:14px">
             Teste die Kommunikation mit deinem Wechselrichter.
           </p>
-          <button class="btn-primary" data-action="test-inverter" ${testing ? "disabled" : ""}>
-            ${testing ? "Teste..." : "Verbindung testen"}
-          </button>
+          ${!this._config?.setup_complete ? `
+            <button class="btn-primary" disabled>Verbindung testen</button>
+            <div class="help-text" style="margin-top:12px">
+              <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
+              Der Verbindungstest ist erst nach Abschluss der Einrichtung verfügbar. Bitte zuerst den Wizard abschließen.
+            </div>
+          ` : `
+            <button class="btn-primary" data-action="test-inverter" ${testing ? "disabled" : ""}>
+              ${testing ? "Teste..." : "Verbindung testen"}
+            </button>
+          `}
           ${testStatusHtml}
         </div>
       </div>`;
