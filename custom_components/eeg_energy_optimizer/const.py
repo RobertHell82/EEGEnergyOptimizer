@@ -7,6 +7,7 @@ CONF_BATTERY_SOC_SENSOR = "battery_soc_sensor"
 CONF_BATTERY_CAPACITY_SENSOR = "battery_capacity_sensor"
 CONF_BATTERY_CAPACITY_KWH = "battery_capacity_kwh"
 CONF_PV_POWER_SENSOR = "pv_power_sensor"
+CONF_GRID_POWER_SENSOR = "grid_power_sensor"
 CONF_HUAWEI_DEVICE_ID = "huawei_device_id"
 
 INVERTER_TYPE_HUAWEI = "huawei_sun2000"
@@ -28,6 +29,7 @@ FORECAST_SOURCE_SOLCAST = "solcast_solar"
 FORECAST_SOURCE_FORECAST_SOLAR = "forecast_solar"
 
 DEFAULT_CONSUMPTION_SENSOR = "sensor.power_meter_verbrauch"
+DEFAULT_GRID_POWER_SENSOR = "sensor.power_meter_wirkleistung"
 DEFAULT_LOOKBACK_WEEKS = 8
 DEFAULT_UPDATE_INTERVAL_FAST = 1   # minutes
 DEFAULT_UPDATE_INTERVAL_SLOW = 15  # minutes
@@ -35,6 +37,8 @@ DEFAULT_UPDATE_INTERVAL_SLOW = 15  # minutes
 WEEKDAY_KEYS = ["mo", "di", "mi", "do", "fr", "sa", "so"]
 
 # Phase 3: Optimizer
+CONF_ENABLE_MORNING_DELAY = "enable_morning_delay"
+CONF_ENABLE_NIGHT_DISCHARGE = "enable_night_discharge"
 CONF_UEBERSCHUSS_SCHWELLE = "ueberschuss_schwelle"
 CONF_MORNING_END_TIME = "morning_end_time"
 CONF_DISCHARGE_START_TIME = "discharge_start_time"

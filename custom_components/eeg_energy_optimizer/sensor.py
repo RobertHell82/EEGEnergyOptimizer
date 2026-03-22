@@ -1,13 +1,14 @@
 """Sensor platform for EEG Energy Optimizer.
 
-Creates 13 sensors:
+Creates 14 sensors:
   1.  Verbrauchsprofil                    (slow, hourly averages per weekday)
   2-8. Tagesverbrauchsprognose heute..Tag 6  (fast, daily consumption forecasts)
   9.  Prognose bis Sonnenaufgang          (fast, consumption now -> next sunrise)
   10. Batterie fehlende Energie           (fast, kWh to full charge)
   11. PV Prognose heute                   (fast, remaining PV today)
   12. PV Prognose morgen                  (fast, PV forecast tomorrow)
-  13. Entscheidung                        (optimizer timer, decision + Markdown dashboard)
+  13. Hausverbrauch                       (fast, calculated house consumption kW)
+  14. Entscheidung                        (optimizer timer, decision + Markdown dashboard)
 """
 
 from __future__ import annotations
@@ -24,10 +25,13 @@ from .const import (
     CONF_FORECAST_REMAINING_ENTITY,
     CONF_FORECAST_SOURCE,
     CONF_FORECAST_TOMORROW_ENTITY,
+    CONF_GRID_POWER_SENSOR,
     CONF_LOOKBACK_WEEKS,
+    CONF_PV_POWER_SENSOR,
     CONF_UPDATE_INTERVAL_FAST,
     CONF_UPDATE_INTERVAL_SLOW,
     DEFAULT_CONSUMPTION_SENSOR,
+    DEFAULT_GRID_POWER_SENSOR,
     DEFAULT_LOOKBACK_WEEKS,
     DEFAULT_UPDATE_INTERVAL_FAST,
     DEFAULT_UPDATE_INTERVAL_SLOW,
@@ -58,8 +62,8 @@ except ImportError:
 
 # HA imports guarded for test environment
 try:
-    from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
-    from homeassistant.const import UnitOfEnergy
+    from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+    from homeassistant.const import UnitOfEnergy, UnitOfPower
     from homeassistant.helpers.device_registry import DeviceEntryType
     from homeassistant.helpers.entity import DeviceInfo
     from homeassistant.helpers.event import async_track_time_interval
@@ -95,9 +99,16 @@ except ImportError:
 
     class SensorDeviceClass:  # type: ignore[no-redef]
         ENERGY = "energy"
+        POWER = "power"
+
+    class SensorStateClass:  # type: ignore[no-redef]
+        MEASUREMENT = "measurement"
 
     class UnitOfEnergy:  # type: ignore[no-redef]
         KILO_WATT_HOUR = "kWh"
+
+    class UnitOfPower:  # type: ignore[no-redef]
+        KILO_WATT = "kW"
 
     class DeviceEntryType:  # type: ignore[no-redef]
         SERVICE = "service"
@@ -441,7 +452,60 @@ class PVForecastTomorrowSensor(SensorEntity):
 
 
 # ---------------------------------------------------------------------------
-# Sensor 13: Entscheidung (optimizer timer)
+# Sensor 13: Hausverbrauch (fast, calculated house consumption)
+# ---------------------------------------------------------------------------
+
+class HausverbrauchSensor(SensorEntity):
+    """Calculates actual house consumption from inverter and grid power.
+
+    Formula: Hausverbrauch = PV-Wirkleistung - Netz-Wirkleistung
+    (grid positive = import, negative = export)
+    Result clamped to >= 0.
+    state_class=MEASUREMENT so HA recorder stores mean statistics.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Hausverbrauch"
+    _attr_native_unit_of_measurement = "kW"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:home-lightning-bolt"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: Any, entry: Any, config: dict) -> None:
+        self.hass = hass
+        self._pv_sensor_id = config.get(CONF_PV_POWER_SENSOR, "")
+        self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, DEFAULT_GRID_POWER_SENSOR)
+        self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_hausverbrauch"
+        self._attr_device_info = _device_info(entry.entry_id)
+        self._attr_native_value: float | None = None
+        self._attr_extra_state_attributes: dict[str, Any] = {}
+
+    async def async_update(self) -> None:
+        pv_power = _read_float(self.hass, self._pv_sensor_id)
+        grid_power = _read_float(self.hass, self._grid_sensor_id)
+
+        if pv_power is None or grid_power is None:
+            self._attr_native_value = None
+            hints = []
+            if pv_power is None:
+                hints.append(f"PV-Sensor ({self._pv_sensor_id}) nicht verfügbar")
+            if grid_power is None:
+                hints.append(f"Netz-Sensor ({self._grid_sensor_id}) nicht verfügbar")
+            self._attr_extra_state_attributes = {"hinweis": ", ".join(hints)}
+            return
+
+        # Inverter power - grid power (positive grid = import, negative = export)
+        hausverbrauch = max(pv_power - grid_power, 0.0)
+        self._attr_native_value = round(hausverbrauch, 3)
+        self._attr_extra_state_attributes = {
+            "pv_leistung_kw": round(pv_power, 3),
+            "netz_leistung_kw": round(grid_power, 3),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Sensor 14: Entscheidung (optimizer timer)
 # ---------------------------------------------------------------------------
 
 class EntscheidungsSensor(SensorEntity):
@@ -475,7 +539,7 @@ class EntscheidungsSensor(SensorEntity):
         self._attr_extra_state_attributes = {
             "markdown": decision.markdown,
             "zustand": decision.zustand,
-            "ueberschuss_faktor": round(decision.ueberschuss_faktor, 2),
+            "energiebedarf_kwh": round(decision.energiebedarf_kwh, 2),
             "entladung_aktiv": decision.entladung_aktiv,
             "ladung_blockiert": decision.ladung_blockiert,
             "min_soc": decision.min_soc_berechnet,
@@ -531,15 +595,16 @@ async def async_setup_entry(
     battery_sensor = BatteryMissingEnergySensor(hass, entry, config)
     pv_today_sensor = PVForecastTodaySensor(hass, entry, provider)
     pv_tomorrow_sensor = PVForecastTomorrowSensor(hass, entry, provider)
+    hausverbrauch_sensor = HausverbrauchSensor(hass, entry, config)
 
-    # Sensor 13: Entscheidungs-Sensor (updated by optimizer timer, not by fast/slow timers)
+    # Sensor 14: Entscheidungs-Sensor (updated by optimizer timer, not by fast/slow timers)
     decision_sensor = EntscheidungsSensor(entry.entry_id)
     data["decision_sensor"] = decision_sensor
 
     slow_sensors: list[SensorEntity] = [profil_sensor]
     fast_sensors: list[SensorEntity] = (
         daily_sensors
-        + [sunrise_sensor, battery_sensor, pv_today_sensor, pv_tomorrow_sensor]
+        + [sunrise_sensor, battery_sensor, pv_today_sensor, pv_tomorrow_sensor, hausverbrauch_sensor]
     )
 
     async_add_entities(slow_sensors + fast_sensors + [decision_sensor], True)
