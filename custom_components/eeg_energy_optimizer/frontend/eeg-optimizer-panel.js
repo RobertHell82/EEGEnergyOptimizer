@@ -110,6 +110,12 @@ class EegOptimizerPanel extends HTMLElement {
 
     // Event delegation on shadow root
     this._shadow.addEventListener("click", (e) => {
+      // Close dialog when clicking overlay background (not the card itself)
+      if (e.target.classList.contains("dialog-overlay")) {
+        this._showDialog = null;
+        this._render();
+        return;
+      }
       const btn = e.target.closest("[data-action]") || e.target;
       const action = btn?.dataset?.action;
       if (action) {
@@ -1001,8 +1007,8 @@ class EegOptimizerPanel extends HTMLElement {
   _renderDialog() {
     if (!this._showDialog) return "";
     return `
-      <div class="dialog-overlay" data-action="close-dialog">
-        <div class="dialog-card" onclick="event.stopPropagation()">
+      <div class="dialog-overlay">
+        <div class="dialog-card">
           <h2 style="margin-top:0">${this._showDialog.title}</h2>
           ${this._showDialog.content}
           <div style="text-align:right;margin-top:16px">
