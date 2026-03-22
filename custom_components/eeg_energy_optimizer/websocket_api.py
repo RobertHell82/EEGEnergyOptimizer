@@ -13,6 +13,7 @@ from homeassistant.helpers import device_registry as dr
 from .const import (
     CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
+    CONF_GRID_POWER_SENSOR,
     CONF_HUAWEI_DEVICE_ID,
     CONF_INVERTER_TYPE,
     CONF_PV_POWER_SENSOR,
@@ -31,6 +32,7 @@ HUAWEI_DEFAULTS = {
     CONF_BATTERY_SOC_SENSOR: "sensor.batteries_batterieladung",
     CONF_BATTERY_CAPACITY_SENSOR: "sensor.batterien_akkukapazitat",
     CONF_PV_POWER_SENSOR: "sensor.inverter_eingangsleistung",
+    CONF_GRID_POWER_SENSOR: "sensor.power_meter_wirkleistung",
 }
 
 
