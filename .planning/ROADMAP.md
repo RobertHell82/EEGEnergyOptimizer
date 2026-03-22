@@ -96,7 +96,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 05-01-PLAN.md — Guard HuaweiInverter dict access, catch inverter factory errors, surface silent init failures
+- [x] 05-01-PLAN.md — Guard HuaweiInverter dict access, catch inverter factory errors, surface silent init failures
 
 ### Phase 6: Polish & Tech Debt
 **Goal**: Clean up implicit behavior, improve wizard UX, and reduce fragility in dashboard entity references
