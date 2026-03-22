@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 3: Optimizer & Safety System** - Decision engine with EEG time windows, morning feed-in priority, evening discharge, and decision sensor with Markdown dashboard
 - [ ] **Phase 4: Onboarding Panel** - LitElement sidebar panel with setup wizard, prerequisite checks, and sensor mapping
 - [ ] **Phase 5: Robustness & Error Handling** - Fix crash-prone dict access, surface silent init failures, harden inverter factory (gap closure)
-- [ ] **Phase 6: Polish & Tech Debt** - Explicit dry-run check, wizard inverter test fix, dynamic entity IDs, ABC enforcement (gap closure)
+- [x] **Phase 6: Polish & Tech Debt** - Explicit dry-run check, wizard inverter test fix, dynamic entity IDs, ABC enforcement (gap closure) (completed 2026-03-22)
 
 ## Phase Details
 
@@ -112,7 +112,7 @@ Plans:
 
 Plans:
 - [x] 06-01-PLAN.md — Explicit MODE_TEST check in optimizer, ForecastProvider ABC enforcement
-- [ ] 06-02-PLAN.md — Dynamic entity IDs in dashboard, inverter test button guard, ws_get_config entry_id
+- [x] 06-02-PLAN.md — Dynamic entity IDs in dashboard, inverter test button guard, ws_get_config entry_id
 
 ## Progress
 
@@ -126,4 +126,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 3. Optimizer & Safety System | 3/3 | Complete   | 2026-03-21 |
 | 4. Onboarding Panel | 2/3 | In Progress|  |
 | 5. Robustness & Error Handling | 0/1 | Pending |  |
-| 6. Polish & Tech Debt | 0/2 | Pending |  |
+| 6. Polish & Tech Debt | 2/2 | Complete   | 2026-03-22 |
