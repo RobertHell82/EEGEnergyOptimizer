@@ -31,7 +31,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **INF-01**: Abstraktes Wechselrichter-Interface — Python ABC mit Methoden für Lade-/Entlade-Steuerung (set_charge_limit, set_discharge, stop_forcible) und is_available Property, unabhängig vom WR-Typ. SOC/Kapazität werden über HA-Sensor-Entities gelesen (im Config Flow gemappt), nicht über das Interface.
 - [x] **INF-02**: Huawei SUN2000 Implementierung — konkrete Implementierung des WR-Interface via HA Huawei Solar Integration Services (forcible_charge, forcible_discharge_soc, stop_forcible_charge)
 - [x] **INF-03**: HACS-kompatible Repo-Struktur — manifest.json, hacs.json, korrekte Verzeichnisstruktur, Brand-Assets von Anfang an
-- [ ] **INF-04**: Onboarding Panel — HA Sidebar Panel (LitElement/JS) mit Step-by-Step Setup-Wizard, Voraussetzungsprüfung (Solcast/Forecast.Solar installiert? WR-Integration aktiv?), Sensor-Mapping mit Kontext-Hilfe, Anleitungen für Abhängigkeiten
+- [x] **INF-04**: Onboarding Panel — HA Sidebar Panel (LitElement/JS) mit Step-by-Step Setup-Wizard, Voraussetzungsprüfung (Solcast/Forecast.Solar installiert? WR-Integration aktiv?), Sensor-Mapping mit Kontext-Hilfe, Anleitungen für Abhängigkeiten
 
 ### Sensoren & Dashboard
 
@@ -87,7 +87,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | SENS-01 | Phase 3 | Complete |
 | SENS-02 | Phase 3 | Complete |
 | SENS-03 | Phase 3 | Complete |
-| INF-04 | Phase 4 | Pending |
+| INF-04 | Phase 4 | Complete |
 
 **Coverage:**
 - v1 requirements: 17 total

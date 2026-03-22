@@ -78,7 +78,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Backend infrastructure: WebSocket API, panel registration, 1-click config flow, migration v3-v4, panel shell JS
+- [x] 04-01-PLAN.md — Backend infrastructure: WebSocket API, panel registration, 1-click config flow, migration v3-v4, panel shell JS
 - [ ] 04-02-PLAN.md — 8-step setup wizard with prerequisite checks, sensor auto-detection, entity pickers, config save
 - [ ] 04-03-PLAN.md — Live dashboard with status cards, metrics, SVG bar chart (7-day forecast), SVG line chart (hourly profile)
 

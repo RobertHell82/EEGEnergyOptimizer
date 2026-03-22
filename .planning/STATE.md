@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-03-21T21:31:28.162Z"
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-03-22T07:12:52.889Z"
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 11
+  completed_plans: 9
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Feed solar energy into the grid when the community actually needs it, not when everyone else is feeding in too.
-**Current focus:** Phase 03 — optimizer-safety-system
+**Current focus:** Phase 04 — onboarding-panel
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
+Phase: 04 (onboarding-panel) — EXECUTING
+Plan: 2 of 3
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Plan: Not started
 | Phase 03 P01 | 4min | 2 tasks | 6 files |
 | Phase 03 P03 | 2min | 2 tasks | 2 files |
 | Phase 03 P02 | 4min | 2 tasks | 5 files |
+| Phase 04 P01 | 3min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,9 @@ Recent decisions affecting current work:
 - [Phase 03]: Duck typing for update_from_decision avoids circular imports between sensor.py and optimizer.py
 - [Phase 03]: Optimizer created after platform setup (coordinator/provider injected by sensor.py)
 - [Phase 03]: Config flow VERSION bumped to 3 with async_migrate_entry defaults for Phase 3 keys
+- [Phase 04]: HUAWEI_DEFAULTS moved from config_flow to websocket_api for detect_sensors command
+- [Phase 04]: Panel uses plain HTMLElement + Shadow DOM, no LitElement/CDN imports
+- [Phase 04]: Config flow reduced to 1-click with setup_complete=false; full config via panel wizard
 
 ### Pending Todos
 
@@ -91,6 +95,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T21:27:30.833Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-03-22T07:12:52.869Z
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None
