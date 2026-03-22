@@ -247,6 +247,15 @@ class EegOptimizerPanel extends HTMLElement {
     this._prerequisites = null;
     this._detectedSensors = null;
     this._render();
+
+    // Preload logos and prerequisites in background
+    this._checkPrerequisites();
+    const logos = [
+      "https://brands.home-assistant.io/huawei_solar/logo.png",
+      "https://brands.home-assistant.io/forecast_solar/logo.png",
+      "https://brands.home-assistant.io/solcast_solar/logo.png",
+    ];
+    logos.forEach(src => { const img = new Image(); img.src = src; });
   }
 
   async _nextStep() {
@@ -257,7 +266,7 @@ class EegOptimizerPanel extends HTMLElement {
     this._saveWizardProgress();
 
     // Trigger async loads for specific steps
-    if (this._wizardStep === 1 && !this._prerequisites) {
+    if ((this._wizardStep === 1 || this._wizardStep === 2) && !this._prerequisites) {
       await this._checkPrerequisites();
     }
     if (this._wizardStep === 3) {
@@ -703,8 +712,10 @@ class EegOptimizerPanel extends HTMLElement {
     return `
       <p style="margin-bottom:12px;color:var(--secondary-text-color)">Wähle deinen Wechselrichter-Typ:</p>
       <div class="prereq-cards" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-        <div class="card forecast-option ${huaweiSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center" data-action="select-inverter" data-value="huawei_sun2000">
-          <img src="https://brands.home-assistant.io/huawei_solar/logo.png" alt="Huawei" style="max-width:120px;height:auto;margin-bottom:8px" onerror="this.style.display='none'">
+        <div class="card forecast-option ${huaweiSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center" data-action="select-inverter" data-value="huawei_sun2000">
+          <div style="height:60px;display:flex;align-items:center;justify-content:center;margin-bottom:8px">
+            <img src="https://brands.home-assistant.io/huawei_solar/logo.png" alt="Huawei" style="max-width:120px;max-height:60px;height:auto" onerror="this.style.display='none'">
+          </div>
           <h3 style="margin:0 0 8px">Huawei SUN2000</h3>
           ${huaweiBadge}
           ${huaweiAutoDetect}
@@ -744,19 +755,23 @@ class EegOptimizerPanel extends HTMLElement {
       ${blockMsg}
       <p style="margin-bottom:12px;color:var(--secondary-text-color)">Wähle deine PV-Prognose-Quelle:</p>
       <div class="prereq-cards" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-        <div class="card forecast-option ${solcastSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center" data-action="select-forecast" data-value="solcast_solar">
-          <img src="https://brands.home-assistant.io/solcast_solar/logo.png" alt="Solcast" style="max-width:100px;height:auto;margin-bottom:8px" onerror="this.style.display='none'">
-          <h3 style="margin:0 0 8px">Solcast Solar</h3>
-          ${solcastBadge}
-          <p style="font-size:13px;color:var(--secondary-text-color);margin:8px 0">Genauere Prognosen, kostenloser API-Key erforderlich.</p>
-          <button class="btn-secondary" data-action="show-dialog" data-dialog="solcast">Anleitung</button>
-        </div>
-        <div class="card forecast-option ${forecastSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center" data-action="select-forecast" data-value="forecast_solar">
-          <img src="https://brands.home-assistant.io/forecast_solar/logo.png" alt="Forecast.Solar" style="max-width:100px;height:auto;margin-bottom:8px" onerror="this.style.display='none'">
+        <div class="card forecast-option ${forecastSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center" data-action="select-forecast" data-value="forecast_solar">
+          <div style="height:60px;display:flex;align-items:center;justify-content:center;margin-bottom:8px">
+            <img src="https://brands.home-assistant.io/forecast_solar/logo.png" alt="Forecast.Solar" style="max-width:100px;max-height:60px;height:auto" onerror="this.style.display='none'">
+          </div>
           <h3 style="margin:0 0 8px">Forecast.Solar</h3>
           ${forecastBadge}
           <p style="font-size:13px;color:var(--secondary-text-color);margin:8px 0">Einfachere Einrichtung, keine Registrierung nötig.</p>
           <button class="btn-secondary" data-action="show-dialog" data-dialog="forecast_solar">Anleitung</button>
+        </div>
+        <div class="card forecast-option ${solcastSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center" data-action="select-forecast" data-value="solcast_solar">
+          <div style="height:60px;display:flex;align-items:center;justify-content:center;margin-bottom:8px">
+            <img src="https://brands.home-assistant.io/solcast_solar/logo.png" alt="Solcast" style="max-width:100px;max-height:60px;height:auto" onerror="this.style.display='none'">
+          </div>
+          <h3 style="margin:0 0 8px">Solcast Solar</h3>
+          ${solcastBadge}
+          <p style="font-size:13px;color:var(--secondary-text-color);margin:8px 0">Genauere Prognosen, kostenloser API-Key erforderlich.</p>
+          <button class="btn-secondary" data-action="show-dialog" data-dialog="solcast">Anleitung</button>
         </div>
       </div>
       <button class="btn-secondary" data-action="recheck-prerequisites">Erneut prüfen</button>`;
