@@ -9,18 +9,28 @@
 const WATCHED = [
   "select.eeg_energy_optimizer_optimizer",
   "sensor.eeg_energy_optimizer_entscheidung",
+  "sensor.eeg_energy_optimizer_pv_prognose_heute",
+  "sensor.eeg_energy_optimizer_pv_prognose_morgen",
+  "sensor.eeg_energy_optimizer_verbrauchsprofil",
+  "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_heute",
+  "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_morgen",
+  "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_2",
+  "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_3",
+  "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_4",
+  "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_5",
+  "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_6",
 ];
 
 const WIZARD_KEY = "eeg_optimizer_wizard_state";
 
 const WIZARD_STEPS = [
   "Willkommen",
-  "Wechselrichter-Typ",
-  "Prognose-Integration",
-  "Batterie & PV Sensoren",
-  "Prognose-Sensoren",
-  "Verbrauchssensor",
-  "Optimizer-Parameter",
+  "Wechselrichter",
+  "Prognose",
+  "Batterie",
+  "Verbrauch",
+  "Ladung & Einspeisung",
+  "Erweiterte Einstellungen",
   "Zusammenfassung",
 ];
 
@@ -38,8 +48,9 @@ const WIZARD_DEFAULTS = {
   lookback_weeks: 8,
   update_interval_fast_min: 1,
   update_interval_slow_min: 15,
-  ueberschuss_schwelle: 1.25,
+  enable_morning_delay: true,
   morning_end_time: "10:00",
+  enable_night_discharge: true,
   discharge_start_time: "20:00",
   discharge_power_kw: 3.0,
   min_soc: 10,
@@ -124,6 +135,10 @@ class EegOptimizerPanel extends HTMLElement {
     this._showDialog = null;
     this._entityPickerLoaded = false;
     this._showAdvanced = {};
+    this._capacityMode = null;
+    this._capacityModeUserSet = false;
+    this._inverterTestResult = null;
+    this._inverterTesting = false;
 
     // Event delegation on shadow root
     this._shadow.addEventListener("click", (e) => {
@@ -164,11 +179,6 @@ class EegOptimizerPanel extends HTMLElement {
     });
 
     this._shadow.addEventListener("change", (e) => {
-      // Handle capacity mode radio buttons
-      if (e.target.name === "cap_mode") {
-        this._handleAction("set-cap-mode", {});
-        return;
-      }
       const target = e.target.closest("[data-field]");
       if (target) {
         const field = target.dataset.field;
@@ -217,6 +227,9 @@ class EegOptimizerPanel extends HTMLElement {
       case "recheck-prerequisites":
         this._checkPrerequisites();
         break;
+      case "test-inverter":
+        this._testInverter();
+        break;
       case "select-forecast": {
         const value = dataset?.value;
         if (value) {
@@ -238,7 +251,30 @@ class EegOptimizerPanel extends HTMLElement {
         const radio = this._shadow.querySelector('input[name="cap_mode"]:checked');
         if (radio) {
           this._capacityMode = radio.value;
+          this._capacityModeUserSet = true;
           if (radio.value === "manual") {
+            this._wizardData.battery_capacity_sensor = "";
+          } else {
+            this._wizardData.battery_capacity_kwh = "";
+          }
+          this._render();
+        }
+        break;
+      }
+      case "toggle-feature": {
+        const feature = dataset?.feature;
+        if (feature) {
+          this._wizardData[feature] = !this._wizardData[feature];
+          this._render();
+        }
+        break;
+      }
+      case "set-cap-mode-card": {
+        const mode = dataset?.value;
+        if (mode) {
+          this._capacityMode = mode;
+          this._capacityModeUserSet = true;
+          if (mode === "manual") {
             this._wizardData.battery_capacity_sensor = "";
           } else {
             this._wizardData.battery_capacity_kwh = "";
@@ -280,6 +316,8 @@ class EegOptimizerPanel extends HTMLElement {
 
     this._prerequisites = null;
     this._detectedSensors = null;
+    this._capacityMode = null;
+    this._capacityModeUserSet = false;
     this._render();
 
     // Preload logos and prerequisites in background
@@ -295,12 +333,18 @@ class EegOptimizerPanel extends HTMLElement {
   async _refreshStepData() {
     const step = this._wizardStep;
     // Always refresh prerequisites on steps that show install status
-    if (step === 1 || step === 2) {
+    if (step === 1) {
       await this._checkPrerequisites();
       return; // _checkPrerequisites calls _render
     }
+    if (step === 2) {
+      await this._checkPrerequisites();
+      await this._ensureEntityPicker();
+      this._render();
+      return;
+    }
     // Load entity picker for sensor steps
-    if (step === 3 || step === 4 || step === 5) {
+    if (step === 3 || step === 4) {
       await this._ensureEntityPicker();
       if (step === 3 && !this._detectedSensors) {
         await this._detectSensors();
@@ -327,7 +371,7 @@ class EegOptimizerPanel extends HTMLElement {
 
   _validateCurrentStep() {
     switch (this._wizardStep) {
-      case 1: { // Wechselrichter-Typ
+      case 1: { // Wechselrichter
         if (!this._wizardData.inverter_type) {
           this._showValidationError("Bitte wähle einen Wechselrichter-Typ aus.");
           return false;
@@ -340,7 +384,7 @@ class EegOptimizerPanel extends HTMLElement {
         }
         return true;
       }
-      case 2: { // Prognose-Integration
+      case 2: { // Prognose
         if (!this._wizardData.forecast_source) {
           this._showValidationError("Bitte wähle eine Prognose-Quelle aus.");
           return false;
@@ -355,9 +399,17 @@ class EegOptimizerPanel extends HTMLElement {
           this._showValidationError("Forecast.Solar muss zuerst installiert werden. Klicke auf 'Anleitung' für Hilfe.");
           return false;
         }
+        if (!this._wizardData.forecast_remaining_entity) {
+          this._showValidationError("PV Prognose verbleibend heute ist erforderlich.");
+          return false;
+        }
+        if (!this._wizardData.forecast_tomorrow_entity) {
+          this._showValidationError("PV Prognose morgen ist erforderlich.");
+          return false;
+        }
         return true;
       }
-      case 3: // Batterie & PV Sensoren
+      case 3: // Batterie
         if (!this._wizardData.battery_soc_sensor) {
           this._showValidationError("SOC-Sensor ist erforderlich.");
           return false;
@@ -372,17 +424,7 @@ class EegOptimizerPanel extends HTMLElement {
           return false;
         }
         return true;
-      case 4: // Prognose-Sensoren
-        if (!this._wizardData.forecast_remaining_entity) {
-          this._showValidationError("PV Prognose verbleibend heute ist erforderlich.");
-          return false;
-        }
-        if (!this._wizardData.forecast_tomorrow_entity) {
-          this._showValidationError("PV Prognose morgen ist erforderlich.");
-          return false;
-        }
-        return true;
-      case 5: // Verbrauchssensor
+      case 4: // Verbrauch
         if (!this._wizardData.consumption_sensor) {
           this._showValidationError("Verbrauchssensor ist erforderlich.");
           return false;
@@ -416,12 +458,20 @@ class EegOptimizerPanel extends HTMLElement {
       this._setupComplete = true;
       this._config = { ...this._wizardData };
       this._view = "dashboard";
+      this._wizardLoading = false;
+      this._render();
+
+      // Integration reloads after config save — reload panel after a short delay
+      // so the new config (with setup_complete=true) is picked up
+      setTimeout(() => {
+        this._loadConfig();
+      }, 2000);
     } catch (err) {
       console.error("Failed to save config:", err);
       this._wizardData.setup_complete = false;
+      this._wizardLoading = false;
+      this._render();
     }
-    this._wizardLoading = false;
-    this._render();
   }
 
   /* ── localStorage persistence ─────────────────── */
@@ -498,6 +548,26 @@ class EegOptimizerPanel extends HTMLElement {
     this._render();
   }
 
+  async _testInverter() {
+    this._inverterTestResult = null;
+    this._inverterTesting = true;
+    this._render();
+    try {
+      const result = await this._hass.callWS({
+        type: "eeg_optimizer/test_inverter",
+      });
+      this._inverterTestResult = result;
+    } catch (err) {
+      console.error("Inverter test failed:", err);
+      this._inverterTestResult = {
+        success: false,
+        error: "Kommunikationsfehler: " + (err.message || err),
+      };
+    }
+    this._inverterTesting = false;
+    this._render();
+  }
+
   async _detectSensors() {
     this._wizardLoading = true;
     this._render();
@@ -564,7 +634,11 @@ class EegOptimizerPanel extends HTMLElement {
     // Selective re-render for dashboard: only if watched entities changed
     if (oldHass && this._view === "dashboard") {
       let changed = false;
-      for (const eid of WATCHED) {
+      const watchList = [...WATCHED];
+      if (this._config?.battery_soc_sensor) {
+        watchList.push(this._config.battery_soc_sensor);
+      }
+      for (const eid of watchList) {
         if (oldHass.states[eid] !== hass.states[eid]) {
           changed = true;
           break;
@@ -605,14 +679,31 @@ class EegOptimizerPanel extends HTMLElement {
   /* ── Entity picker helper ─────────────────────── */
 
   _entityPickerHtml(field, value, label, helpText, domain) {
+    // Show current sensor value if entity exists in HA
+    let valuePreview = "";
+    if (value && this._hass?.states?.[value]) {
+      const stateObj = this._hass.states[value];
+      const stateVal = stateObj.state;
+      const unit = stateObj.attributes?.unit_of_measurement || "";
+      const friendly = stateObj.attributes?.friendly_name || "";
+      if (stateVal !== "unavailable" && stateVal !== "unknown") {
+        valuePreview = `<div class="ep-value-preview" data-preview-for="${field}">Aktuell: <strong>${stateVal}${unit ? " " + unit : ""}</strong>${friendly ? ` — ${friendly}` : ""}</div>`;
+      } else {
+        valuePreview = `<div class="ep-value-preview unavailable" data-preview-for="${field}">Sensor nicht verfügbar</div>`;
+      }
+    }
     return `
       <div class="field-group entity-picker-wrap">
         <label>${label}</label>
         <div class="ep-container">
           <input type="text" class="entity-input" data-field="${field}" data-domain="${domain || ""}"
                  value="${value || ""}" placeholder="Tippen zum Suchen..." autocomplete="off">
+          <svg class="ep-chevron" viewBox="0 0 24 24" width="20" height="20">
+            <path fill="currentColor" d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/>
+          </svg>
           <div class="ep-dropdown" data-for="${field}"></div>
         </div>
+        ${valuePreview}
         ${helpText ? `<div class="help-text">${helpText}</div>` : ""}
       </div>`;
   }
@@ -660,6 +751,31 @@ class EegOptimizerPanel extends HTMLElement {
         showDropdown(input.value);
       });
 
+      const updatePreview = (entityId) => {
+        const preview = this._shadow.querySelector(`.ep-value-preview[data-preview-for="${field}"]`);
+        const stateObj = entityId && states[entityId];
+        if (stateObj) {
+          const sv = stateObj.state;
+          const unit = stateObj.attributes?.unit_of_measurement || "";
+          const friendly = stateObj.attributes?.friendly_name || "";
+          const unavail = sv === "unavailable" || sv === "unknown";
+          if (!preview) {
+            // Insert preview after ep-container
+            const container = input.closest(".ep-container");
+            const div = document.createElement("div");
+            div.className = "ep-value-preview" + (unavail ? " unavailable" : "");
+            div.setAttribute("data-preview-for", field);
+            div.innerHTML = unavail ? "Sensor nicht verfügbar" : `Aktuell: <strong>${sv}${unit ? " " + unit : ""}</strong>${friendly ? ` — ${friendly}` : ""}`;
+            container.parentNode.insertBefore(div, container.nextSibling);
+          } else {
+            preview.className = "ep-value-preview" + (unavail ? " unavailable" : "");
+            preview.innerHTML = unavail ? "Sensor nicht verfügbar" : `Aktuell: <strong>${sv}${unit ? " " + unit : ""}</strong>${friendly ? ` — ${friendly}` : ""}`;
+          }
+        } else if (preview) {
+          preview.remove();
+        }
+      };
+
       dropdown.addEventListener("mousedown", (ev) => {
         ev.preventDefault(); // Prevent blur before click registers
         const opt = ev.target.closest(".ep-option");
@@ -667,11 +783,15 @@ class EegOptimizerPanel extends HTMLElement {
           input.value = opt.dataset.value;
           this._wizardData[field] = opt.dataset.value;
           dropdown.style.display = "none";
+          updatePreview(opt.dataset.value);
         }
       });
 
       input.addEventListener("blur", () => {
-        setTimeout(() => { dropdown.style.display = "none"; }, 150);
+        setTimeout(() => {
+          dropdown.style.display = "none";
+          updatePreview(input.value);
+        }, 150);
       });
     });
   }
@@ -717,7 +837,7 @@ class EegOptimizerPanel extends HTMLElement {
         : `<div></div>`;
 
     let forwardBtn = "";
-    if (step === 7) {
+    if (step === WIZARD_STEPS.length - 1) {
       forwardBtn = `<button class="btn-primary" data-action="finish-wizard"${
         this._wizardLoading ? " disabled" : ""
       }>Fertig</button>`;
@@ -826,9 +946,6 @@ class EegOptimizerPanel extends HTMLElement {
     const p = this._prerequisites;
     const solcastOk = p && p.solcast_solar;
     const forecastOk = p && p.forecast_solar;
-    const noneInstalled = p && !solcastOk && !forecastOk;
-
-    let blockMsg = "";
 
     const solcastBadge = solcastOk
       ? '<span class="status-badge installed">Installiert</span>'
@@ -841,8 +958,36 @@ class EegOptimizerPanel extends HTMLElement {
     const solcastSelected = selected === "solcast_solar";
     const forecastSelected = selected === "forecast_solar";
 
+    // Auto-suggest sensor defaults when source is selected
+    if (
+      selected &&
+      (!this._wizardData.forecast_remaining_entity ||
+        this._wizardData.forecast_remaining_entity === SOLCAST_DEFAULTS.forecast_remaining_entity ||
+        this._wizardData.forecast_remaining_entity === FORECAST_SOLAR_DEFAULTS.forecast_remaining_entity)
+    ) {
+      this._applyForecastDefaults(selected);
+    }
+
+    // Sensor fields shown below cards when a source is selected
+    const sensorFields = selected ? `
+      <div style="margin-top:16px">
+        ${this._entityPickerHtml(
+          "forecast_remaining_entity",
+          this._wizardData.forecast_remaining_entity,
+          "Sensor für PV Prognose verbleibend heute *",
+          "Verbleibende PV-Produktion für den heutigen Tag in kWh.",
+          "sensor"
+        )}
+        ${this._entityPickerHtml(
+          "forecast_tomorrow_entity",
+          this._wizardData.forecast_tomorrow_entity,
+          "Sensor für PV Prognose morgen *",
+          "Prognostizierte PV-Produktion für morgen in kWh.",
+          "sensor"
+        )}
+      </div>` : "";
+
     return `
-      ${blockMsg}
       <p style="margin-bottom:12px;color:var(--secondary-text-color)">Wähle deine PV-Prognose-Quelle:</p>
       <div class="prereq-cards" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
         <div class="card forecast-option ${forecastSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center" data-action="select-forecast" data-value="forecast_solar">
@@ -864,10 +1009,11 @@ class EegOptimizerPanel extends HTMLElement {
           <button class="btn-secondary" data-action="show-dialog" data-dialog="solcast">Anleitung</button>
         </div>
       </div>
-      <button class="btn-secondary" data-action="recheck-prerequisites">Erneut prüfen</button>`;
+      <button class="btn-secondary" data-action="recheck-prerequisites">Erneut prüfen</button>
+      ${sensorFields}`;
   }
 
-  /* ── Step 3: Batterie & PV Sensoren ───────────── */
+  /* ── Step 3: Batteriesensoren ───────────── */
 
   _renderStep3() {
     const detected = this._detectedSensors && this._detectedSensors.detected;
@@ -883,8 +1029,9 @@ class EegOptimizerPanel extends HTMLElement {
     const socHelp =
       "Der SOC-Sensor zeigt den aktuellen Ladestand deiner Batterie in Prozent.";
 
-    // Auto-select capacity mode based on detection
-    if (!this._capacityMode) {
+    // Auto-select capacity mode: if sensor was detected, pick "sensor"; else "manual"
+    // Re-evaluate after detection (don't cache stale pre-detection default)
+    if (!this._capacityMode || (detected && !this._capacityModeUserSet)) {
       this._capacityMode = this._wizardData.battery_capacity_sensor ? "sensor" : "manual";
     }
     const capSensor = this._capacityMode === "sensor";
@@ -892,14 +1039,14 @@ class EegOptimizerPanel extends HTMLElement {
     const capSensorHtml = capSensor ? this._entityPickerHtml(
       "battery_capacity_sensor",
       this._wizardData.battery_capacity_sensor,
-      "Kapazitäts-Sensor",
+      "Sensor für Batteriekapazität",
       "",
       "sensor"
     ) : "";
 
     const capManualHtml = !capSensor ? `
       <div class="field-group">
-        <label>Kapazität (kWh)</label>
+        <label>Batteriekapazität (in kWh)</label>
         <input type="number" data-field="battery_capacity_kwh"
                value="${this._wizardData.battery_capacity_kwh || ""}"
                min="1" max="100" step="0.5"
@@ -912,24 +1059,24 @@ class EegOptimizerPanel extends HTMLElement {
       ${this._entityPickerHtml(
         "battery_soc_sensor",
         this._wizardData.battery_soc_sensor,
-        "SOC-Sensor *",
+        "Sensor für Batterieladezustand (SOC) *",
         socHelp,
         "sensor"
       )}
       <div class="field-group">
         <label>Batteriekapazität *</label>
-        <div class="radio-group">
-          <label class="radio-label">
-            <input type="radio" name="cap_mode" value="sensor" ${capSensor ? "checked" : ""} data-action="set-cap-mode">
-            Über Sensor auswählen
-          </label>
-          <label class="radio-label">
-            <input type="radio" name="cap_mode" value="manual" ${!capSensor ? "checked" : ""} data-action="set-cap-mode">
-            Manuell eingeben
-          </label>
+        <div class="cap-mode-cards">
+          <div class="cap-mode-card ${!capSensor ? "selected" : ""}" data-action="set-cap-mode-card" data-value="manual">
+            <ha-icon icon="mdi:pencil-box-outline"></ha-icon>
+            <span>Manuell eingeben</span>
+          </div>
+          <div class="cap-mode-card ${capSensor ? "selected" : ""}" data-action="set-cap-mode-card" data-value="sensor">
+            <ha-icon icon="mdi:auto-fix"></ha-icon>
+            <span>Über Sensor</span>
+          </div>
         </div>
-        ${capSensor ? `<div class="help-text" style="margin-bottom:8px">
-          Bei Huawei ist der Kapazitäts-Sensor standardmäßig deaktiviert.
+        ${capSensor ? `<div class="help-text" style="margin-top:8px;margin-bottom:8px">
+          Bei Huawei ist der Kapazitätssensor standardmäßig deaktiviert.
           <button class="btn-link" data-action="show-dialog" data-dialog="capacity_sensor">Anleitung zur Aktivierung</button>
         </div>` : ""}
       </div>
@@ -937,160 +1084,128 @@ class EegOptimizerPanel extends HTMLElement {
       ${capManualHtml}`;
   }
 
-  /* ── Step 4: Prognose-Sensoren ────────────────── */
+  /* ── Step 4: Verbrauch ──────────────────────── */
 
   _renderStep4() {
-    const p = this._prerequisites || {};
-    const solcastOk = p.solcast_solar;
-    const forecastOk = p.forecast_solar;
-
-    // Build forecast source options
-    let options = "";
-    if (solcastOk) {
-      options += `<option value="solcast_solar" ${
-        this._wizardData.forecast_source === "solcast_solar" ? "selected" : ""
-      }>Solcast Solar</option>`;
-    }
-    if (forecastOk) {
-      options += `<option value="forecast_solar" ${
-        this._wizardData.forecast_source === "forecast_solar" ? "selected" : ""
-      }>Forecast.Solar</option>`;
-    }
-
-    // Auto-suggest if entities are still default/empty
-    if (
-      !this._wizardData.forecast_remaining_entity ||
-      this._wizardData.forecast_remaining_entity ===
-        SOLCAST_DEFAULTS.forecast_remaining_entity ||
-      this._wizardData.forecast_remaining_entity ===
-        FORECAST_SOLAR_DEFAULTS.forecast_remaining_entity
-    ) {
-      this._applyForecastDefaults(this._wizardData.forecast_source);
-    }
-
-    return `
-      <div class="field-group">
-        <label>Prognose-Quelle</label>
-        <select data-field="forecast_source">${options}</select>
-      </div>
-      ${this._entityPickerHtml(
-        "forecast_remaining_entity",
-        this._wizardData.forecast_remaining_entity,
-        "PV Prognose verbleibend heute *",
-        "Verbleibende PV-Produktion für den heutigen Tag in kWh.",
-        "sensor"
-      )}
-      ${this._entityPickerHtml(
-        "forecast_tomorrow_entity",
-        this._wizardData.forecast_tomorrow_entity,
-        "PV Prognose morgen *",
-        "Prognostizierte PV-Produktion für morgen in kWh.",
-        "sensor"
-      )}`;
-  }
-
-  /* ── Step 5: Verbrauchssensor ─────────────────── */
-
-  _renderStep5() {
-    const advOpen = this._showAdvanced["consumption"];
-
     return `
       ${this._entityPickerHtml(
         "consumption_sensor",
         this._wizardData.consumption_sensor,
-        "Verbrauchssensor *",
+        "Sensor für Gesamtverbrauch *",
         "Sensor der den Gesamt-Stromverbrauch in kWh misst (total_increasing).",
         "sensor"
-      )}
-      <div class="collapsible-header" data-action="toggle-advanced" data-section="consumption">
-        <ha-icon icon="mdi:chevron-${advOpen ? "down" : "right"}"></ha-icon>
-        Erweitert
-      </div>
-      ${
-        advOpen
-          ? `<div class="collapsible-content">
-              <div class="field-group">
-                <label>Lookback Wochen</label>
-                <input type="number" data-field="lookback_weeks"
-                       value="${this._wizardData.lookback_weeks}"
-                       min="1" max="52">
-                <div class="help-text">Anzahl Wochen für den rollenden Verbrauchsdurchschnitt.</div>
-              </div>
-              <div class="field-group">
-                <label>Schnelles Update-Intervall (Minuten)</label>
-                <input type="number" data-field="update_interval_fast_min"
-                       value="${this._wizardData.update_interval_fast_min}"
-                       min="1" max="60">
-                <div class="help-text">Update-Intervall für Batterie- und PV-Sensoren.</div>
-              </div>
-              <div class="field-group">
-                <label>Langsames Update-Intervall (Minuten)</label>
-                <input type="number" data-field="update_interval_slow_min"
-                       value="${this._wizardData.update_interval_slow_min}"
-                       min="5" max="120">
-                <div class="help-text">Update-Intervall für das Verbrauchsprofil.</div>
-              </div>
-            </div>`
-          : ""
-      }`;
+      )}`;
   }
 
-  /* ── Step 6: Optimizer-Parameter ──────────────── */
+  /* ── Step 5: Ladung & Einspeisung ────────────── */
 
-  _renderStep6() {
-    const advOpen = this._showAdvanced["optimizer"];
+  _renderStep5() {
+    const mDelay = this._wizardData.enable_morning_delay;
+    const nDischarge = this._wizardData.enable_night_discharge;
+
+    const morningFields = mDelay ? `
+      <div class="feature-params">
+        <div class="field-group">
+          <label>Batterieladung blockiert bis maximal</label>
+          <input type="time" data-field="morning_end_time"
+                 value="${this._wizardData.morning_end_time}">
+          <div class="help-text">Maximal bis zu dieser Uhrzeit wird die Batterieladung morgens blockiert, damit der Strom stattdessen ins Netz eingespeist wird.</div>
+        </div>
+      </div>` : "";
+
+    const dischargeFields = nDischarge ? `
+      <div class="feature-params">
+        <div class="field-group">
+          <label>Startzeit der Entladung</label>
+          <input type="time" data-field="discharge_start_time"
+                 value="${this._wizardData.discharge_start_time}">
+          <div class="help-text">Ab wann abends die Batterie ins Netz entladen wird.</div>
+        </div>
+        <div class="field-group">
+          <label>Entladeleistung (kW)</label>
+          <input type="number" data-field="discharge_power_kw"
+                 value="${this._wizardData.discharge_power_kw}"
+                 min="0.5" max="10.0" step="0.5">
+          <div class="help-text">Leistung der Batterieentladung ins Netz.</div>
+        </div>
+        <div class="field-group">
+          <label>Minimaler Ladezustand (%)</label>
+          <input type="number" data-field="min_soc"
+                 value="${this._wizardData.min_soc}"
+                 min="5" max="50">
+          <div class="help-text">Die Einspeisung erfolgt nicht bis zu diesem Ladestand, sondern sorgt dafür, dass dieser Ladestand + der durchschnittliche Verbrauch in der Nacht + Sicherheitspuffer in der Batterie bleibt.</div>
+        </div>
+      </div>` : "";
 
     return `
+      <p style="margin-bottom:16px;color:var(--secondary-text-color)">
+        Wähle aus, welche Optimierungen aktiv sein sollen. Beide können unabhängig voneinander aktiviert werden.
+      </p>
+      <div class="feature-toggle">
+        <div class="feature-card ${mDelay ? "selected" : ""}" data-action="toggle-feature" data-feature="enable_morning_delay">
+          <div class="feature-card-header">
+            <ha-icon icon="mdi:weather-sunset-up"></ha-icon>
+            <div class="feature-card-text">
+              <span class="feature-title">Verzögerte Batterieladung</span>
+              <span class="feature-desc">Morgens wird die Batterie nicht sofort geladen, sondern die Energie direkt ins Netz und die EEG eingespeist — dort, wo sie zu dieser Zeit am dringendsten gebraucht wird. Das geschieht jedoch nur, wenn die PV-Prognose für den heutigen Tag im Verhältnis zum Verbrauch gut genug ist, damit die Batterie im Laufe des Tages sicher wieder vollgeladen wird.</span>
+            </div>
+            <div class="feature-badge ${mDelay ? "on" : "off"}">${mDelay ? "Aktiv" : "Aus"}</div>
+          </div>
+        </div>
+        ${morningFields}
+      </div>
+
+      <div class="feature-toggle" style="margin-top:16px">
+        <div class="feature-card ${nDischarge ? "selected" : ""}" data-action="toggle-feature" data-feature="enable_night_discharge">
+          <div class="feature-card-header">
+            <ha-icon icon="mdi:battery-arrow-down-outline"></ha-icon>
+            <div class="feature-card-text">
+              <span class="feature-title">Nachteinspeisung</span>
+              <span class="feature-desc">Abends wird überschüssige Energie aus der Batterie ins Netz entladen. Jedoch nur wenn die Prognose des morgigen Tags so gut ist, dass die Batterie morgen wieder vollgeladen werden kann. Und nur so viel, dass man die Nacht auf Basis der bekannten Verbrauchsdaten trotzdem mit dem eigenen Strom auskommt.</span>
+            </div>
+            <div class="feature-badge ${nDischarge ? "on" : "off"}">${nDischarge ? "Aktiv" : "Aus"}</div>
+          </div>
+        </div>
+        ${dischargeFields}
+      </div>
+
+      <div style="margin-top:24px">
+        <h3 style="margin:0 0 12px;font-size:16px">Allgemeine Einstellungen</h3>
+        <div class="field-group">
+          <label>Sicherheitspuffer (%)</label>
+          <input type="number" data-field="safety_buffer_pct"
+                 value="${this._wizardData.safety_buffer_pct}"
+                 min="0" max="100" step="5">
+          <div class="help-text">Aufschlag auf den berechneten Energiebedarf. Gilt für beide Optimierungen — sorgt dafür, dass immer eine Reserve eingeplant wird.</div>
+        </div>
+      </div>`;
+  }
+
+  /* ── Step 6: Erweiterte Einstellungen ────────── */
+
+  _renderStep6() {
+    return `
       <div class="field-group">
-        <label>Überschuss-Schwelle</label>
-        <input type="number" data-field="ueberschuss_schwelle"
-               value="${this._wizardData.ueberschuss_schwelle}"
-               min="0.5" max="3.0" step="0.05">
-        <div class="help-text">Ab welchem PV/Verbrauch-Verhältnis ein Tag als Überschuss-Tag gilt.</div>
+        <label>Anzahl der Wochen für den Verbrauchsdurchschnitt</label>
+        <input type="number" data-field="lookback_weeks"
+               value="${this._wizardData.lookback_weeks}"
+               min="1" max="52">
+        <div class="help-text">Legt die Anzahl an Wochen fest, die wir im durchschnittlichen Verbrauchswert pro Tag berücksichtigen.</div>
       </div>
       <div class="field-group">
-        <label>Morgen-Einspeisung Ende</label>
-        <input type="time" data-field="morning_end_time"
-               value="${this._wizardData.morning_end_time}">
-        <div class="help-text">Bis wann morgens die Batterieladung blockiert wird.</div>
+        <label>Schnelles Update-Intervall (Minuten)</label>
+        <input type="number" data-field="update_interval_fast_min"
+               value="${this._wizardData.update_interval_fast_min}"
+               min="1" max="60">
+        <div class="help-text">Update-Intervall für Batterie- und PV-Sensoren.</div>
       </div>
       <div class="field-group">
-        <label>Entladung Startzeit</label>
-        <input type="time" data-field="discharge_start_time"
-               value="${this._wizardData.discharge_start_time}">
-        <div class="help-text">Ab wann abends die Batterie ins Netz entladen wird.</div>
-      </div>
-      <div class="field-group">
-        <label>Entladeleistung (kW)</label>
-        <input type="number" data-field="discharge_power_kw"
-               value="${this._wizardData.discharge_power_kw}"
-               min="0.5" max="10.0" step="0.5">
-        <div class="help-text">Entladeleistung der Batterie in kW.</div>
-      </div>
-      <div class="collapsible-header" data-action="toggle-advanced" data-section="optimizer">
-        <ha-icon icon="mdi:chevron-${advOpen ? "down" : "right"}"></ha-icon>
-        Erweitert
-      </div>
-      ${
-        advOpen
-          ? `<div class="collapsible-content">
-              <div class="field-group">
-                <label>Min SOC (%)</label>
-                <input type="number" data-field="min_soc"
-                       value="${this._wizardData.min_soc}"
-                       min="5" max="50">
-                <div class="help-text">Minimaler Ladezustand, unter den die Batterie nicht entladen wird.</div>
-              </div>
-              <div class="field-group">
-                <label>Sicherheitspuffer (%)</label>
-                <input type="number" data-field="safety_buffer_pct"
-                       value="${this._wizardData.safety_buffer_pct}"
-                       min="0" max="100" step="5">
-                <div class="help-text">Sicherheitsaufschlag auf den Nachtverbrauch bei der Min-SOC Berechnung.</div>
-              </div>
-            </div>`
-          : ""
-      }`;
+        <label>Langsames Update-Intervall (Minuten)</label>
+        <input type="number" data-field="update_interval_slow_min"
+               value="${this._wizardData.update_interval_slow_min}"
+               min="5" max="120">
+        <div class="help-text">Update-Intervall für das Verbrauchsprofil.</div>
+      </div>`;
   }
 
   /* ── Step 7: Zusammenfassung ──────────────────── */
@@ -1115,7 +1230,7 @@ class EegOptimizerPanel extends HTMLElement {
 
       <div class="summary-section">
         <h3>Batterie &amp; PV</h3>
-        ${row("SOC-Sensor", d.battery_soc_sensor || "—")}
+        ${row("Batterieladezustand (SOC)", d.battery_soc_sensor || "—")}
         ${row(
           "Kapazität",
           d.battery_capacity_sensor
@@ -1135,17 +1250,28 @@ class EegOptimizerPanel extends HTMLElement {
       <div class="summary-section">
         <h3>Verbrauch</h3>
         ${row("Sensor", d.consumption_sensor || "—")}
-        ${row("Lookback", d.lookback_weeks + " Wochen")}
       </div>
 
       <div class="summary-section">
-        <h3>Optimizer</h3>
-        ${row("Überschuss-Schwelle", d.ueberschuss_schwelle)}
-        ${row("Morgen-Ende", d.morning_end_time)}
-        ${row("Entlade-Start", d.discharge_start_time)}
-        ${row("Leistung", d.discharge_power_kw + " kW")}
-        ${row("Min SOC", d.min_soc + " %")}
+        <h3>Verzögerte Batterieladung</h3>
+        ${row("Status", d.enable_morning_delay ? "Aktiv" : "Deaktiviert")}
+        ${d.enable_morning_delay ? row("Blockiert bis", d.morning_end_time) : ""}
+      </div>
+
+      <div class="summary-section">
+        <h3>Nachteinspeisung</h3>
+        ${row("Status", d.enable_night_discharge ? "Aktiv" : "Deaktiviert")}
+        ${d.enable_night_discharge ? `
+          ${row("Startzeit", d.discharge_start_time)}
+          ${row("Leistung", d.discharge_power_kw + " kW")}
+          ${row("Min SOC", d.min_soc + " %")}
+        ` : ""}
+      </div>
+
+      <div class="summary-section">
+        <h3>Allgemein</h3>
         ${row("Sicherheitspuffer", d.safety_buffer_pct + " %")}
+        ${row("Verbrauchsdurchschnitt", d.lookback_weeks + " Wochen")}
       </div>`;
   }
 
@@ -1161,6 +1287,269 @@ class EegOptimizerPanel extends HTMLElement {
           <div style="text-align:right;margin-top:16px">
             <button class="btn-primary" data-action="close-dialog">Schließen</button>
           </div>
+        </div>
+      </div>`;
+  }
+
+  /* ── Dashboard rendering ─────────────────────── */
+
+  _getWeekdayKey(date) {
+    return ["so", "mo", "di", "mi", "do", "fr", "sa"][date.getDay()];
+  }
+
+  _getWeekdayLabel(date) {
+    return ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"][date.getDay()];
+  }
+
+  _getWeekdayShort(date) {
+    return ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][date.getDay()];
+  }
+
+  _readState(entityId) {
+    if (!this._hass || !entityId) return null;
+    const s = this._hass.states[entityId];
+    if (!s) return null;
+    if (s.state === "unavailable" || s.state === "unknown") return null;
+    return s;
+  }
+
+  _readFloat(entityId) {
+    const s = this._readState(entityId);
+    if (!s) return null;
+    const v = parseFloat(s.state);
+    return isNaN(v) ? null : v;
+  }
+
+  _renderBarChart(data) {
+    if (!data || data.length === 0) return "<p>Keine Daten verfügbar</p>";
+    const width = 700, height = 300, padding = {top: 30, right: 20, bottom: 40, left: 50};
+    const chartW = width - padding.left - padding.right;
+    const chartH = height - padding.top - padding.bottom;
+    const maxVal = Math.max(...data.map(d => d.value), 1) * 1.1;
+    const barW = chartW / data.length * 0.7;
+    const gap = chartW / data.length * 0.3;
+
+    let bars = "";
+    data.forEach((d, i) => {
+      const x = padding.left + i * (chartW / data.length) + gap / 2;
+      const barH = (d.value / maxVal) * chartH;
+      const y = padding.top + chartH - barH;
+      bars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="var(--primary-color)" rx="3"/>`;
+      bars += `<text x="${x + barW/2}" y="${y - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${d.value.toFixed(1)}</text>`;
+      bars += `<text x="${x + barW/2}" y="${height - 10}" text-anchor="middle" font-size="11" fill="var(--secondary-text-color)">${d.label}</text>`;
+    });
+
+    let yLines = "";
+    for (let i = 0; i <= 4; i++) {
+      const y = padding.top + (chartH / 4) * i;
+      const val = (maxVal * (4 - i) / 4).toFixed(0);
+      yLines += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--divider-color)" stroke-dasharray="4"/>`;
+      yLines += `<text x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
+    }
+
+    return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${yLines}${bars}</svg>`;
+  }
+
+  _renderLineChart(hourlyData, label) {
+    if (!hourlyData || hourlyData.length !== 24) return "<p>Keine Daten verfügbar</p>";
+    const width = 700, height = 250, padding = {top: 20, right: 20, bottom: 40, left: 50};
+    const chartW = width - padding.left - padding.right;
+    const chartH = height - padding.top - padding.bottom;
+    const maxVal = Math.max(...hourlyData, 0.1) * 1.1;
+
+    let points = "";
+    let areaPoints = `${padding.left},${padding.top + chartH} `;
+    hourlyData.forEach((val, i) => {
+      const x = padding.left + (i / 23) * chartW;
+      const y = padding.top + chartH - (val / maxVal) * chartH;
+      points += `${x},${y} `;
+      areaPoints += `${x},${y} `;
+    });
+    areaPoints += `${padding.left + chartW},${padding.top + chartH}`;
+
+    let xLabels = "";
+    for (let h = 0; h < 24; h += 3) {
+      const x = padding.left + (h / 23) * chartW;
+      xLabels += `<text x="${x}" y="${height - 10}" text-anchor="middle" font-size="10" fill="var(--secondary-text-color)">${h}:00</text>`;
+    }
+
+    let yLines = "";
+    for (let i = 0; i <= 4; i++) {
+      const y = padding.top + (chartH / 4) * i;
+      const val = (maxVal * (4 - i) / 4).toFixed(1);
+      yLines += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--divider-color)" stroke-dasharray="4"/>`;
+      yLines += `<text x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
+    }
+
+    return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">
+      ${yLines}
+      <polygon points="${areaPoints}" fill="var(--primary-color)" opacity="0.1"/>
+      <polyline points="${points}" fill="none" stroke="var(--primary-color)" stroke-width="2"/>
+      ${xLabels}
+      <text x="${width/2}" y="${height - 25}" text-anchor="middle" font-size="11" fill="var(--secondary-text-color)">${label}</text>
+    </svg>`;
+  }
+
+  _renderDashboard() {
+    const h = this._hass;
+    if (!h) return "<p>Lade...</p>";
+
+    // --- Status card ---
+    const modeState = this._readState("select.eeg_energy_optimizer_optimizer");
+    const modeValue = modeState ? modeState.state : "---";
+    const modeBadgeClass = modeValue === "Ein" ? "green" : modeValue === "Test" ? "yellow" : modeValue === "Aus" ? "gray" : "gray";
+
+    const decisionState = this._readState("sensor.eeg_energy_optimizer_entscheidung");
+    const zustand = decisionState?.attributes?.zustand || decisionState?.state || "---";
+    const zustandBadgeClass =
+      zustand === "Morgen-Einspeisung" ? "blue" :
+      zustand === "Normal" ? "green" :
+      zustand === "Abend-Entladung" ? "orange" : "gray";
+
+    const naechsteAktion = decisionState?.attributes?.naechste_aktion || decisionState?.state || "---";
+    const energiebedarf = decisionState?.attributes?.energiebedarf_kwh;
+    const energiebedarfText = energiebedarf != null ? `${Number(energiebedarf).toFixed(1)} kWh` : "---";
+
+    // --- Metrics ---
+    const socSensor = this._config?.battery_soc_sensor;
+    const socVal = socSensor ? this._readFloat(socSensor) : null;
+    const socText = socVal != null ? `${Math.round(socVal)}` : (socSensor ? "---" : "Nicht konfiguriert");
+    const socColorClass = socVal == null ? "" : socVal > 50 ? "soc-green" : socVal >= 25 ? "soc-yellow" : "soc-red";
+
+    const pvHeute = this._readFloat("sensor.eeg_energy_optimizer_pv_prognose_heute");
+    const pvHeuteText = pvHeute != null ? `${pvHeute.toFixed(1)}` : "---";
+
+    const pvMorgen = this._readFloat("sensor.eeg_energy_optimizer_pv_prognose_morgen");
+    const pvMorgenText = pvMorgen != null ? `${pvMorgen.toFixed(1)}` : "---";
+
+    // --- 7-day forecast chart ---
+    const forecastSensors = [
+      "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_heute",
+      "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_morgen",
+      "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_2",
+      "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_3",
+      "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_4",
+      "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_5",
+      "sensor.eeg_energy_optimizer_tagesverbrauchsprognose_tag_6",
+    ];
+    const today = new Date();
+    const forecastData = forecastSensors.map((eid, i) => {
+      const val = this._readFloat(eid);
+      let label;
+      if (i === 0) label = "Heute";
+      else if (i === 1) label = "Morgen";
+      else {
+        const d = new Date(today);
+        d.setDate(d.getDate() + i);
+        label = this._getWeekdayShort(d);
+      }
+      return { label, value: val || 0 };
+    });
+
+    // --- Hourly profile chart ---
+    const profilState = this._readState("sensor.eeg_energy_optimizer_verbrauchsprofil");
+    const dayKey = this._getWeekdayKey(today);
+    const dayLabel = this._getWeekdayLabel(today);
+    let hourlyWatts = profilState?.attributes?.[`${dayKey}_watts`] || null;
+    // Convert watts to kWh for display (divide by 1000)
+    let hourlyKwh = null;
+    if (hourlyWatts && Array.isArray(hourlyWatts) && hourlyWatts.length === 24) {
+      hourlyKwh = hourlyWatts.map(w => w / 1000);
+    }
+
+    // --- Inverter test (keep existing) ---
+    const testResult = this._inverterTestResult;
+    const testing = this._inverterTesting;
+    let testStatusHtml = "";
+    if (testing) {
+      testStatusHtml = `<div class="help-text" style="margin-top:12px">Teste Verbindung...</div>`;
+    } else if (testResult) {
+      if (testResult.success) {
+        testStatusHtml = `<div class="inverter-test-result success" style="margin-top:12px">
+          <ha-icon icon="mdi:check-circle"></ha-icon> ${testResult.message}
+        </div>`;
+      } else {
+        testStatusHtml = `<div class="inverter-test-result error" style="margin-top:12px">
+          <ha-icon icon="mdi:alert-circle"></ha-icon> ${testResult.error}
+        </div>`;
+      }
+    }
+
+    const narrowClass = this._narrow ? " narrow" : "";
+
+    return `
+      <div class="dashboard-grid${narrowClass}">
+        <!-- Status Card -->
+        <div class="card">
+          <h3 style="margin-top:0">Optimizer Status</h3>
+          <div class="status-row">
+            <div class="status-item">
+              <span class="label">Modus:</span>
+              <span class="badge ${modeBadgeClass}">${modeValue}</span>
+            </div>
+            <div class="status-item">
+              <span class="label">Zustand:</span>
+              <span class="badge ${zustandBadgeClass}">${zustand}</span>
+            </div>
+          </div>
+          <div class="status-row" style="margin-top:8px">
+            <div class="status-item">
+              <span class="label">Energiebedarf:</span>
+              <span style="font-weight:500">${energiebedarfText}</span>
+            </div>
+          </div>
+          <div class="next-action">
+            <strong>Nächste Aktion:</strong> ${naechsteAktion}
+          </div>
+        </div>
+
+        <!-- Metrics Row -->
+        <div class="metrics-row">
+          <div class="card metric-card">
+            <div class="value ${socColorClass}">${socText}</div>
+            <div class="unit">${socVal != null ? "%" : ""}</div>
+            <div class="label">Batterie SOC</div>
+          </div>
+          <div class="card metric-card">
+            <div class="value">${pvHeuteText}</div>
+            <div class="unit">${pvHeute != null ? "kWh" : ""}</div>
+            <div class="label">
+              <ha-icon icon="mdi:solar-power" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
+              PV Heute
+            </div>
+          </div>
+          <div class="card metric-card">
+            <div class="value">${pvMorgenText}</div>
+            <div class="unit">${pvMorgen != null ? "kWh" : ""}</div>
+            <div class="label">
+              <ha-icon icon="mdi:solar-power" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
+              PV Morgen
+            </div>
+          </div>
+        </div>
+
+        <!-- 7-Day Forecast Chart -->
+        <div class="card chart-card">
+          <h3>Verbrauchsprognose (7 Tage)</h3>
+          ${this._renderBarChart(forecastData)}
+        </div>
+
+        <!-- Hourly Profile Chart -->
+        <div class="card chart-card">
+          <h3>Verbrauchsprofil (Stundenmittel)</h3>
+          ${this._renderLineChart(hourlyKwh, dayLabel)}
+        </div>
+
+        <!-- Inverter Test Card -->
+        <div class="card">
+          <h3 style="margin-top:0">Wechselrichter-Verbindung</h3>
+          <p style="color:var(--secondary-text-color);font-size:14px">
+            Teste die Kommunikation mit deinem Wechselrichter.
+          </p>
+          <button class="btn-primary" data-action="test-inverter" ${testing ? "disabled" : ""}>
+            ${testing ? "Teste..." : "Verbindung testen"}
+          </button>
+          ${testStatusHtml}
         </div>
       </div>`;
   }
@@ -1204,9 +1593,7 @@ class EegOptimizerPanel extends HTMLElement {
       content = `
         <div class="content">
           <div id="dashboard-root">
-            <div class="card">
-              <p>Dashboard wird geladen...</p>
-            </div>
+            ${this._renderDashboard()}
           </div>
         </div>`;
     }
@@ -1317,15 +1704,72 @@ class EegOptimizerPanel extends HTMLElement {
         .status-badge.installed { background: var(--success-color, #4caf50); color: white; }
         .status-badge.missing { background: var(--error-color, #f44336); color: white; }
         .loading { text-align: center; padding: 24px; color: var(--secondary-text-color); }
-        .radio-group { display: flex; gap: 16px; margin: 8px 0; }
-        .radio-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 14px; }
-        .radio-label input[type="radio"] { accent-color: var(--primary-color); }
+        .feature-toggle { margin-bottom: 4px; }
+        .feature-card {
+          border: 2px solid var(--divider-color); border-radius: 8px;
+          padding: 16px; cursor: pointer; transition: border-color 0.2s, background 0.2s;
+        }
+        .feature-card:hover { border-color: var(--primary-color); }
+        .feature-card.selected {
+          border-color: var(--primary-color);
+          background: var(--primary-color-light, rgba(3,169,244,0.08));
+        }
+        .feature-card-header {
+          display: flex; align-items: flex-start; gap: 12px;
+        }
+        .feature-card-header ha-icon { --mdc-icon-size: 28px; color: var(--secondary-text-color); flex-shrink: 0; margin-top: 2px; }
+        .feature-card.selected ha-icon { color: var(--primary-color); }
+        .feature-card-text { flex: 1; }
+        .feature-title { display: block; font-weight: 500; font-size: 14px; margin-bottom: 4px; }
+        .feature-desc { display: block; font-size: 12px; color: var(--secondary-text-color); line-height: 1.4; }
+        .feature-badge {
+          flex-shrink: 0; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 500;
+        }
+        .feature-badge.on { background: var(--success-color, #4caf50); color: white; }
+        .feature-badge.off { background: var(--disabled-color, #bdbdbd); color: white; }
+        .feature-params { padding: 12px 0 0 40px; }
+        .cap-mode-cards { display: flex; gap: 12px; margin: 8px 0; }
+        .cap-mode-card {
+          flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px;
+          padding: 16px 12px; border: 2px solid var(--divider-color); border-radius: 8px;
+          cursor: pointer; transition: border-color 0.2s, background 0.2s;
+          background: var(--card-background-color);
+        }
+        .cap-mode-card:hover { border-color: var(--primary-color); }
+        .cap-mode-card.selected {
+          border-color: var(--primary-color);
+          background: var(--primary-color-light, rgba(3,169,244,0.08));
+        }
+        .cap-mode-card ha-icon { --mdc-icon-size: 28px; color: var(--secondary-text-color); }
+        .cap-mode-card.selected ha-icon { color: var(--primary-color); }
+        .cap-mode-card span { font-size: 13px; font-weight: 500; text-align: center; }
         .btn-link {
           background: none; border: none; color: var(--primary-color); cursor: pointer;
           font-size: 12px; text-decoration: underline; padding: 0;
         }
         .btn-link:hover { opacity: 0.8; }
+        .inverter-test-result {
+          display: flex; align-items: center; gap: 8px; padding: 12px;
+          border-radius: 8px; font-size: 14px; font-weight: 500;
+        }
+        .inverter-test-result.success {
+          background: rgba(76, 175, 80, 0.1); color: var(--success-color, #4caf50);
+        }
+        .inverter-test-result.error {
+          background: rgba(244, 67, 54, 0.1); color: var(--error-color, #f44336);
+        }
+        .inverter-test-result ha-icon { --mdc-icon-size: 20px; }
+        .ep-value-preview {
+          font-size: 12px; color: var(--success-color, #4caf50); margin-top: 4px;
+          display: flex; align-items: center; gap: 4px;
+        }
+        .ep-value-preview.unavailable { color: var(--error-color, #f44336); }
         .ep-container { position: relative; }
+        .ep-chevron {
+          position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+          color: var(--secondary-text-color); pointer-events: none;
+        }
+        .ep-container input.entity-input { padding-right: 32px; }
         .ep-dropdown {
           display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 10;
           max-height: 200px; overflow-y: auto;
@@ -1341,6 +1785,30 @@ class EegOptimizerPanel extends HTMLElement {
         .ep-id { font-size: 11px; color: var(--secondary-text-color); }
         .prereq-cards .card { box-shadow: none; border: 2px solid var(--divider-color); transition: border-color 0.2s; }
         .forecast-option.selected { border-color: var(--primary-color); background: var(--primary-color-light, rgba(3,169,244,0.08)); }
+        /* Dashboard styles */
+        .dashboard-grid { display: grid; gap: 16px; }
+        .metrics-row { display: flex; gap: 16px; flex-wrap: wrap; }
+        .metric-card { flex: 1; min-width: 140px; text-align: center; }
+        .metric-card .value { font-size: 28px; font-weight: 500; color: var(--primary-text-color); }
+        .metric-card .label { font-size: 12px; color: var(--secondary-text-color); margin-top: 4px; }
+        .metric-card .unit { font-size: 14px; color: var(--secondary-text-color); }
+        .status-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+        .status-item { display: flex; align-items: center; gap: 8px; }
+        .status-item .label { font-size: 14px; color: var(--secondary-text-color); }
+        .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 500; color: white; }
+        .badge.green { background: var(--success-color, #4caf50); }
+        .badge.yellow { background: var(--warning-color, #ff9800); }
+        .badge.blue { background: var(--info-color, #2196f3); }
+        .badge.orange { background: #ff5722; }
+        .badge.gray { background: var(--disabled-color, #9e9e9e); }
+        .next-action { font-size: 14px; color: var(--primary-text-color); padding: 8px 0; border-top: 1px solid var(--divider-color); margin-top: 8px; }
+        .chart-card { padding: 16px; }
+        .chart-card h3 { font-size: 16px; margin: 0 0 12px; color: var(--primary-text-color); }
+        .soc-green { color: var(--success-color, #4caf50); }
+        .soc-yellow { color: var(--warning-color, #ff9800); }
+        .soc-red { color: var(--error-color, #f44336); }
+        .dashboard-grid.narrow .metrics-row { flex-direction: column; }
+        .dashboard-grid.narrow .metric-card { min-width: unset; }
       </style>
       <div class="toolbar">
         <h1>EEG Optimizer</h1>
