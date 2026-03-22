@@ -7,6 +7,7 @@ Forecast.Solar HA integrations via entity state reads.
 from __future__ import annotations
 
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -40,12 +41,13 @@ def _read_float(hass: HomeAssistant, entity_id: str) -> float | None:
         return None
 
 
-class ForecastProvider:
-    """Base class for PV forecast providers."""
+class ForecastProvider(ABC):
+    """Abstract base class for PV forecast providers."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         self._hass = hass
 
+    @abstractmethod
     def get_forecast(self) -> PVForecast:
         """Return current PV forecast. Must be overridden."""
         raise NotImplementedError
