@@ -19,17 +19,18 @@ from .const import (
     CONF_BATTERY_SOC_SENSOR,
     CONF_DISCHARGE_POWER_KW,
     CONF_DISCHARGE_START_TIME,
+    CONF_ENABLE_MORNING_DELAY,
+    CONF_ENABLE_NIGHT_DISCHARGE,
     CONF_MIN_SOC,
     CONF_MORNING_END_TIME,
     CONF_SAFETY_BUFFER_PCT,
-    CONF_UEBERSCHUSS_SCHWELLE,
     DEFAULT_DISCHARGE_POWER_KW,
     DEFAULT_DISCHARGE_START_TIME,
     DEFAULT_MIN_SOC,
     DEFAULT_MORNING_END_TIME,
     DEFAULT_SAFETY_BUFFER_PCT,
-    DEFAULT_UEBERSCHUSS_SCHWELLE,
     MODE_EIN,
+    MODE_TEST,
     STATE_ABEND_ENTLADUNG,
     STATE_MORGEN_EINSPEISUNG,
     STATE_NORMAL,
@@ -76,8 +77,9 @@ class Snapshot:
     pv_remaining_today_kwh: float | None = None
     pv_tomorrow_kwh: float | None = None
     consumption_today_kwh: float = 0.0
+    consumption_to_sunset_kwh: float = 0.0
     consumption_tomorrow_kwh: float = 0.0
-    consumption_to_sunrise_kwh: float = 0.0
+    consumption_overnight_kwh: float = 0.0
     sunrise: datetime | None = None
     sunset: datetime | None = None
 
@@ -88,7 +90,7 @@ class Decision:
 
     timestamp: str = ""
     zustand: str = "Normal"
-    ueberschuss_faktor: float = 0.0
+    energiebedarf_kwh: float = 0.0
     ladung_blockiert: bool = False
     entladung_aktiv: bool = False
     entladeleistung_kw: float = 0.0
@@ -117,10 +119,6 @@ class EEGOptimizer:
         self._provider = provider
 
         # Config values
-        self._ueberschuss_schwelle = config.get(
-            CONF_UEBERSCHUSS_SCHWELLE, DEFAULT_UEBERSCHUSS_SCHWELLE
-        )
-
         morning_end = config.get(CONF_MORNING_END_TIME, DEFAULT_MORNING_END_TIME)
         parts = morning_end.split(":")
         self._morning_end_hour = int(parts[0])
@@ -140,6 +138,8 @@ class EEGOptimizer:
         self._safety_buffer_pct = config.get(
             CONF_SAFETY_BUFFER_PCT, DEFAULT_SAFETY_BUFFER_PCT
         )
+        self._enable_morning_delay = config.get(CONF_ENABLE_MORNING_DELAY, True)
+        self._enable_night_discharge = config.get(CONF_ENABLE_NIGHT_DISCHARGE, True)
 
         # Inverter deduplication
         self._prev_zustand: str | None = None
@@ -187,12 +187,30 @@ class EEGOptimizer:
             tomorrow_start, tomorrow_end
         ).get("verbrauch_kwh", 0.0)
 
-        # Overnight consumption (now to sunrise)
-        consumption_to_sunrise = 0.0
-        if sunrise is not None and sunrise > now:
-            consumption_to_sunrise = self._coordinator.calculate_period(
-                now, sunrise
+        # Consumption until sunset (for morning delay decision)
+        consumption_to_sunset = 0.0
+        if sunset is not None and sunset > now:
+            consumption_to_sunset = self._coordinator.calculate_period(
+                now, sunset
             ).get("verbrauch_kwh", 0.0)
+
+        # Overnight consumption for discharge min-SOC calculation
+        # Before discharge start: from discharge_start to sunrise + 1h
+        # After discharge start: from now to sunrise + 1h
+        consumption_overnight = 0.0
+        if sunrise is not None:
+            overnight_end = sunrise + timedelta(hours=1)
+            discharge_start = now.replace(
+                hour=self._discharge_start_h,
+                minute=self._discharge_start_m,
+                second=0,
+                microsecond=0,
+            )
+            overnight_start = max(discharge_start, now)
+            if overnight_end > overnight_start:
+                consumption_overnight = self._coordinator.calculate_period(
+                    overnight_start, overnight_end
+                ).get("verbrauch_kwh", 0.0)
 
         return Snapshot(
             now=now,
@@ -201,8 +219,9 @@ class EEGOptimizer:
             pv_remaining_today_kwh=pv_remaining,
             pv_tomorrow_kwh=pv_tomorrow,
             consumption_today_kwh=consumption_today,
+            consumption_to_sunset_kwh=consumption_to_sunset,
             consumption_tomorrow_kwh=consumption_tomorrow,
-            consumption_to_sunrise_kwh=consumption_to_sunrise,
+            consumption_overnight_kwh=consumption_overnight,
             sunrise=sunrise,
             sunset=sunset,
         )
@@ -255,26 +274,39 @@ class EEGOptimizer:
     # Decision logic
     # ------------------------------------------------------------------
 
-    def _calc_ueberschuss_faktor(self, snap: Snapshot) -> float:
-        """Calculate surplus factor: PV remaining / consumption today."""
-        if snap.pv_remaining_today_kwh is None or snap.pv_remaining_today_kwh <= 0:
-            return 0.0
-        if snap.consumption_today_kwh <= 0:
-            return 99.0
-        return snap.pv_remaining_today_kwh / snap.consumption_today_kwh
+    def _calc_energiebedarf(self, snap: Snapshot) -> float:
+        """Calculate total energy demand: consumption to sunset + missing battery energy.
+
+        This represents everything that must be covered by today's PV:
+        - Household consumption until sunset (when PV production ends)
+        - Energy needed to fully charge the battery
+        """
+        # Consumption from now until sunset
+        consumption = snap.consumption_to_sunset_kwh
+
+        # Missing battery energy (kWh to reach 100%)
+        missing_battery = 0.0
+        if snap.battery_capacity_kwh > 0:
+            missing_battery = (
+                (100 - snap.battery_soc) / 100 * snap.battery_capacity_kwh
+            )
+
+        return consumption + missing_battery
 
     def _should_block_charging(self, snap: Snapshot) -> bool:
         """Determine if morning charge blocking should be active.
 
-        Per D-01 to D-04:
-        - Only on surplus days (factor >= threshold)
-        - Time window: sunrise - 1h to morning_end_time
-        """
-        if snap.sunrise is None:
-            return False
+        Conditions (all must be true):
+        - Feature enabled in config
+        - Sunrise known
+        - Current time within window (sunrise - 1h to morning_end_time)
+        - PV forecast today > energy demand * (1 + safety_buffer)
 
-        faktor = self._calc_ueberschuss_faktor(snap)
-        if faktor < self._ueberschuss_schwelle:
+        Energy demand = consumption to sunset + missing battery energy.
+        """
+        if not self._enable_morning_delay:
+            return False
+        if snap.sunrise is None:
             return False
 
         window_start = snap.sunrise - timedelta(hours=1)
@@ -284,18 +316,30 @@ class EEGOptimizer:
             second=0,
             microsecond=0,
         )
+        if not (window_start <= snap.now <= morning_end):
+            return False
 
-        return window_start <= snap.now <= morning_end
+        pv_today = snap.pv_remaining_today_kwh
+        if pv_today is None or pv_today <= 0:
+            return False
+
+        bedarf = self._calc_energiebedarf(snap)
+        schwelle = bedarf * (1 + self._safety_buffer_pct / 100)
+
+        return pv_today > schwelle
 
     def _calc_min_soc(self, snap: Snapshot) -> float:
         """Calculate dynamic minimum SOC for discharge.
 
         Formula: base_min_soc + ceil((overnight_kwh * (1 + buffer%) / capacity) * 100)
+
+        overnight_kwh covers the period from discharge start (or now, if
+        already discharging) until sunrise + 1h the next morning.
         """
         if snap.battery_capacity_kwh <= 0:
             return float(self._min_soc)
 
-        needed_kwh = snap.consumption_to_sunrise_kwh * (
+        needed_kwh = snap.consumption_overnight_kwh * (
             1 + self._safety_buffer_pct / 100
         )
         soc_pct = needed_kwh / snap.battery_capacity_kwh * 100
@@ -307,10 +351,13 @@ class EEGOptimizer:
         """Determine if evening discharge should be active.
 
         Per D-05 to D-09:
+        - Feature must be enabled in config
         - Time >= discharge_start
         - SOC > calculated min_soc
         - PV tomorrow >= tomorrow_demand (including battery charge needs)
         """
+        if not self._enable_night_discharge:
+            return (False, float(self._min_soc), ["Nachteinspeisung deaktiviert"])
         min_soc = self._calc_min_soc(snap)
         reasons: list[str] = []
 
@@ -345,7 +392,7 @@ class EEGOptimizer:
 
     def _evaluate(self, snap: Snapshot, mode: str) -> Decision:
         """Evaluate snapshot and produce a Decision."""
-        faktor = self._calc_ueberschuss_faktor(snap)
+        bedarf = self._calc_energiebedarf(snap)
         block = self._should_block_charging(snap)
         should_discharge, min_soc, discharge_reasons = self._should_discharge(snap)
 
@@ -374,12 +421,13 @@ class EEGOptimizer:
         decision = Decision(
             timestamp=snap.now.isoformat(),
             zustand=zustand,
-            ueberschuss_faktor=round(faktor, 2),
+            energiebedarf_kwh=round(bedarf, 2),
             ladung_blockiert=block,
             entladung_aktiv=(zustand == STATE_ABEND_ENTLADUNG),
             entladeleistung_kw=self._discharge_power_kw if zustand == STATE_ABEND_ENTLADUNG else 0.0,
             min_soc_berechnet=round(min_soc, 1),
             naechste_aktion=naechste_aktion,
+            # Explicit: ausfuehrung=True only for MODE_EIN, False for MODE_TEST/MODE_AUS
             ausfuehrung=(mode == MODE_EIN),
             block_reasons=discharge_reasons if zustand != STATE_ABEND_ENTLADUNG else [],
         )
@@ -396,6 +444,7 @@ class EEGOptimizer:
         lines.append("")
 
         if decision.ladung_blockiert:
+            schwelle = decision.energiebedarf_kwh * (1 + self._safety_buffer_pct / 100)
             lines.append("### Ladung blockiert")
             lines.append(
                 f"- Blockiert bis: {self._morning_end_hour:02d}:{self._morning_end_min:02d}"
@@ -405,10 +454,12 @@ class EEGOptimizer:
                     f"- PV Prognose heute: {snap.pv_remaining_today_kwh:.1f} kWh"
                 )
             lines.append(
-                f"- Verbrauchsprognose heute: {snap.consumption_today_kwh:.1f} kWh"
+                f"- Energiebedarf: {decision.energiebedarf_kwh:.1f} kWh "
+                f"(Verbrauch bis SU: {snap.consumption_to_sunset_kwh:.1f} + "
+                f"Batterie: {decision.energiebedarf_kwh - snap.consumption_to_sunset_kwh:.1f})"
             )
             lines.append(
-                f"- Ueberschuss-Faktor: {decision.ueberschuss_faktor:.2f}"
+                f"- Schwelle inkl. Puffer: {schwelle:.1f} kWh"
             )
             lines.append("")
 
@@ -430,7 +481,7 @@ class EEGOptimizer:
 
         if not decision.ladung_blockiert and not decision.entladung_aktiv:
             lines.append("### Normalbetrieb")
-            lines.append(f"- Ueberschuss-Faktor: {decision.ueberschuss_faktor:.2f}")
+            lines.append(f"- Energiebedarf: {decision.energiebedarf_kwh:.1f} kWh")
             lines.append(f"- Batterie SOC: {snap.battery_soc:.0f}%")
             lines.append("")
 
@@ -480,6 +531,8 @@ class EEGOptimizer:
 
             if mode == MODE_EIN:
                 await self._execute(decision, snap)
+            elif mode == MODE_TEST:
+                _LOGGER.debug("Dry-run: %s (keine Ausfuehrung)", decision.zustand)
 
             self._last_decision = decision
             return decision
