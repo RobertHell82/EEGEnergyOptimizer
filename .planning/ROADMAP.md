@@ -108,8 +108,11 @@ Plans:
   2. Inverter test button in the setup wizard is disabled or shows guidance when inverter is not yet instantiated
   3. Dashboard uses dynamic entity ID resolution instead of hardcoded sensor entity IDs
   4. ForecastProvider uses proper ABC with @abstractmethod
+**Plans**: 2 plans
 
 Plans:
+- [ ] 06-01-PLAN.md — Explicit MODE_TEST check in optimizer, ForecastProvider ABC enforcement
+- [ ] 06-02-PLAN.md — Dynamic entity IDs in dashboard, inverter test button guard, ws_get_config entry_id
 
 ## Progress
 
@@ -123,4 +126,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 3. Optimizer & Safety System | 3/3 | Complete   | 2026-03-21 |
 | 4. Onboarding Panel | 2/3 | In Progress|  |
 | 5. Robustness & Error Handling | 0/1 | Pending |  |
-| 6. Polish & Tech Debt | 0/0 | Pending |  |
+| 6. Polish & Tech Debt | 0/2 | Pending |  |
