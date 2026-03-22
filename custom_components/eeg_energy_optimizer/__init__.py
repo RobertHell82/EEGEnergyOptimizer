@@ -59,20 +59,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})
     config = {**entry.data, **entry.options}
+    setup_complete = config.get("setup_complete", False)
 
-    # Register WebSocket commands
+    # Register WebSocket commands (always — panel needs them even before setup)
     async_register_websocket_commands(hass)
 
-    inverter = create_inverter(config.get("inverter_type", ""), hass, config)
-    hass.data[DOMAIN][entry.entry_id] = {
-        "config": config,
-        "inverter": inverter,
-        # "coordinator", "provider", "optimizer", "select" added by platform setup
-    }
-
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # Register frontend panel
+    # Register frontend panel (always — user needs panel to complete setup)
     frontend_path = str(Path(__file__).parent / "frontend")
     await hass.http.async_register_static_paths(
         [StaticPathConfig(PANEL_FRONTEND_URL, frontend_path, cache_headers=False)]
@@ -94,6 +86,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             },
             require_admin=False,
         )
+
+    hass.data[DOMAIN][entry.entry_id] = {
+        "config": config,
+        "inverter": None,
+    }
+
+    # If setup not complete, register panel only — skip platforms and optimizer
+    if not setup_complete:
+        entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+        return True
+
+    # Full setup: inverter, platforms, optimizer
+    inverter = create_inverter(config.get("inverter_type", ""), hass, config)
+    hass.data[DOMAIN][entry.entry_id]["inverter"] = inverter
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # After platforms are set up, coordinator/provider/select are available
     data = hass.data[DOMAIN][entry.entry_id]
@@ -139,9 +147,16 @@ async def async_unload_entry(
 
     async_remove_panel(hass, PANEL_URL_PATH)
 
-    unload_ok = await hass.config_entries.async_unload_platforms(
-        entry, PLATFORMS
-    )
+    config = {**entry.data, **entry.options}
+    setup_complete = config.get("setup_complete", False)
+
+    if setup_complete:
+        unload_ok = await hass.config_entries.async_unload_platforms(
+            entry, PLATFORMS
+        )
+    else:
+        unload_ok = True
+
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unload_ok
