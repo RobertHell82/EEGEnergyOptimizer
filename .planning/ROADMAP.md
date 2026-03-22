@@ -111,7 +111,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — Explicit MODE_TEST check in optimizer, ForecastProvider ABC enforcement
+- [x] 06-01-PLAN.md — Explicit MODE_TEST check in optimizer, ForecastProvider ABC enforcement
 - [ ] 06-02-PLAN.md — Dynamic entity IDs in dashboard, inverter test button guard, ws_get_config entry_id
 
 ## Progress
