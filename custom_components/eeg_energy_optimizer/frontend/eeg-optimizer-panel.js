@@ -575,7 +575,7 @@ class EegOptimizerPanel extends HTMLElement {
     }
 
     return `
-      <div class="step-indicator">Schritt ${step + 1} von ${total}</div>
+      <div class="step-indicator">Schritt ${step + 1} von ${total} — ${WIZARD_STEPS[step]}</div>
       <div class="progress-bar">
         <div class="progress-bar-fill" style="width:${progress}%"></div>
       </div>
@@ -663,7 +663,6 @@ class EegOptimizerPanel extends HTMLElement {
             this._wizardData.inverter_type === "huawei_sun2000" ? "selected" : ""
           }>Huawei SUN2000</option>
         </select>
-        <div class="help-text">Aktuell wird nur Huawei SUN2000 mit Batteriespeicher unterstützt.</div>
       </div>`;
   }
 
@@ -1137,7 +1136,7 @@ class EegOptimizerPanel extends HTMLElement {
         .btn-disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
         .status-badge {
           display: inline-block; padding: 4px 12px; border-radius: 12px;
-          font-size: 12px; font-weight: 500;
+          font-size: 12px; font-weight: 500; margin-right: 8px;
         }
         .status-badge.installed { background: var(--success-color, #4caf50); color: white; }
         .status-badge.missing { background: var(--error-color, #f44336); color: white; }
