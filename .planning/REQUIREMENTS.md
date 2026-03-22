@@ -71,29 +71,30 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INF-01 | Phase 1 | Complete |
-| INF-02 | Phase 1 | Complete |
+| INF-01 | Phase 1, Phase 5 (hardening) | Complete |
+| INF-02 | Phase 1, Phase 5 (hardening), Phase 6 (polish) | Complete |
 | INF-03 | Phase 1 | Complete |
 | FCST-01 | Phase 2 | Complete |
 | FCST-02 | Phase 2 | Complete |
 | FCST-03 | Phase 2 | Complete |
-| OPT-01 | Phase 3 | Complete |
-| OPT-02 | Phase 3 | Complete |
-| OPT-03 | Phase 3 | Complete |
-| SAF-01 | Phase 3 | Complete |
-| SAF-02 | Phase 3 | Complete |
-| SAF-03 | Phase 3 | Complete |
-| SAF-04 | Phase 3 | Complete |
-| SENS-01 | Phase 3 | Complete |
+| OPT-01 | Phase 3, Phase 5 (error surfacing) | Complete |
+| OPT-02 | Phase 3, Phase 5 (error surfacing) | Complete |
+| OPT-03 | Phase 3, Phase 5 (error surfacing) | Complete |
+| SAF-01 | Phase 3, Phase 5 (error surfacing) | Complete |
+| SAF-02 | Phase 3, Phase 5 (error surfacing) | Complete |
+| SAF-03 | Phase 3, Phase 5 (error surfacing) | Complete |
+| SAF-04 | Phase 3, Phase 6 (explicit check) | Complete |
+| SENS-01 | Phase 3, Phase 5 (error surfacing), Phase 6 (polish) | Complete |
 | SENS-02 | Phase 3 | Complete |
 | SENS-03 | Phase 3 | Complete |
-| INF-04 | Phase 4 | Complete |
+| INF-04 | Phase 4, Phase 5 (hardening), Phase 6 (polish) | Complete |
 
 **Coverage:**
 - v1 requirements: 17 total
 - Mapped to phases: 17
 - Unmapped: 0
+- Gap closure phases: Phase 5 (robustness), Phase 6 (polish)
 
 ---
 *Requirements defined: 2026-03-20*
-*Last updated: 2026-03-20 after roadmap creation*
+*Last updated: 2026-03-22 after gap closure phase creation*

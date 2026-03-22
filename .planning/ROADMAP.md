@@ -16,6 +16,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Forecasting & Consumption Profile** - PV forecast integration (Solcast + Forecast.Solar) and recorder-based consumption profiling (completed 2026-03-21)
 - [ ] **Phase 3: Optimizer & Safety System** - Decision engine with EEG time windows, morning feed-in priority, evening discharge, and decision sensor with Markdown dashboard
 - [ ] **Phase 4: Onboarding Panel** - LitElement sidebar panel with setup wizard, prerequisite checks, and sensor mapping
+- [ ] **Phase 5: Robustness & Error Handling** - Fix crash-prone dict access, surface silent init failures, harden inverter factory (gap closure)
+- [ ] **Phase 6: Polish & Tech Debt** - Explicit dry-run check, wizard inverter test fix, dynamic entity IDs, ABC enforcement (gap closure)
 
 ## Phase Details
 
@@ -82,10 +84,35 @@ Plans:
 - [x] 04-02-PLAN.md — 8-step setup wizard with prerequisite checks, sensor auto-detection, entity pickers, config save
 - [x] 04-03-PLAN.md — Live dashboard with status cards, metrics, SVG bar chart (7-day forecast), SVG line chart (hourly profile)
 
+### Phase 5: Robustness & Error Handling
+**Goal**: Eliminate crash-prone code paths and surface silent failures so the integration fails loudly instead of silently skipping initialization
+**Depends on**: Phase 1, Phase 3
+**Requirements**: INF-01, INF-02, INF-04 (hardening), OPT-01, OPT-02, OPT-03, SAF-01, SAF-02, SAF-03, SENS-01 (error surfacing)
+**Gap Closure:** Closes INF-02-guard, flow-silent-skip from v1.0 audit
+**Success Criteria** (what must be TRUE):
+  1. HuaweiInverter handles missing `huawei_device_id` gracefully with `.get()` and guard instead of bare dict access
+  2. `create_inverter` factory has proper error handling — caller catches ValueError for unknown inverter types
+  3. If coordinator or forecast provider fails to initialize, an error is logged and surfaced to the user (not silently skipped)
+
+Plans:
+
+### Phase 6: Polish & Tech Debt
+**Goal**: Clean up implicit behavior, improve wizard UX, and reduce fragility in dashboard entity references
+**Depends on**: Phase 4, Phase 5
+**Requirements**: SAF-04 (explicit check), INF-02, INF-04, SENS-01 (polish)
+**Gap Closure:** Closes SAF-04-implicit, flow-inverter-test, flow-entity-ids from v1.0 audit
+**Success Criteria** (what must be TRUE):
+  1. MODE_TEST is explicitly checked in the optimizer — dry-run behavior is intentional, not a side effect of mode != MODE_EIN
+  2. Inverter test button in the setup wizard is disabled or shows guidance when inverter is not yet instantiated
+  3. Dashboard uses dynamic entity ID resolution instead of hardcoded sensor entity IDs
+  4. ForecastProvider uses proper ABC with @abstractmethod
+
+Plans:
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -93,3 +120,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 2. Forecasting & Consumption Profile | 3/3 | Complete   | 2026-03-21 |
 | 3. Optimizer & Safety System | 3/3 | Complete   | 2026-03-21 |
 | 4. Onboarding Panel | 2/3 | In Progress|  |
+| 5. Robustness & Error Handling | 0/0 | Pending |  |
+| 6. Polish & Tech Debt | 0/0 | Pending |  |
