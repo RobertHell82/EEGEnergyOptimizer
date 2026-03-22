@@ -190,6 +190,18 @@ class EegOptimizerPanel extends HTMLElement {
       case "recheck-prerequisites":
         this._checkPrerequisites();
         break;
+      case "select-forecast": {
+        const value = dataset?.value;
+        const p = this._prerequisites;
+        const isInstalled = (value === "solcast_solar" && p?.solcast_solar) ||
+                            (value === "forecast_solar" && p?.forecast_solar);
+        if (isInstalled && value) {
+          this._wizardData.forecast_source = value;
+          this._applyForecastDefaults(value);
+          this._render();
+        }
+        break;
+      }
       case "toggle-advanced":
         const section = dataset?.section || "default";
         this._showAdvanced[section] = !this._showAdvanced[section];
@@ -252,6 +264,12 @@ class EegOptimizerPanel extends HTMLElement {
 
   _validateCurrentStep() {
     switch (this._wizardStep) {
+      case 2: // Prognose-Integration
+        if (!this._wizardData.forecast_source) {
+          this._showValidationError("Bitte wähle eine Prognose-Quelle aus.");
+          return false;
+        }
+        return true;
       case 3: // Batterie & PV Sensoren
         if (!this._wizardData.battery_soc_sensor) {
           this._showValidationError("SOC-Sensor ist erforderlich.");
@@ -691,16 +709,21 @@ class EegOptimizerPanel extends HTMLElement {
       ? '<span class="status-badge installed">Installiert</span>'
       : '<span class="status-badge missing">Nicht installiert</span>';
 
+    const selected = this._wizardData.forecast_source || "";
+    const solcastSelected = selected === "solcast_solar";
+    const forecastSelected = selected === "forecast_solar";
+
     return `
       ${blockMsg}
+      <p style="margin-bottom:12px;color:var(--secondary-text-color)">Wähle deine PV-Prognose-Quelle:</p>
       <div class="prereq-cards" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-        <div class="card" style="padding:16px">
+        <div class="card forecast-option ${solcastSelected ? "selected" : ""}" style="padding:16px;cursor:${solcastOk ? "pointer" : "default"};opacity:${solcastOk ? "1" : "0.6"}" data-action="select-forecast" data-value="solcast_solar">
           <h3 style="margin:0 0 8px">Solcast Solar</h3>
           ${solcastBadge}
           <p style="font-size:13px;color:var(--secondary-text-color);margin:8px 0">Genauere Prognosen, kostenloser API-Key erforderlich.</p>
           <button class="btn-secondary" data-action="show-dialog" data-dialog="solcast">Anleitung</button>
         </div>
-        <div class="card" style="padding:16px">
+        <div class="card forecast-option ${forecastSelected ? "selected" : ""}" style="padding:16px;cursor:${forecastOk ? "pointer" : "default"};opacity:${forecastOk ? "1" : "0.6"}" data-action="select-forecast" data-value="forecast_solar">
           <h3 style="margin:0 0 8px">Forecast.Solar</h3>
           ${forecastBadge}
           <p style="font-size:13px;color:var(--secondary-text-color);margin:8px 0">Einfachere Einrichtung, keine Registrierung nötig.</p>
@@ -1141,7 +1164,8 @@ class EegOptimizerPanel extends HTMLElement {
         .status-badge.installed { background: var(--success-color, #4caf50); color: white; }
         .status-badge.missing { background: var(--error-color, #f44336); color: white; }
         .loading { text-align: center; padding: 24px; color: var(--secondary-text-color); }
-        .prereq-cards .card { box-shadow: none; border: 1px solid var(--divider-color); }
+        .prereq-cards .card { box-shadow: none; border: 2px solid var(--divider-color); transition: border-color 0.2s; }
+        .forecast-option.selected { border-color: var(--primary-color); background: var(--primary-color-light, rgba(3,169,244,0.08)); }
       </style>
       <div class="toolbar">
         <h1>EEG Optimizer</h1>
