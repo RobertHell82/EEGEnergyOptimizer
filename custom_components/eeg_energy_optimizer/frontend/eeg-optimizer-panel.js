@@ -198,12 +198,17 @@ class EegOptimizerPanel extends HTMLElement {
         break;
       case "select-forecast": {
         const value = dataset?.value;
-        const p = this._prerequisites;
-        const isInstalled = (value === "solcast_solar" && p?.solcast_solar) ||
-                            (value === "forecast_solar" && p?.forecast_solar);
-        if (isInstalled && value) {
+        if (value) {
           this._wizardData.forecast_source = value;
           this._applyForecastDefaults(value);
+          this._render();
+        }
+        break;
+      }
+      case "select-inverter": {
+        const invValue = dataset?.value;
+        if (invValue) {
+          this._wizardData.inverter_type = invValue;
           this._render();
         }
         break;
@@ -270,12 +275,36 @@ class EegOptimizerPanel extends HTMLElement {
 
   _validateCurrentStep() {
     switch (this._wizardStep) {
-      case 2: // Prognose-Integration
+      case 1: { // Wechselrichter-Typ
+        if (!this._wizardData.inverter_type) {
+          this._showValidationError("Bitte wähle einen Wechselrichter-Typ aus.");
+          return false;
+        }
+        const invType = this._wizardData.inverter_type;
+        const invP = this._prerequisites;
+        if (invType === "huawei_sun2000" && invP && !invP.huawei_solar) {
+          this._showValidationError("Huawei Solar Integration muss zuerst installiert werden.");
+          return false;
+        }
+        return true;
+      }
+      case 2: { // Prognose-Integration
         if (!this._wizardData.forecast_source) {
           this._showValidationError("Bitte wähle eine Prognose-Quelle aus.");
           return false;
         }
+        const fcSrc = this._wizardData.forecast_source;
+        const fcP = this._prerequisites;
+        if (fcSrc === "solcast_solar" && fcP && !fcP.solcast_solar) {
+          this._showValidationError("Solcast Solar muss zuerst installiert werden. Klicke auf 'Anleitung' für Hilfe.");
+          return false;
+        }
+        if (fcSrc === "forecast_solar" && fcP && !fcP.forecast_solar) {
+          this._showValidationError("Forecast.Solar muss zuerst installiert werden. Klicke auf 'Anleitung' für Hilfe.");
+          return false;
+        }
         return true;
+      }
       case 3: // Batterie & PV Sensoren
         if (!this._wizardData.battery_soc_sensor) {
           this._showValidationError("SOC-Sensor ist erforderlich.");
@@ -660,34 +689,34 @@ class EegOptimizerPanel extends HTMLElement {
   _renderStep1() {
     const p = this._prerequisites;
     const huaweiOk = p && p.huawei_solar;
+    const selected = this._wizardData.inverter_type || "";
+    const huaweiSelected = selected === "huawei_sun2000";
 
-    let prerequisiteBlock = "";
-    if (p && !huaweiOk) {
-      prerequisiteBlock = `
-        <div class="blocked-card">
-          <div class="status">Huawei Solar Integration nicht gefunden</div>
-          <p style="margin:8px 0">Bitte zuerst installieren, damit Sensoren und Batteriesteuerung verfügbar sind.</p>
-          <button class="btn-secondary" data-action="show-dialog" data-dialog="huawei">Anleitung anzeigen</button>
-          <button class="btn-secondary" data-action="recheck-prerequisites" style="margin-left:8px">Erneut prüfen</button>
-        </div>`;
-    } else if (p && huaweiOk) {
-      prerequisiteBlock = `
-        <div class="success-card">
-          <span class="status-badge installed">Installiert</span>
-          Huawei Solar Integration erkannt.
-        </div>`;
-    }
+    const huaweiBadge = huaweiOk
+      ? '<span class="status-badge installed">Installiert</span>'
+      : '<span class="status-badge missing">Nicht installiert</span>';
+
+    const huaweiAutoDetect = huaweiOk && this._detectedSensors?.detected
+      ? '<div style="margin-top:6px;font-size:12px;color:var(--success-color,#4caf50)">✓ Sensoren automatisch erkannt</div>'
+      : "";
 
     return `
-      ${prerequisiteBlock}
-      <div class="field-group">
-        <label>Wechselrichter-Typ</label>
-        <select data-field="inverter_type">
-          <option value="huawei_sun2000" ${
-            this._wizardData.inverter_type === "huawei_sun2000" ? "selected" : ""
-          }>Huawei SUN2000</option>
-        </select>
-      </div>`;
+      <p style="margin-bottom:12px;color:var(--secondary-text-color)">Wähle deinen Wechselrichter-Typ:</p>
+      <div class="prereq-cards" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="card forecast-option ${huaweiSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center" data-action="select-inverter" data-value="huawei_sun2000">
+          <img src="https://brands.home-assistant.io/huawei_solar/logo.png" alt="Huawei" style="max-width:120px;height:auto;margin-bottom:8px" onerror="this.style.display='none'">
+          <h3 style="margin:0 0 8px">Huawei SUN2000</h3>
+          ${huaweiBadge}
+          ${huaweiAutoDetect}
+          <button class="btn-secondary" style="margin-top:8px" data-action="show-dialog" data-dialog="huawei">Anleitung</button>
+        </div>
+        <div class="card forecast-option" style="padding:16px;cursor:default;text-align:center;opacity:0.4">
+          <div style="font-size:48px;margin-bottom:8px;color:var(--secondary-text-color)">+</div>
+          <h3 style="margin:0 0 8px;color:var(--secondary-text-color)">Weitere folgen</h3>
+          <p style="font-size:12px;color:var(--secondary-text-color);margin:0">Fronius, SMA, ...</p>
+        </div>
+      </div>
+      <button class="btn-secondary" data-action="recheck-prerequisites">Erneut prüfen</button>`;
   }
 
   /* ── Step 2: Prognose-Integration ─────────────── */
@@ -699,14 +728,6 @@ class EegOptimizerPanel extends HTMLElement {
     const noneInstalled = p && !solcastOk && !forecastOk;
 
     let blockMsg = "";
-    if (noneInstalled) {
-      blockMsg = `
-        <div class="blocked-card">
-          <div class="status">Keine Prognose-Integration gefunden</div>
-          <p style="margin:8px 0">Du brauchst entweder Solcast Solar oder Forecast.Solar.</p>
-          <button class="btn-secondary" data-action="recheck-prerequisites">Erneut prüfen</button>
-        </div>`;
-    }
 
     const solcastBadge = solcastOk
       ? '<span class="status-badge installed">Installiert</span>'
@@ -723,19 +744,22 @@ class EegOptimizerPanel extends HTMLElement {
       ${blockMsg}
       <p style="margin-bottom:12px;color:var(--secondary-text-color)">Wähle deine PV-Prognose-Quelle:</p>
       <div class="prereq-cards" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-        <div class="card forecast-option ${solcastSelected ? "selected" : ""}" style="padding:16px;cursor:${solcastOk ? "pointer" : "default"};opacity:${solcastOk ? "1" : "0.6"}" data-action="select-forecast" data-value="solcast_solar">
+        <div class="card forecast-option ${solcastSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center" data-action="select-forecast" data-value="solcast_solar">
+          <img src="https://brands.home-assistant.io/solcast_solar/logo.png" alt="Solcast" style="max-width:100px;height:auto;margin-bottom:8px" onerror="this.style.display='none'">
           <h3 style="margin:0 0 8px">Solcast Solar</h3>
           ${solcastBadge}
           <p style="font-size:13px;color:var(--secondary-text-color);margin:8px 0">Genauere Prognosen, kostenloser API-Key erforderlich.</p>
           <button class="btn-secondary" data-action="show-dialog" data-dialog="solcast">Anleitung</button>
         </div>
-        <div class="card forecast-option ${forecastSelected ? "selected" : ""}" style="padding:16px;cursor:${forecastOk ? "pointer" : "default"};opacity:${forecastOk ? "1" : "0.6"}" data-action="select-forecast" data-value="forecast_solar">
+        <div class="card forecast-option ${forecastSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center" data-action="select-forecast" data-value="forecast_solar">
+          <img src="https://brands.home-assistant.io/forecast_solar/logo.png" alt="Forecast.Solar" style="max-width:100px;height:auto;margin-bottom:8px" onerror="this.style.display='none'">
           <h3 style="margin:0 0 8px">Forecast.Solar</h3>
           ${forecastBadge}
           <p style="font-size:13px;color:var(--secondary-text-color);margin:8px 0">Einfachere Einrichtung, keine Registrierung nötig.</p>
           <button class="btn-secondary" data-action="show-dialog" data-dialog="forecast_solar">Anleitung</button>
         </div>
-      </div>`;
+      </div>
+      <button class="btn-secondary" data-action="recheck-prerequisites">Erneut prüfen</button>`;
   }
 
   /* ── Step 3: Batterie & PV Sensoren ───────────── */
