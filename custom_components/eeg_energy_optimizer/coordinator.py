@@ -79,7 +79,13 @@ class ConsumptionCoordinator:
         self.stats_count: int = 0
 
     async def async_update(self) -> None:
-        """Reload hourly averages from recorder statistics."""
+        """Reload hourly averages from recorder statistics.
+
+        Supports two sensor types:
+        - state_class=measurement (power sensors, W/kW): uses 'mean' statistics
+        - state_class=total_increasing (energy sensors, kWh): uses 'sum' statistics
+          and calculates hourly consumption from consecutive sum differences
+        """
         _ensure_recorder_imports()
 
         if get_instance is None or statistics_during_period is None:
@@ -90,23 +96,36 @@ class ConsumptionCoordinator:
         now = _now()
         start = now - timedelta(weeks=self._lookback_weeks)
 
-        stats = await self._async_load_statistics(start, now)
+        # Try mean first (measurement sensors like power in W/kW)
+        stats = await self._async_load_statistics(start, now, {"mean"})
         entries = stats.get(self._consumption_id, [])
+        has_mean = any(e.get("mean") is not None for e in entries)
 
-        if not entries:
-            _LOGGER.warning(
-                "No consumption statistics for '%s'. Available: %s",
-                self._consumption_id,
-                list(stats.keys()) if stats else "none",
-            )
-            self._init_empty()
-            self.stats_count = 0
+        if entries and has_mean:
+            _LOGGER.debug("Using 'mean' statistics for %s", self._consumption_id)
+            self._process_mean_entries(entries)
             return
 
-        self._process_entries(entries)
+        # Fallback: try sum (total_increasing sensors like energy in kWh)
+        stats = await self._async_load_statistics(start, now, {"sum"})
+        entries = stats.get(self._consumption_id, [])
+        has_sum = any(e.get("sum") is not None for e in entries)
+
+        if entries and has_sum:
+            _LOGGER.debug("Using 'sum' statistics for %s", self._consumption_id)
+            self._process_sum_entries(entries)
+            return
+
+        _LOGGER.warning(
+            "No consumption statistics for '%s' (tried mean and sum). Available: %s",
+            self._consumption_id,
+            list(stats.keys()) if stats else "none",
+        )
+        self._init_empty()
+        self.stats_count = 0
 
     async def _async_load_statistics(
-        self, start: datetime, end: datetime
+        self, start: datetime, end: datetime, types: set[str]
     ) -> dict[str, list[dict]]:
         """Load statistics from recorder."""
         recorder_instance = get_instance(self.hass)
@@ -119,14 +138,61 @@ class ConsumptionCoordinator:
             {self._consumption_id},
             "hour",
             None,
-            {"mean"},
+            types,
         )
 
         return result if isinstance(result, dict) else {}
 
-    def _process_entries(self, entries: list[dict]) -> None:
-        """Process statistics entries into hourly averages by weekday."""
-        # Accumulate values: {weekday: {hour: [watts, ...]}}
+    @staticmethod
+    def _parse_timestamp(ts: Any) -> datetime | None:
+        """Parse a timestamp from recorder statistics entry."""
+        if isinstance(ts, (int, float)):
+            return _as_local(datetime.fromtimestamp(ts, tz=timezone.utc))
+        if isinstance(ts, str):
+            return _as_local(datetime.fromisoformat(ts))
+        return None
+
+    def _apply_fallbacks(
+        self, accum: dict[str, dict[int, list[float]]]
+    ) -> dict[str, dict[int, float]]:
+        """Calculate averages with weekday fallback chain."""
+        result: dict[str, dict[int, float]] = {}
+        for day in WEEKDAY_KEYS:
+            result[day] = {}
+            for hour in range(24):
+                values = accum[day][hour]
+                if values:
+                    result[day][hour] = sum(values) / len(values)
+                else:
+                    found = False
+                    for fb_day in FALLBACKS[day]:
+                        fb_values = accum[fb_day][hour]
+                        if fb_values:
+                            result[day][hour] = sum(fb_values) / len(fb_values)
+                            found = True
+                            break
+                    if not found:
+                        result[day][hour] = 0.0
+        return result
+
+    def _finalize(self, result: dict[str, dict[int, float]], count: int, mode: str) -> None:
+        """Store result and log summary."""
+        self.hourly_avg = result
+        self.stats_count = count
+        _LOGGER.info(
+            "Loaded %d consumption statistics (%s). Sample mo[0]=%.0fW, sa[12]=%.0fW",
+            count,
+            mode,
+            result.get("mo", {}).get(0, 0),
+            result.get("sa", {}).get(12, 0),
+        )
+
+    def _process_mean_entries(self, entries: list[dict]) -> None:
+        """Process 'mean' statistics (measurement sensors, W/kW).
+
+        Each entry has a mean power value in the sensor's unit.
+        For kW sensors, values are converted to W for internal consistency.
+        """
         accum: dict[str, dict[int, list[float]]] = {
             day: {h: [] for h in range(24)} for day in WEEKDAY_KEYS
         }
@@ -137,47 +203,53 @@ class ConsumptionCoordinator:
             if ts is None or mean is None:
                 continue
 
-            if isinstance(ts, (int, float)):
-                local_dt = _as_local(
-                    datetime.fromtimestamp(ts, tz=timezone.utc)
-                )
-            elif isinstance(ts, str):
-                local_dt = _as_local(datetime.fromisoformat(ts))
-            else:
+            local_dt = self._parse_timestamp(ts)
+            if local_dt is None:
                 continue
 
             weekday_key = WEEKDAY_KEYS[local_dt.weekday()]
             accum[weekday_key][local_dt.hour].append(mean)
 
-        # Calculate averages with fallback chain
-        result: dict[str, dict[int, float]] = {}
-        for day in WEEKDAY_KEYS:
-            result[day] = {}
-            for hour in range(24):
-                values = accum[day][hour]
-                if values:
-                    result[day][hour] = sum(values) / len(values)
-                else:
-                    # Try fallback chain
-                    found = False
-                    for fb_day in FALLBACKS[day]:
-                        fb_values = accum[fb_day][hour]
-                        if fb_values:
-                            result[day][hour] = sum(fb_values) / len(fb_values)
-                            found = True
-                            break
-                    if not found:
-                        result[day][hour] = 0.0
+        result = self._apply_fallbacks(accum)
+        self._finalize(result, len(entries), "mean")
 
-        self.hourly_avg = result
-        self.stats_count = len(entries)
+    def _process_sum_entries(self, entries: list[dict]) -> None:
+        """Process 'sum' statistics (total_increasing sensors, kWh).
 
-        _LOGGER.info(
-            "Loaded %d consumption statistics. Sample mo[0]=%.0fW, sa[12]=%.0fW",
-            len(entries),
-            result.get("mo", {}).get(0, 0),
-            result.get("sa", {}).get(12, 0),
-        )
+        Each entry has a cumulative sum. Hourly consumption is derived from
+        the difference between consecutive sums. The result is converted
+        to average watts: kWh_per_hour * 1000 = W.
+        """
+        accum: dict[str, dict[int, list[float]]] = {
+            day: {h: [] for h in range(24)} for day in WEEKDAY_KEYS
+        }
+
+        prev_sum: float | None = None
+        for entry in entries:
+            ts = entry.get("start") or entry.get("start_ts")
+            current_sum = entry.get("sum")
+            if ts is None or current_sum is None:
+                prev_sum = None
+                continue
+
+            local_dt = self._parse_timestamp(ts)
+            if local_dt is None:
+                prev_sum = current_sum
+                continue
+
+            if prev_sum is not None:
+                diff_kwh = current_sum - prev_sum
+                # Skip negative diffs (meter reset) and unrealistic spikes
+                if 0.0 <= diff_kwh <= 50.0:
+                    # Convert kWh consumed in 1 hour to average watts
+                    avg_watts = diff_kwh * 1000.0
+                    weekday_key = WEEKDAY_KEYS[local_dt.weekday()]
+                    accum[weekday_key][local_dt.hour].append(avg_watts)
+
+            prev_sum = current_sum
+
+        result = self._apply_fallbacks(accum)
+        self._finalize(result, len(entries), "sum/diff")
 
     def _init_empty(self) -> None:
         """Initialize hourly_avg with zeros for all weekdays/hours."""
