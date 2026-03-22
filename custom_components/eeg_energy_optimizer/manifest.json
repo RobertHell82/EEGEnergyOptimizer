@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "documentation": "https://github.com/OWNER/eeg-energy-optimizer",
   "issue_tracker": "https://github.com/OWNER/eeg-energy-optimizer/issues",
-  "dependencies": ["recorder", "sun"],
+  "dependencies": ["recorder", "sun", "http", "frontend", "websocket_api"],
   "after_dependencies": ["huawei_solar", "solcast_solar", "forecast_solar"],
   "codeowners": [],
   "iot_class": "local_push",

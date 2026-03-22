@@ -59,3 +59,6 @@ OPTIMIZER_MODES = [MODE_EIN, MODE_TEST, MODE_AUS]
 STATE_MORGEN_EINSPEISUNG = "Morgen-Einspeisung"
 STATE_NORMAL = "Normal"
 STATE_ABEND_ENTLADUNG = "Abend-Entladung"
+
+# Phase 4: Onboarding Panel
+CONF_SETUP_COMPLETE = "setup_complete"

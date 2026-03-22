@@ -2,83 +2,11 @@
   "config": {
     "step": {
       "user": {
-        "title": "Wechselrichter-Typ",
-        "description": "Wähle den Wechselrichter-Typ für die Batteriesteuerung.",
-        "data": {
-          "inverter_type": "Wechselrichter"
-        }
-      },
-      "sensors": {
-        "title": "Sensor-Zuordnung",
-        "description": "Ordne die Sensoren für SOC, Kapazität und PV-Leistung zu.",
-        "data": {
-          "battery_soc_sensor": "Aktueller Batterie-Ladezustand (SOC)",
-          "battery_capacity_sensor": "Batteriekapazität (Sensor)",
-          "battery_capacity_kwh": "Batteriekapazität (manuell)",
-          "pv_power_sensor": "Aktuelle PV-Erzeugung (Solarleistung)"
-        },
-        "data_description": {
-          "battery_soc_sensor": "Sensor der den aktuellen Ladezustand der Hausbatterie in % anzeigt.",
-          "battery_capacity_sensor": "Sensor für die Gesamtkapazität der Batterie in Wh. Bei Huawei: unter Einstellungen → Geräte → Entitäten den Sensor 'Akkukapazität' aktivieren (ist standardmäßig deaktiviert).",
-          "battery_capacity_kwh": "Alternativ: Gesamtkapazität der Batterie in kWh manuell eingeben (z.B. 10 für LUNA2000-10, 15 für LUNA2000-15).",
-          "pv_power_sensor": "Sensor der die aktuelle Erzeugungsleistung der Solaranlage in kW anzeigt."
-        }
-      },
-      "forecast": {
-        "title": "Prognose-Quelle",
-        "description": "Wähle die PV-Prognose-Quelle. Die gewählte Integration muss installiert und geladen sein.",
-        "data": {
-          "forecast_source": "Prognose-Integration",
-          "forecast_remaining_entity": "PV Prognose verbleibend heute",
-          "forecast_tomorrow_entity": "PV Prognose morgen"
-        },
-        "data_description": {
-          "forecast_source": "Solcast Solar (HACS) oder Forecast.Solar (HA Core) als Quelle für die PV-Produktionsprognose.",
-          "forecast_remaining_entity": "Sensor der die verbleibende PV-Produktion für heute in kWh anzeigt.",
-          "forecast_tomorrow_entity": "Sensor der die prognostizierte PV-Produktion für morgen in kWh anzeigt."
-        }
-      },
-      "consumption": {
-        "title": "Verbrauchsmessung",
-        "description": "Konfiguriere den Verbrauchssensor und die Berechnungsparameter.",
-        "data": {
-          "consumption_sensor": "Verbrauchssensor",
-          "lookback_weeks": "Rückblick-Zeitraum",
-          "update_interval_fast_min": "Schnelles Update-Intervall",
-          "update_interval_slow_min": "Langsames Update-Intervall"
-        },
-        "data_description": {
-          "consumption_sensor": "Sensor der den Gesamt-Stromverbrauch in kWh misst (total_increasing). Standard: Stromzähler Verbrauch.",
-          "lookback_weeks": "Anzahl Wochen für den rollenden Verbrauchsdurchschnitt (Standard: 8 Wochen).",
-          "update_interval_fast_min": "Update-Intervall für PV-Prognose und Batterie-Sensoren in Minuten (Standard: 1 Min).",
-          "update_interval_slow_min": "Update-Intervall für das Verbrauchsprofil in Minuten (Standard: 15 Min)."
-        }
-      },
-      "optimizer": {
-        "title": "Optimizer-Einstellungen",
-        "description": "Konfiguriere die Parameter für Morgen-Einspeisung und Abend-Entladung.",
-        "data": {
-          "ueberschuss_schwelle": "Überschuss-Schwelle",
-          "morning_end_time": "Morgen-Einspeisung Ende",
-          "discharge_start_time": "Entladung Startzeit",
-          "discharge_power_kw": "Entladeleistung",
-          "min_soc": "Minimaler Ladezustand (SOC)",
-          "safety_buffer_pct": "Sicherheitspuffer"
-        },
-        "data_description": {
-          "ueberschuss_schwelle": "Ab welchem PV/Verbrauch-Verhältnis ein Tag als Überschuss-Tag gilt (Standard: 1.25 = 25% mehr PV als Verbrauch).",
-          "morning_end_time": "Bis wann morgens die Batterieladung blockiert wird, damit PV ins Netz fließt.",
-          "discharge_start_time": "Ab wann abends die Batterie ins Netz entladen wird.",
-          "discharge_power_kw": "Entladeleistung der Batterie in kW.",
-          "min_soc": "Minimaler Ladezustand, unter den die Batterie nicht entladen wird (Basis-Wert, wird dynamisch erhöht).",
-          "safety_buffer_pct": "Sicherheitsaufschlag auf den prognostizierten Nachtverbrauch bei der Min-SOC Berechnung."
-        }
+        "title": "EEG Energy Optimizer",
+        "description": "Die Integration wird hinzugef\u00fcgt. Die vollst\u00e4ndige Konfiguration erfolgt im Panel unter 'EEG Optimizer' in der Seitenleiste."
       }
     },
     "error": {
-      "prerequisite_not_installed": "Die {integration_name}-Integration muss installiert und geladen sein.",
-      "forecast_not_installed": "Die gewählte Prognose-Integration ist nicht installiert oder nicht geladen. Bitte zuerst installieren.",
-      "capacity_required": "Bitte entweder einen Kapazitäts-Sensor auswählen oder die Kapazität manuell eingeben.",
       "unknown": "Unerwarteter Fehler. Bitte versuche es erneut."
     },
     "abort": {
