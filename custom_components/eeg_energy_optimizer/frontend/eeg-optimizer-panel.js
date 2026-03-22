@@ -477,23 +477,8 @@ class EegOptimizerPanel extends HTMLElement {
   }
 
   async _ensureEntityPicker() {
-    if (this._entityPickerLoaded) return;
-    if (customElements.get("ha-entity-picker")) {
-      this._entityPickerLoaded = true;
-      return;
-    }
-    try {
-      const helpers = await window.loadCardHelpers?.();
-      if (helpers) {
-        await helpers.createCardElement({ type: "entity", entity: "sun.sun" });
-      }
-      await customElements.whenDefined("ha-entity-picker");
-      this._entityPickerLoaded = true;
-    } catch (e) {
-      console.warn(
-        "ha-entity-picker not available, using text inputs as fallback"
-      );
-    }
+    // We use our own autocomplete, no HA component loading needed
+    this._entityPickerLoaded = true;
   }
 
   _applyForecastDefaults(source) {
@@ -567,43 +552,38 @@ class EegOptimizerPanel extends HTMLElement {
   /* ── Entity picker helper ─────────────────────── */
 
   _entityPickerHtml(field, value, label, helpText, domain) {
-    if (this._entityPickerLoaded) {
-      return `
-        <div class="field-group">
-          <label>${label}</label>
-          <ha-entity-picker
-            data-field="${field}"
-            data-ep-domain="${domain || ""}"
-            data-ep-value="${value || ""}"
-            allow-custom-entity
-          ></ha-entity-picker>
-          ${helpText ? `<div class="help-text">${helpText}</div>` : ""}
-        </div>`;
-    }
-    // Fallback: plain text input
+    const listId = `dl-${field}`;
     return `
       <div class="field-group">
         <label>${label}</label>
-        <input type="text" data-field="${field}" value="${value || ""}"
-               placeholder="sensor.xxx">
+        <input type="text" class="entity-input" data-field="${field}" data-domain="${domain || ""}"
+               value="${value || ""}" list="${listId}" placeholder="sensor.xxx" autocomplete="off">
+        <datalist id="${listId}"></datalist>
         ${helpText ? `<div class="help-text">${helpText}</div>` : ""}
       </div>`;
   }
 
-  /** Set properties on ha-entity-picker elements after innerHTML render. */
+  /** Populate datalist elements with matching HA entities. */
   _bindEntityPickers() {
-    if (!this._entityPickerLoaded) return;
-    const pickers = this._shadow.querySelectorAll("ha-entity-picker");
-    pickers.forEach((picker) => {
-      const field = picker.dataset.field;
-      const domain = picker.dataset.epDomain;
-      const value = picker.dataset.epValue;
-      picker.hass = this._hass;
-      picker.value = value || "";
-      if (domain) {
-        picker.includeDomains = [domain];
-      }
-      picker.allowCustomEntity = true;
+    if (!this._hass) return;
+    const inputs = this._shadow.querySelectorAll("input.entity-input");
+    inputs.forEach((input) => {
+      const domain = input.dataset.domain;
+      const listId = input.getAttribute("list");
+      const datalist = this._shadow.getElementById(listId);
+      if (!datalist) return;
+
+      const states = this._hass.states || {};
+      const entities = Object.keys(states)
+        .filter((eid) => !domain || eid.startsWith(domain + "."))
+        .sort();
+
+      datalist.innerHTML = entities
+        .map((eid) => {
+          const name = states[eid]?.attributes?.friendly_name || "";
+          return `<option value="${eid}">${name ? name + " — " + eid : eid}</option>`;
+        })
+        .join("");
     });
   }
 
@@ -1231,7 +1211,7 @@ class EegOptimizerPanel extends HTMLElement {
       ${content}
     `;
 
-    // After innerHTML, wire up ha-entity-pickers with hass + value + domain
+    // After innerHTML, populate entity datalists
     if (this._view === "wizard" && this._hass) {
       requestAnimationFrame(() => this._bindEntityPickers());
     }
