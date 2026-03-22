@@ -31,7 +31,13 @@ class HuaweiInverter(InverterBase):
             config: Integration config containing 'huawei_device_id'.
         """
         super().__init__(hass, config)
-        self._device_id: str = config["huawei_device_id"]
+        device_id = config.get("huawei_device_id")
+        if not device_id:
+            raise ValueError(
+                "HuaweiInverter requires 'huawei_device_id' in config — "
+                "device was not auto-detected. Re-run setup wizard to detect the Huawei device."
+            )
+        self._device_id: str = device_id
 
     async def async_set_charge_limit(self, power_kw: float) -> bool:
         """Set battery charge limit in kW.
