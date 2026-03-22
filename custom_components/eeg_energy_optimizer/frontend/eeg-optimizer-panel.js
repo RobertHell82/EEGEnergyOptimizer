@@ -180,7 +180,7 @@ class EegOptimizerPanel extends HTMLElement {
       case "prev-step":
         this._wizardStep = Math.max(0, this._wizardStep - 1);
         this._saveWizardProgress();
-        this._render();
+        this._refreshStepData();
         break;
       case "finish-wizard":
         this._finishWizard();
@@ -258,28 +258,31 @@ class EegOptimizerPanel extends HTMLElement {
     logos.forEach(src => { const img = new Image(); img.src = src; });
   }
 
+  async _refreshStepData() {
+    const step = this._wizardStep;
+    // Always refresh prerequisites on steps that show install status
+    if (step === 1 || step === 2) {
+      await this._checkPrerequisites();
+      return; // _checkPrerequisites calls _render
+    }
+    // Load entity picker for sensor steps
+    if (step === 3 || step === 4 || step === 5) {
+      await this._ensureEntityPicker();
+      if (step === 3 && !this._detectedSensors) {
+        await this._detectSensors();
+        return; // _detectSensors calls _render
+      }
+    }
+    this._render();
+  }
+
   async _nextStep() {
     const valid = this._validateCurrentStep();
     if (!valid) return;
 
     this._wizardStep = Math.min(WIZARD_STEPS.length - 1, this._wizardStep + 1);
     this._saveWizardProgress();
-
-    // Trigger async loads for specific steps
-    if ((this._wizardStep === 1 || this._wizardStep === 2) && !this._prerequisites) {
-      await this._checkPrerequisites();
-    }
-    if (this._wizardStep === 3) {
-      await this._ensureEntityPicker();
-      if (!this._detectedSensors) {
-        await this._detectSensors();
-      }
-    }
-    if (this._wizardStep === 4 || this._wizardStep === 5) {
-      await this._ensureEntityPicker();
-    }
-
-    this._render();
+    await this._refreshStepData();
   }
 
   _validateCurrentStep() {
