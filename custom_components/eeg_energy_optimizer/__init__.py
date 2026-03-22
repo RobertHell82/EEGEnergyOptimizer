@@ -23,7 +23,7 @@ except ImportError:
 PLATFORMS: list[str] = ["sensor", "select"]
 
 PANEL_FRONTEND_URL = "/eeg_optimizer_panel"
-PANEL_ICON = "mdi:solar-power"
+PANEL_ICON = "mdi:battery-charging-high"
 PANEL_TITLE = "EEG Optimizer"
 PANEL_URL_PATH = "eeg-optimizer"
 
