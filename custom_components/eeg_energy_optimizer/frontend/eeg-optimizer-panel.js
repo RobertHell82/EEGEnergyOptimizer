@@ -626,17 +626,17 @@ class EegOptimizerPanel extends HTMLElement {
 
     const backBtn =
       step > 0
-        ? `<button class="btn-secondary" data-action="prev-step">Zurück</button>`
+        ? `<button class="btn-secondary" data-action="prev-step">← Zurück</button>`
         : `<div></div>`;
 
     let forwardBtn = "";
     if (step === 7) {
       forwardBtn = `<button class="btn-primary" data-action="finish-wizard"${
         this._wizardLoading ? " disabled" : ""
-      }>Fertig</button>`;
+      }>✓ Fertig</button>`;
     } else {
       const disabled = this._isNextDisabled() ? " btn-disabled" : "";
-      forwardBtn = `<button class="btn-primary${disabled}" data-action="next-step">Weiter</button>`;
+      forwardBtn = `<button class="btn-primary${disabled}" data-action="next-step">Weiter →</button>`;
     }
 
     return `
@@ -730,7 +730,7 @@ class EegOptimizerPanel extends HTMLElement {
           <p style="font-size:12px;color:var(--secondary-text-color);margin:0">Fronius, SMA, ...</p>
         </div>
       </div>
-      <button class="btn-secondary" data-action="recheck-prerequisites">Erneut prüfen</button>`;
+      <button class="btn-secondary" data-action="recheck-prerequisites">↻ Erneut prüfen</button>`;
   }
 
   /* ── Step 2: Prognose-Integration ─────────────── */
@@ -777,7 +777,7 @@ class EegOptimizerPanel extends HTMLElement {
           <button class="btn-secondary" data-action="show-dialog" data-dialog="solcast">Anleitung</button>
         </div>
       </div>
-      <button class="btn-secondary" data-action="recheck-prerequisites">Erneut prüfen</button>`;
+      <button class="btn-secondary" data-action="recheck-prerequisites">↻ Erneut prüfen</button>`;
   }
 
   /* ── Step 3: Batterie & PV Sensoren ───────────── */
