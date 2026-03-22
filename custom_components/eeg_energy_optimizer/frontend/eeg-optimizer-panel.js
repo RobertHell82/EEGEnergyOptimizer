@@ -612,6 +612,9 @@ class EegOptimizerPanel extends HTMLElement {
 
   _renderStep0() {
     return `
+      <div style="text-align:center;margin-bottom:20px">
+        <img src="/eeg_optimizer_panel/logo.png" alt="EEG Energy Optimizer" style="max-width:180px;height:auto">
+      </div>
       <p style="line-height:1.6;margin-bottom:20px">
         Diese Integration optimiert deine Hausbatterie für die Energiegemeinschaft (EEG).
         Morgens wird die Batterieladung verzögert, damit Solarstrom ins Netz fließt.
@@ -1016,7 +1019,7 @@ class EegOptimizerPanel extends HTMLElement {
       content = `
         <div class="content">
           <div class="card setup-card">
-            <ha-icon icon="mdi:solar-power" class="setup-icon"></ha-icon>
+            <img src="/eeg_optimizer_panel/logo.png" alt="EEG Energy Optimizer" class="setup-logo">
             <h2>Setup noch nicht abgeschlossen</h2>
             <p>Richte den EEG Energy Optimizer ein, um die Batteriesteuerung für deine Energiegemeinschaft zu optimieren.</p>
             <button class="btn-primary" data-action="start-wizard">Setup starten</button>
@@ -1066,8 +1069,8 @@ class EegOptimizerPanel extends HTMLElement {
           padding: 24px;
         }
         .setup-card { text-align: center; padding: 48px 24px; }
-        .setup-card .setup-icon {
-          --mdc-icon-size: 64px; color: var(--primary-color); margin-bottom: 16px;
+        .setup-card .setup-logo {
+          max-width: 200px; height: auto; margin-bottom: 24px;
         }
         .setup-card h2 {
           color: var(--primary-text-color); margin-bottom: 16px;
