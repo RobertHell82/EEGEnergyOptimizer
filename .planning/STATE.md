@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-03-22T07:12:52.889Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-03-22T20:02:33.580Z"
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # Project State
@@ -55,6 +55,7 @@ Plan: 2 of 3
 | Phase 03 P03 | 2min | 2 tasks | 2 files |
 | Phase 03 P02 | 4min | 2 tasks | 5 files |
 | Phase 04 P01 | 3min | 2 tasks | 8 files |
+| Phase 04 P03 | 2min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,8 @@ Recent decisions affecting current work:
 - [Phase 04]: HUAWEI_DEFAULTS moved from config_flow to websocket_api for detect_sensors command
 - [Phase 04]: Panel uses plain HTMLElement + Shadow DOM, no LitElement/CDN imports
 - [Phase 04]: Config flow reduced to 1-click with setup_complete=false; full config via panel wizard
+- [Phase 04]: Used Energiebedarf (kWh) instead of Ueberschuss-Faktor for dashboard display, matching updated Decision dataclass
+- [Phase 04]: Inline SVG charts with HA CSS variables for light/dark theme compatibility
 
 ### Pending Todos
 
@@ -95,6 +98,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-22T07:12:52.869Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-03-22T20:02:33.570Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None
