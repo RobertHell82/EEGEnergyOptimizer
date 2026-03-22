@@ -277,12 +277,18 @@ class EegOptimizerPanel extends HTMLElement {
   }
 
   async _nextStep() {
-    const valid = this._validateCurrentStep();
-    if (!valid) return;
+    if (this._navigating) return;
+    this._navigating = true;
+    try {
+      const valid = this._validateCurrentStep();
+      if (!valid) return;
 
-    this._wizardStep = Math.min(WIZARD_STEPS.length - 1, this._wizardStep + 1);
-    this._saveWizardProgress();
-    await this._refreshStepData();
+      this._wizardStep = Math.min(WIZARD_STEPS.length - 1, this._wizardStep + 1);
+      this._saveWizardProgress();
+      await this._refreshStepData();
+    } finally {
+      this._navigating = false;
+    }
   }
 
   _validateCurrentStep() {
@@ -329,10 +335,6 @@ class EegOptimizerPanel extends HTMLElement {
           this._showValidationError(
             "Entweder Kapazitäts-Sensor oder manuelle Kapazität ist erforderlich."
           );
-          return false;
-        }
-        if (!this._wizardData.pv_power_sensor) {
-          this._showValidationError("PV-Sensor ist erforderlich.");
           return false;
         }
         return true;
@@ -566,15 +568,14 @@ class EegOptimizerPanel extends HTMLElement {
 
   _entityPickerHtml(field, value, label, helpText, domain) {
     if (this._entityPickerLoaded) {
-      const domainFilter = domain ? ` include-domains='["${domain}"]'` : "";
       return `
         <div class="field-group">
           <label>${label}</label>
           <ha-entity-picker
             data-field="${field}"
-            .value="${value || ""}"
+            data-ep-domain="${domain || ""}"
+            data-ep-value="${value || ""}"
             allow-custom-entity
-            ${domainFilter}
           ></ha-entity-picker>
           ${helpText ? `<div class="help-text">${helpText}</div>` : ""}
         </div>`;
@@ -587,6 +588,23 @@ class EegOptimizerPanel extends HTMLElement {
                placeholder="sensor.xxx">
         ${helpText ? `<div class="help-text">${helpText}</div>` : ""}
       </div>`;
+  }
+
+  /** Set properties on ha-entity-picker elements after innerHTML render. */
+  _bindEntityPickers() {
+    if (!this._entityPickerLoaded) return;
+    const pickers = this._shadow.querySelectorAll("ha-entity-picker");
+    pickers.forEach((picker) => {
+      const field = picker.dataset.field;
+      const domain = picker.dataset.epDomain;
+      const value = picker.dataset.epValue;
+      picker.hass = this._hass;
+      picker.value = value || "";
+      if (domain) {
+        picker.includeDomains = [domain];
+      }
+      picker.allowCustomEntity = true;
+    });
   }
 
   /* ── Wizard step rendering ────────────────────── */
@@ -797,8 +815,6 @@ class EegOptimizerPanel extends HTMLElement {
       "Der SOC-Sensor zeigt den aktuellen Ladestand deiner Batterie in Prozent.";
     const capHelp =
       "Zeigt die Gesamtkapazität deiner Batterie. Bei Huawei: Einstellungen → Geräte → Entitäten → ‘Akkukapazität’ aktivieren (ist standardmäßig deaktiviert).";
-    const pvHelp = "Sensor für die aktuelle PV-Erzeugungsleistung.";
-
     return `
       ${detectionInfo}
       ${this._entityPickerHtml(
@@ -822,14 +838,7 @@ class EegOptimizerPanel extends HTMLElement {
                min="1" max="100" step="0.5"
                placeholder="z.B. 10">
         <div class="help-text">Alternativ: Kapazität manuell eingeben (z.B. 10 für LUNA2000-10, 15 für LUNA2000-15).</div>
-      </div>
-      ${this._entityPickerHtml(
-        "pv_power_sensor",
-        this._wizardData.pv_power_sensor,
-        "PV-Sensor *",
-        pvHelp,
-        "sensor"
-      )}`;
+      </div>`;
   }
 
   /* ── Step 4: Prognose-Sensoren ────────────────── */
@@ -1222,19 +1231,9 @@ class EegOptimizerPanel extends HTMLElement {
       ${content}
     `;
 
-    // After innerHTML, wire up ha-entity-pickers with hass object
+    // After innerHTML, wire up ha-entity-pickers with hass + value + domain
     if (this._view === "wizard" && this._hass) {
-      requestAnimationFrame(() => {
-        const pickers = this._shadow.querySelectorAll("ha-entity-picker");
-        pickers.forEach((p) => {
-          p.hass = this._hass;
-          // Set value via property since attribute binding doesn't work for dynamic values
-          const field = p.dataset.field;
-          if (field && this._wizardData[field]) {
-            p.value = this._wizardData[field];
-          }
-        });
-      });
+      requestAnimationFrame(() => this._bindEntityPickers());
     }
   }
 }
