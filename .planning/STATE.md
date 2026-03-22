@@ -108,6 +108,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260322-v34 | Hausverbrauch-Sensor: grid_power_sensor Config + berechneter Sensor mit state_class measurement | 2026-03-22 | 16b10e0 | [260322-v34-hausverbrauch-sensor-grid-power-sensor-c](./quick/260322-v34-hausverbrauch-sensor-grid-power-sensor-c/) |
+| 260322-v8z | Hausverbrauch-Formel korrigiert: PV - Batterie - Netz (3-Term) + Migration v7 | 2026-03-22 | 686e918 | [260322-v8z-fix-hausverbrauch-formel-pv-eingang-minu](./quick/260322-v8z-fix-hausverbrauch-formel-pv-eingang-minu/) |
 
 ## Session Continuity
 
