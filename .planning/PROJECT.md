@@ -12,21 +12,21 @@ Feed solar energy into the grid when the community actually needs it, not when e
 
 ### Validated
 
-(None yet — ship to validate)
+- ✓ Morning feed-in priority — v1.0 (morning charge blocking with configurable EEG window)
+- ✓ Night feed-in — v1.0 (evening discharge with SOC threshold, next-day PV forecast, overnight reserve)
+- ✓ Night feed-in optimal strategy — v1.0 (dynamic min-SOC, surplus-day detection, safety buffer)
+- ✓ Configurable EEG time windows — v1.0 (morning + evening windows in config flow)
+- ✓ Huawei SUN2000 inverter support — v1.0 (forcible charge/discharge/stop via HA services)
+- ✓ Abstract inverter interface — v1.0 (InverterBase ABC with factory pattern)
+- ✓ Solcast PV forecast integration — v1.0 (remaining today + tomorrow forecasts)
+- ✓ Forecast.Solar integration — v1.0 (alternative free source, selectable in setup)
+- ✓ Onboarding Panel — v1.0 (sidebar panel with 8-step wizard, prerequisite checks, live dashboard)
+- ✓ Sensor entity mapping — v1.0 (entity pickers with auto-detection and contextual help)
+- ✓ HACS compatibility — v1.0 (manifest, hacs.json, proper repo structure)
 
 ### Active
 
-- [ ] Morning feed-in priority — delay battery charging to feed PV production into the grid during early hours (configurable start time, e.g. until 10:00-11:00)
-- [ ] Night feed-in — discharge battery into the grid during evening/night hours under configurable conditions (SOC threshold, next-day PV forecast, overnight consumption reserve)
-- [ ] Night feed-in optimal strategy — full logic from existing integration (dynamic min-SOC based on overnight consumption + safety buffer, next-day surplus check including battery + buffer + household demand)
-- [ ] Configurable EEG time windows — define when the community needs energy (e.g. 6:00-9:00, 17:00-22:00)
-- [ ] Huawei SUN2000 inverter support — battery charge/discharge control via HA Huawei Solar integration services
-- [ ] Abstract inverter interface — clean separation so additional inverter types can be added without touching optimization logic
-- [ ] Solcast PV forecast integration — read remaining/tomorrow forecasts from Solcast Solar HA integration
-- [ ] Forecast.Solar integration — alternative free PV forecast source
-- [ ] Onboarding Panel — dedicated HA sidebar panel with step-by-step setup wizard, prerequisite checks (is Solcast installed? is inverter integration set up?), and guidance for installing dependencies
-- [ ] Sensor entity mapping — user selects relevant sensors (SOC, PV power, consumption, grid feed-in) during setup with contextual help
-- [ ] HACS compatibility — proper repository structure, manifest, hacs.json for distribution via HACS
+(None — next milestone requirements TBD via /gsd:new-milestone)
 
 ### Out of Scope
 
@@ -59,11 +59,20 @@ Feed solar energy into the grid when the community actually needs it, not when e
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Huawei first, Fronius later | Huawei control via HA services is simpler, faster to validate core logic | — Pending |
-| Onboarding Panel over Config Flow | Better UX for prerequisite guidance and sensor mapping, worth the frontend effort | — Pending |
-| Time-based EEG demand (no API) | No real-time EEG demand API exists, configurable time windows are pragmatic | — Pending |
-| Abstract inverter interface from day one | Avoid Huawei-specific coupling, make adding Fronius/SMA/others clean | — Pending |
-| Develop in existing repo, extract later | Need reference access to existing integration's algorithms during development | — Pending |
+| Huawei first, Fronius later | Huawei control via HA services is simpler, faster to validate core logic | ✓ Good — Huawei working, abstract interface ready for Fronius |
+| Onboarding Panel over Config Flow | Better UX for prerequisite guidance and sensor mapping, worth the frontend effort | ✓ Good — 8-step wizard with auto-detection, live dashboard |
+| Time-based EEG demand (no API) | No real-time EEG demand API exists, configurable time windows are pragmatic | ✓ Good — pragmatic approach, configurable windows |
+| Abstract inverter interface from day one | Avoid Huawei-specific coupling, make adding Fronius/SMA/others clean | ✓ Good — ABC with factory, clean separation |
+| Develop in existing repo, extract later | Need reference access to existing integration's algorithms during development | ✓ Good — algorithms adapted successfully |
+| Plain HTMLElement over LitElement | No CDN dependency, Shadow DOM isolation, simpler deployment | ✓ Good — 1892 LOC JS, no build step needed |
+| 1-click config flow + panel wizard | Config flow minimal, full setup in panel for better UX | ✓ Good — setup_complete flag gates features |
+
+## Current State
+
+Shipped v1.0 with 4,194 LOC (2,302 Python + 1,892 JS) across 6 phases and 14 plans.
+Tech stack: Python async (HA framework), plain JS/Shadow DOM (panel), WebSocket API.
+All 17 v1 requirements validated. 8 tech debt items addressed in Phase 5+6.
+Ready for HACS publication or next milestone (Fronius support, advanced strategies).
 
 ---
-*Last updated: 2026-03-20 after initialization*
+*Last updated: 2026-03-22 after v1.0 milestone*
