@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from .const import (
     CONF_BATTERY_CAPACITY_KWH,
     CONF_BATTERY_CAPACITY_SENSOR,
+    CONF_BATTERY_POWER_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
     CONF_CONSUMPTION_SENSOR,
     CONF_FORECAST_REMAINING_ENTITY,
@@ -30,6 +31,7 @@ from .const import (
     CONF_PV_POWER_SENSOR,
     CONF_UPDATE_INTERVAL_FAST,
     CONF_UPDATE_INTERVAL_SLOW,
+    DEFAULT_BATTERY_POWER_SENSOR,
     DEFAULT_CONSUMPTION_SENSOR,
     DEFAULT_GRID_POWER_SENSOR,
     DEFAULT_LOOKBACK_WEEKS,
@@ -456,10 +458,10 @@ class PVForecastTomorrowSensor(SensorEntity):
 # ---------------------------------------------------------------------------
 
 class HausverbrauchSensor(SensorEntity):
-    """Calculates actual house consumption from inverter and grid power.
+    """Calculates actual house consumption from PV input, battery, and grid power.
 
-    Formula: Hausverbrauch = PV-Wirkleistung - Netz-Wirkleistung
-    (grid positive = import, negative = export)
+    Formula: Hausverbrauch = PV-Eingangsleistung - Batterie-Lade/Entladeleistung - Netz-Wirkleistung
+    (battery positive = charging, negative = discharging; grid positive = import, negative = export)
     Result clamped to >= 0.
     state_class=MEASUREMENT so HA recorder stores mean statistics.
     """
@@ -475,6 +477,7 @@ class HausverbrauchSensor(SensorEntity):
     def __init__(self, hass: Any, entry: Any, config: dict) -> None:
         self.hass = hass
         self._pv_sensor_id = config.get(CONF_PV_POWER_SENSOR, "")
+        self._battery_power_sensor_id = config.get(CONF_BATTERY_POWER_SENSOR, DEFAULT_BATTERY_POWER_SENSOR)
         self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, DEFAULT_GRID_POWER_SENSOR)
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_hausverbrauch"
         self._attr_device_info = _device_info(entry.entry_id)
@@ -483,23 +486,29 @@ class HausverbrauchSensor(SensorEntity):
 
     async def async_update(self) -> None:
         pv_power = _read_float(self.hass, self._pv_sensor_id)
+        battery_power = _read_float(self.hass, self._battery_power_sensor_id)
         grid_power = _read_float(self.hass, self._grid_sensor_id)
 
-        if pv_power is None or grid_power is None:
+        if pv_power is None or battery_power is None or grid_power is None:
             self._attr_native_value = None
             hints = []
             if pv_power is None:
                 hints.append(f"PV-Sensor ({self._pv_sensor_id}) nicht verfügbar")
+            if battery_power is None:
+                hints.append(f"Batterie-Sensor ({self._battery_power_sensor_id}) nicht verfügbar")
             if grid_power is None:
                 hints.append(f"Netz-Sensor ({self._grid_sensor_id}) nicht verfügbar")
             self._attr_extra_state_attributes = {"hinweis": ", ".join(hints)}
             return
 
-        # Inverter power - grid power (positive grid = import, negative = export)
-        hausverbrauch = max(pv_power - grid_power, 0.0)
+        # PV input - battery power - grid power
+        # battery positive = charging, negative = discharging
+        # grid positive = import, negative = export
+        hausverbrauch = max(pv_power - battery_power - grid_power, 0.0)
         self._attr_native_value = round(hausverbrauch, 3)
         self._attr_extra_state_attributes = {
             "pv_leistung_kw": round(pv_power, 3),
+            "batterie_leistung_kw": round(battery_power, 3),
             "netz_leistung_kw": round(grid_power, 3),
         }
 
