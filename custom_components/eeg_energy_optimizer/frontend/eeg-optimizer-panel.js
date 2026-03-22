@@ -622,7 +622,7 @@ class EegOptimizerPanel extends HTMLElement {
       </p>
       <h3 style="margin-bottom:8px">Was du brauchst</h3>
       <ul style="line-height:1.8;margin-bottom:20px;padding-left:20px">
-        <li>Einen unterstützten Wechselrichter (aktuell getestet: Huawei SUN2000 mit Batteriespeicher)</li>
+        <li>Einen unterstützten Wechselrichter mit Batteriespeicher</li>
         <li>Eine PV-Prognose-Integration (Solcast Solar oder Forecast.Solar)</li>
       </ul>
       <h3 style="margin-bottom:8px">Getestete Setups</h3>
