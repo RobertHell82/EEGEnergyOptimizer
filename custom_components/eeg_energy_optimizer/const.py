@@ -8,6 +8,7 @@ CONF_BATTERY_CAPACITY_SENSOR = "battery_capacity_sensor"
 CONF_BATTERY_CAPACITY_KWH = "battery_capacity_kwh"
 CONF_PV_POWER_SENSOR = "pv_power_sensor"
 CONF_GRID_POWER_SENSOR = "grid_power_sensor"
+CONF_BATTERY_POWER_SENSOR = "battery_power_sensor"
 CONF_HUAWEI_DEVICE_ID = "huawei_device_id"
 
 INVERTER_TYPE_HUAWEI = "huawei_sun2000"
@@ -30,6 +31,7 @@ FORECAST_SOURCE_FORECAST_SOLAR = "forecast_solar"
 
 DEFAULT_CONSUMPTION_SENSOR = "sensor.power_meter_verbrauch"
 DEFAULT_GRID_POWER_SENSOR = "sensor.power_meter_wirkleistung"
+DEFAULT_BATTERY_POWER_SENSOR = "sensor.batteries_lade_entladeleistung"
 DEFAULT_LOOKBACK_WEEKS = 8
 DEFAULT_UPDATE_INTERVAL_FAST = 1   # minutes
 DEFAULT_UPDATE_INTERVAL_SLOW = 15  # minutes

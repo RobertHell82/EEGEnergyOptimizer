@@ -63,6 +63,11 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data.setdefault("grid_power_sensor", "sensor.power_meter_wirkleistung")
         hass.config_entries.async_update_entry(entry, data=new_data, version=6)
 
+    if entry.version < 7:
+        new_data = {**entry.data}
+        new_data.setdefault("battery_power_sensor", "sensor.batteries_lade_entladeleistung")
+        hass.config_entries.async_update_entry(entry, data=new_data, version=7)
+
     return True
 
 
