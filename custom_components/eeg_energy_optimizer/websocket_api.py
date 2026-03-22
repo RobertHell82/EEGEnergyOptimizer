@@ -60,6 +60,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_save_config)
     websocket_api.async_register_command(hass, ws_check_prerequisites)
     websocket_api.async_register_command(hass, ws_detect_sensors)
+    websocket_api.async_register_command(hass, ws_test_inverter)
 
 
 @websocket_api.websocket_command(
@@ -81,6 +82,8 @@ async def ws_get_config(
 
     entry = entries[0]
     config = {**entry.data, **entry.options}
+    config["entry_id"] = entry.entry_id
+    config["setup_complete"] = entry.data.get("setup_complete", False)
     connection.send_result(msg["id"], config)
 
 
@@ -170,3 +173,61 @@ async def ws_detect_sensors(
         result[CONF_HUAWEI_DEVICE_ID] = device_id
 
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/test_inverter",
+    }
+)
+@websocket_api.async_response
+async def ws_test_inverter(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Test inverter communication by calling stop_forcible (safe no-op).
+
+    Returns success/failure and the inverter type.
+    """
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if not entries:
+        connection.send_error(msg["id"], "not_configured", "No config entry found")
+        return
+
+    entry = entries[0]
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    inverter = data.get("inverter")
+
+    if inverter is None:
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": "Kein Wechselrichter konfiguriert. Bitte zuerst die Einrichtung abschließen.",
+        })
+        return
+
+    if not inverter.is_available:
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": "Wechselrichter-Integration ist nicht geladen oder nicht erreichbar.",
+        })
+        return
+
+    try:
+        ok = await inverter.async_stop_forcible()
+        if ok:
+            connection.send_result(msg["id"], {
+                "success": True,
+                "message": "Verbindung zum Wechselrichter erfolgreich getestet.",
+            })
+        else:
+            connection.send_result(msg["id"], {
+                "success": False,
+                "error": "Wechselrichter hat nicht wie erwartet reagiert.",
+            })
+    except Exception as exc:
+        _LOGGER.exception("Inverter test failed")
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": f"Fehler bei der Kommunikation: {exc}",
+        })
