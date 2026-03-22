@@ -87,6 +87,23 @@ const DIALOG_CONTENT = {
         <li>Gib deine Anlagen-Daten ein (Neigung, Ausrichtung, kWp)</li>
       </ol>`,
   },
+  capacity_sensor: {
+    title: "Huawei Akkukapazität-Sensor aktivieren",
+    content: `
+      <p style="margin-bottom:12px">Der Sensor für die Akkukapazität ist bei Huawei Solar standardmäßig deaktiviert (Diagnostic-Sensor). So aktivierst du ihn:</p>
+      <ol style="padding-left:20px;line-height:2">
+        <li>Gehe zu <strong>Einstellungen → Geräte &amp; Dienste</strong></li>
+        <li>Klicke auf <strong>Huawei Solar</strong></li>
+        <li>Klicke auf dein <strong>Batterie-Gerät</strong> (z.B. "LUNA2000")</li>
+        <li>Scrolle nach unten zur Entitäten-Liste</li>
+        <li>Klicke oben rechts auf <strong>"Entitäten die nicht auf dem Dashboard angezeigt werden"</strong> (oder den Filter für deaktivierte Entitäten)</li>
+        <li>Suche nach <strong>"Akkukapazität"</strong> oder <strong>"Storage Rated Capacity"</strong></li>
+        <li>Klicke auf die Entität und dann auf <strong>"Aktivieren"</strong></li>
+        <li>Warte ca. 30 Sekunden bis der Sensor Daten liefert</li>
+      </ol>
+      <p style="margin-top:12px;color:var(--secondary-text-color)">Der Sensor heißt typischerweise <code>sensor.batterien_akkukapazitat</code> und zeigt die Kapazität in Wh an (z.B. 15000 für 15 kWh).</p>
+      <p style="margin-top:8px;color:var(--secondary-text-color)"><strong>Tipp:</strong> Wenn du den Sensor nicht findest, kannst du die Kapazität auch manuell eingeben.</p>`,
+  },
 };
 
 class EegOptimizerPanel extends HTMLElement {
@@ -147,12 +164,16 @@ class EegOptimizerPanel extends HTMLElement {
     });
 
     this._shadow.addEventListener("change", (e) => {
+      // Handle capacity mode radio buttons
+      if (e.target.name === "cap_mode") {
+        this._handleAction("set-cap-mode", {});
+        return;
+      }
       const target = e.target.closest("[data-field]");
       if (target) {
         const field = target.dataset.field;
         if (target.tagName === "SELECT") {
           this._wizardData[field] = target.value;
-          // Auto-suggest forecast entities when source changes
           if (field === "forecast_source") {
             this._applyForecastDefaults(target.value);
             this._render();
@@ -209,6 +230,19 @@ class EegOptimizerPanel extends HTMLElement {
         const invValue = dataset?.value;
         if (invValue) {
           this._wizardData.inverter_type = invValue;
+          this._render();
+        }
+        break;
+      }
+      case "set-cap-mode": {
+        const radio = this._shadow.querySelector('input[name="cap_mode"]:checked');
+        if (radio) {
+          this._capacityMode = radio.value;
+          if (radio.value === "manual") {
+            this._wizardData.battery_capacity_sensor = "";
+          } else {
+            this._wizardData.battery_capacity_kwh = "";
+          }
           this._render();
         }
         break;
@@ -571,38 +605,74 @@ class EegOptimizerPanel extends HTMLElement {
   /* ── Entity picker helper ─────────────────────── */
 
   _entityPickerHtml(field, value, label, helpText, domain) {
-    const listId = `dl-${field}`;
     return `
-      <div class="field-group">
+      <div class="field-group entity-picker-wrap">
         <label>${label}</label>
-        <input type="text" class="entity-input" data-field="${field}" data-domain="${domain || ""}"
-               value="${value || ""}" list="${listId}" placeholder="sensor.xxx" autocomplete="off">
-        <datalist id="${listId}"></datalist>
+        <div class="ep-container">
+          <input type="text" class="entity-input" data-field="${field}" data-domain="${domain || ""}"
+                 value="${value || ""}" placeholder="Tippen zum Suchen..." autocomplete="off">
+          <div class="ep-dropdown" data-for="${field}"></div>
+        </div>
         ${helpText ? `<div class="help-text">${helpText}</div>` : ""}
       </div>`;
   }
 
-  /** Populate datalist elements with matching HA entities. */
+  /** Bind focus/input events to entity picker inputs for custom dropdown. */
   _bindEntityPickers() {
     if (!this._hass) return;
     const inputs = this._shadow.querySelectorAll("input.entity-input");
     inputs.forEach((input) => {
       const domain = input.dataset.domain;
-      const listId = input.getAttribute("list");
-      const datalist = this._shadow.getElementById(listId);
-      if (!datalist) return;
+      const field = input.dataset.field;
+      const dropdown = this._shadow.querySelector(`.ep-dropdown[data-for="${field}"]`);
+      if (!dropdown) return;
 
       const states = this._hass.states || {};
-      const entities = Object.keys(states)
+      const allEntities = Object.keys(states)
         .filter((eid) => !domain || eid.startsWith(domain + "."))
-        .sort();
+        .sort()
+        .map((eid) => ({
+          id: eid,
+          name: states[eid]?.attributes?.friendly_name || "",
+        }));
 
-      datalist.innerHTML = entities
-        .map((eid) => {
-          const name = states[eid]?.attributes?.friendly_name || "";
-          return `<option value="${eid}">${name ? name + " — " + eid : eid}</option>`;
-        })
-        .join("");
+      const showDropdown = (filter) => {
+        const q = (filter || "").toLowerCase();
+        const matches = allEntities
+          .filter((e) => !q || e.id.includes(q) || e.name.toLowerCase().includes(q))
+          .slice(0, 50);
+        if (matches.length === 0) {
+          dropdown.style.display = "none";
+          return;
+        }
+        dropdown.innerHTML = matches
+          .map((e) => `<div class="ep-option" data-value="${e.id}">
+            <span class="ep-name">${e.name || e.id}</span>
+            <span class="ep-id">${e.id}</span>
+          </div>`)
+          .join("");
+        dropdown.style.display = "block";
+      };
+
+      input.addEventListener("focus", () => showDropdown(input.value));
+      input.addEventListener("input", () => {
+        this._wizardData[field] = input.value;
+        showDropdown(input.value);
+      });
+
+      dropdown.addEventListener("mousedown", (ev) => {
+        ev.preventDefault(); // Prevent blur before click registers
+        const opt = ev.target.closest(".ep-option");
+        if (opt) {
+          input.value = opt.dataset.value;
+          this._wizardData[field] = opt.dataset.value;
+          dropdown.style.display = "none";
+        }
+      });
+
+      input.addEventListener("blur", () => {
+        setTimeout(() => { dropdown.style.display = "none"; }, 150);
+      });
     });
   }
 
@@ -812,8 +882,31 @@ class EegOptimizerPanel extends HTMLElement {
 
     const socHelp =
       "Der SOC-Sensor zeigt den aktuellen Ladestand deiner Batterie in Prozent.";
-    const capHelp =
-      "Zeigt die Gesamtkapazität deiner Batterie. Bei Huawei: Einstellungen → Geräte → Entitäten → ‘Akkukapazität’ aktivieren (ist standardmäßig deaktiviert).";
+
+    // Auto-select capacity mode based on detection
+    if (!this._capacityMode) {
+      this._capacityMode = this._wizardData.battery_capacity_sensor ? "sensor" : "manual";
+    }
+    const capSensor = this._capacityMode === "sensor";
+
+    const capSensorHtml = capSensor ? this._entityPickerHtml(
+      "battery_capacity_sensor",
+      this._wizardData.battery_capacity_sensor,
+      "Kapazitäts-Sensor",
+      "",
+      "sensor"
+    ) : "";
+
+    const capManualHtml = !capSensor ? `
+      <div class="field-group">
+        <label>Kapazität (kWh)</label>
+        <input type="number" data-field="battery_capacity_kwh"
+               value="${this._wizardData.battery_capacity_kwh || ""}"
+               min="1" max="100" step="0.5"
+               placeholder="z.B. 10">
+        <div class="help-text">z.B. 10 für LUNA2000-10, 15 für LUNA2000-15</div>
+      </div>` : "";
+
     return `
       ${detectionInfo}
       ${this._entityPickerHtml(
@@ -823,21 +916,25 @@ class EegOptimizerPanel extends HTMLElement {
         socHelp,
         "sensor"
       )}
-      ${this._entityPickerHtml(
-        "battery_capacity_sensor",
-        this._wizardData.battery_capacity_sensor,
-        "Kapazitäts-Sensor",
-        capHelp,
-        "sensor"
-      )}
       <div class="field-group">
-        <label>Kapazität manuell (kWh)</label>
-        <input type="number" data-field="battery_capacity_kwh"
-               value="${this._wizardData.battery_capacity_kwh || ""}"
-               min="1" max="100" step="0.5"
-               placeholder="z.B. 10">
-        <div class="help-text">Alternativ: Kapazität manuell eingeben (z.B. 10 für LUNA2000-10, 15 für LUNA2000-15).</div>
-      </div>`;
+        <label>Batteriekapazität *</label>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" name="cap_mode" value="sensor" ${capSensor ? "checked" : ""} data-action="set-cap-mode">
+            Über Sensor auswählen
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="cap_mode" value="manual" ${!capSensor ? "checked" : ""} data-action="set-cap-mode">
+            Manuell eingeben
+          </label>
+        </div>
+        ${capSensor ? `<div class="help-text" style="margin-bottom:8px">
+          Bei Huawei ist der Kapazitäts-Sensor standardmäßig deaktiviert.
+          <button class="btn-link" data-action="show-dialog" data-dialog="capacity_sensor">Anleitung zur Aktivierung</button>
+        </div>` : ""}
+      </div>
+      ${capSensorHtml}
+      ${capManualHtml}`;
   }
 
   /* ── Step 4: Prognose-Sensoren ────────────────── */
@@ -1220,6 +1317,28 @@ class EegOptimizerPanel extends HTMLElement {
         .status-badge.installed { background: var(--success-color, #4caf50); color: white; }
         .status-badge.missing { background: var(--error-color, #f44336); color: white; }
         .loading { text-align: center; padding: 24px; color: var(--secondary-text-color); }
+        .radio-group { display: flex; gap: 16px; margin: 8px 0; }
+        .radio-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 14px; }
+        .radio-label input[type="radio"] { accent-color: var(--primary-color); }
+        .btn-link {
+          background: none; border: none; color: var(--primary-color); cursor: pointer;
+          font-size: 12px; text-decoration: underline; padding: 0;
+        }
+        .btn-link:hover { opacity: 0.8; }
+        .ep-container { position: relative; }
+        .ep-dropdown {
+          display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 10;
+          max-height: 200px; overflow-y: auto;
+          background: var(--card-background-color); border: 1px solid var(--divider-color);
+          border-top: none; border-radius: 0 0 4px 4px;
+          box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .ep-option {
+          padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column;
+        }
+        .ep-option:hover { background: var(--primary-color-light, rgba(3,169,244,0.08)); }
+        .ep-name { font-size: 14px; color: var(--primary-text-color); }
+        .ep-id { font-size: 11px; color: var(--secondary-text-color); }
         .prereq-cards .card { box-shadow: none; border: 2px solid var(--divider-color); transition: border-color 0.2s; }
         .forecast-option.selected { border-color: var(--primary-color); background: var(--primary-color-light, rgba(3,169,244,0.08)); }
       </style>
