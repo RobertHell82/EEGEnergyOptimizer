@@ -1747,6 +1747,17 @@ class EegOptimizerPanel extends HTMLElement {
     const modeBadgeClass = modeValue === "Ein" ? "green" : modeValue === "Test" ? "yellow" : modeValue === "Aus" ? "gray" : "gray";
 
     const decisionState = this._readState(this._entityIds?.entscheidung || "sensor.eeg_energy_optimizer_entscheidung");
+
+    // Connection lost banner
+    if (!decisionState && !modeState) {
+      return `<div class="connection-lost">
+        <div class="connection-lost-icon">&#9888;</div>
+        <h2>Verbindung verloren</h2>
+        <p>Warte auf Verbindung zum Home Assistant Server...</p>
+        <div class="connection-lost-spinner"></div>
+      </div>`;
+    }
+
     const zustand = decisionState?.attributes?.zustand || decisionState?.state || "---";
     const zustandBadgeClass =
       zustand === "Morgen-Einspeisung" ? "blue" :
@@ -2340,6 +2351,12 @@ class EegOptimizerPanel extends HTMLElement {
         .btn-manual-block ha-icon { color: #2196f3; }
         .btn-manual-block:hover:not([disabled]) { background: rgba(33,150,243,0.1); }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .connection-lost { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; text-align: center; }
+        .connection-lost-icon { font-size: 48px; color: var(--warning-color, #ffa726); margin-bottom: 8px; }
+        .connection-lost h2 { color: var(--primary-text-color); font-weight: 500; margin: 8px 0; }
+        .connection-lost p { color: var(--secondary-text-color, #666); font-size: 14px; margin: 4px 0 24px; }
+        .connection-lost-spinner { width: 32px; height: 32px; border: 3px solid var(--divider-color, #e0e0e0); border-top-color: var(--warning-color, #ffa726); border-radius: 50%; animation: conn-spin 1s linear infinite; }
+        @keyframes conn-spin { to { transform: rotate(360deg); } }
       </style>
       <div class="toolbar">
         <h1>EEG Optimizer</h1>
