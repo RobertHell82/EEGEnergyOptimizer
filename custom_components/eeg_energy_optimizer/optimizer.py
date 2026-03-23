@@ -537,7 +537,7 @@ class EEGOptimizer:
             1 + self._safety_buffer_pct / 100
         )
         soc_pct = needed_kwh / snap.battery_capacity_kwh * 100
-        return float(self._min_soc + math.ceil(soc_pct))
+        return min(float(self._min_soc + math.ceil(soc_pct)), 100.0)
 
     def _should_discharge(
         self, snap: Snapshot
@@ -570,11 +570,13 @@ class EEGOptimizer:
             reasons.append(f"SOC {snap.battery_soc:.0f}% <= Min-SOC {min_soc:.0f}%")
 
         # Check tomorrow surplus (D-09)
-        # Tomorrow demand = consumption + battery charge needed
+        # Tomorrow demand = daylight consumption + battery charge needed
+        # Only daylight consumption competes with PV; evening consumption
+        # is covered by the fully charged battery (battery_charge_needed).
         battery_charge_needed = (
             (100 - self._min_soc) / 100 * snap.battery_capacity_kwh
         )
-        tomorrow_demand = snap.consumption_tomorrow_kwh + battery_charge_needed
+        tomorrow_demand = snap.consumption_tomorrow_daylight_kwh + battery_charge_needed
         pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
 
         if pv_tomorrow < tomorrow_demand:

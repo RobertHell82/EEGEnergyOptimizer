@@ -32,7 +32,7 @@ FORECAST_SOURCE_FORECAST_SOLAR = "forecast_solar"
 
 DEFAULT_GRID_POWER_SENSOR = "sensor.power_meter_wirkleistung"
 DEFAULT_BATTERY_POWER_SENSOR = "sensor.batteries_lade_entladeleistung"
-DEFAULT_LOOKBACK_WEEKS = 8
+DEFAULT_LOOKBACK_WEEKS = 4
 DEFAULT_UPDATE_INTERVAL_FAST = 1   # minutes
 DEFAULT_UPDATE_INTERVAL_SLOW = 15  # minutes
 
