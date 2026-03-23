@@ -1012,21 +1012,21 @@ class EegOptimizerPanel extends HTMLElement {
           "pv_power_sensor",
           this._wizardData.pv_power_sensor,
           "PV-Eingangsleistung *",
-          "Aktuelle PV-Produktion in W oder kW.",
+          "Aktuelle PV-Produktion in W oder kW (Huawei: sensor.inverter_eingangsleistung).",
           "sensor"
         )}
         ${this._entityPickerHtml(
           "battery_power_sensor",
           this._wizardData.battery_power_sensor,
           "Batterie Lade-/Entladeleistung *",
-          "Lade- und Entladeleistung der Batterie in W oder kW.",
+          "Lade- und Entladeleistung der Batterie in W oder kW (Huawei: sensor.batteries_lade_entladeleistung).",
           "sensor"
         )}
         ${this._entityPickerHtml(
           "grid_power_sensor",
           this._wizardData.grid_power_sensor,
           "Netzbezug/-einspeisung *",
-          "Wirkleistung am Netzanschluss in W oder kW.",
+          "Wirkleistung am Netzanschluss in W oder kW (Huawei: sensor.power_meter_wirkleistung).",
           "sensor"
         )}
       </div>
@@ -1073,14 +1073,14 @@ class EegOptimizerPanel extends HTMLElement {
           "forecast_remaining_entity",
           this._wizardData.forecast_remaining_entity,
           "Sensor für PV Prognose verbleibend heute *",
-          "Verbleibende PV-Produktion für den heutigen Tag in kWh.",
+          "Verbleibende PV-Produktion f\u00fcr den heutigen Tag in kWh (Solcast: sensor.solcast_pv_forecast_prognose_fuer_heute).",
           "sensor"
         )}
         ${this._entityPickerHtml(
           "forecast_tomorrow_entity",
           this._wizardData.forecast_tomorrow_entity,
           "Sensor für PV Prognose morgen *",
-          "Prognostizierte PV-Produktion für morgen in kWh.",
+          "Prognostizierte PV-Produktion f\u00fcr morgen in kWh (Solcast: sensor.solcast_pv_forecast_prognose_fuer_morgen).",
           "sensor"
         )}
       </div>` : "";
@@ -1138,7 +1138,7 @@ class EegOptimizerPanel extends HTMLElement {
       "battery_capacity_sensor",
       this._wizardData.battery_capacity_sensor,
       "Sensor für Batteriekapazität",
-      "",
+      "Gesamtkapazit\u00e4t der Batterie in kWh oder Wh (Huawei: sensor.batterien_akkukapazitat).",
       "sensor"
     ) : "";
 
@@ -1158,7 +1158,7 @@ class EegOptimizerPanel extends HTMLElement {
         "battery_soc_sensor",
         this._wizardData.battery_soc_sensor,
         "Sensor für Batterieladezustand (SOC) *",
-        socHelp,
+        "Der SOC-Sensor zeigt den aktuellen Ladestand deiner Batterie in Prozent (Huawei: sensor.batteries_batterieladung).",
         "sensor"
       )}
       <div class="field-group">
