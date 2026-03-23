@@ -80,6 +80,8 @@ class Snapshot:
     consumption_to_sunset_kwh: float = 0.0
     consumption_tomorrow_kwh: float = 0.0
     consumption_overnight_kwh: float = 0.0
+    consumption_today_daylight_kwh: float = 0.0    # SA -> SU today
+    consumption_tomorrow_daylight_kwh: float = 0.0  # SA -> SU tomorrow
     sunrise: datetime | None = None
     sunset: datetime | None = None
 
@@ -231,6 +233,41 @@ class EEGOptimizer:
                     overnight_start, overnight_end
                 ).get("verbrauch_kwh", 0.0)
 
+        # Daylight consumption (SA -> SU) for morning delay decision
+        consumption_today_daylight = 0.0
+        consumption_tomorrow_daylight = 0.0
+
+        if sunrise is not None and sunset is not None:
+            today_date = now.date()
+
+            # Determine today's sunrise from sun.sun next_rising
+            if sunrise.date() == today_date:
+                today_sunrise = sunrise
+            else:
+                # next_rising is tomorrow -> today's sunrise was ~24h earlier
+                today_sunrise = sunrise - timedelta(days=1)
+
+            # Determine today's sunset from sun.sun next_setting
+            if sunset.date() == today_date:
+                today_sunset = sunset
+            else:
+                # next_setting is tomorrow (we're past sunset) -> today's was ~24h earlier
+                today_sunset = sunset - timedelta(days=1)
+
+            # Today: remaining daylight consumption (max(sunrise, now) -> sunset)
+            if today_sunset > now:
+                daylight_start = max(today_sunrise, now)
+                consumption_today_daylight = self._coordinator.calculate_period(
+                    daylight_start, today_sunset
+                ).get("verbrauch_kwh", 0.0)
+
+            # Tomorrow: full daylight (shift today's times by +1 day)
+            tomorrow_sunrise = today_sunrise + timedelta(days=1)
+            tomorrow_sunset = today_sunset + timedelta(days=1)
+            consumption_tomorrow_daylight = self._coordinator.calculate_period(
+                tomorrow_sunrise, tomorrow_sunset
+            ).get("verbrauch_kwh", 0.0)
+
         return Snapshot(
             now=now,
             battery_soc=battery_soc,
@@ -241,6 +278,8 @@ class EEGOptimizer:
             consumption_to_sunset_kwh=consumption_to_sunset,
             consumption_tomorrow_kwh=consumption_tomorrow,
             consumption_overnight_kwh=consumption_overnight,
+            consumption_today_daylight_kwh=consumption_today_daylight,
+            consumption_tomorrow_daylight_kwh=consumption_tomorrow_daylight,
             sunrise=sunrise,
             sunset=sunset,
         )
@@ -349,7 +388,7 @@ class EEGOptimizer:
             missing_battery_est = 0.0
             if snap.battery_capacity_kwh > 0:
                 missing_battery_est = (100 - self._min_soc) / 100 * snap.battery_capacity_kwh
-            tomorrow_demand = snap.consumption_tomorrow_kwh + missing_battery_est
+            tomorrow_demand = snap.consumption_tomorrow_daylight_kwh + missing_battery_est
             tomorrow_threshold = tomorrow_demand * (1 + self._safety_buffer_pct / 100)
 
             # Show tomorrow's values in the card (not today's remaining)
@@ -412,14 +451,14 @@ class EEGOptimizer:
         return result
 
     def _calc_energiebedarf(self, snap: Snapshot) -> float:
-        """Calculate total energy demand: consumption to sunset + missing battery energy.
+        """Calculate total energy demand: daylight consumption (SA->SU) + missing battery energy.
 
         This represents everything that must be covered by today's PV:
-        - Household consumption until sunset (when PV production ends)
+        - Household consumption during daylight hours (sunrise to sunset)
         - Energy needed to fully charge the battery
         """
-        # Consumption from now until sunset
-        consumption = snap.consumption_to_sunset_kwh
+        # Daylight consumption (SA -> SU) for morning delay decision
+        consumption = snap.consumption_today_daylight_kwh
 
         # Missing battery energy (kWh to reach 100%)
         missing_battery = 0.0
@@ -615,8 +654,8 @@ class EEGOptimizer:
                 )
             lines.append(
                 f"- Energiebedarf: {decision.energiebedarf_kwh:.1f} kWh "
-                f"(Verbrauch bis SU: {snap.consumption_to_sunset_kwh:.1f} + "
-                f"Batterie: {decision.energiebedarf_kwh - snap.consumption_to_sunset_kwh:.1f})"
+                f"(Verbrauch SA-SU: {snap.consumption_today_daylight_kwh:.1f} + "
+                f"Batterie: {decision.energiebedarf_kwh - snap.consumption_today_daylight_kwh:.1f})"
             )
             lines.append(
                 f"- Schwelle inkl. Puffer: {schwelle:.1f} kWh"

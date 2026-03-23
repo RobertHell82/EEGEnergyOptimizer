@@ -118,9 +118,10 @@ None yet.
 | 260323-m0o | Dashboard Status-Header: 2 Status-Cards (Verzogerte Ladung + Abend-Entladung) mit Bedingungen | 2026-03-23 | 7885d0d | [260323-m0o-dashboard-status-header-berarbeiten-opti](./quick/260323-m0o-dashboard-status-header-berarbeiten-opti/) |
 | 260323-mpk | Dashboard: Verbindung-verloren Banner statt weissem Bildschirm bei Connection-Loss | 2026-03-23 | 40d741a | [260323-mpk-dashboard-verbindungsverlust-banner-stat](./quick/260323-mpk-dashboard-verbindungsverlust-banner-stat/) |
 | 260323-muk | Dashboard: Redundante Wechselrichter-Verbindungstest Card entfernt | 2026-03-23 | 99b78c1 | [260323-muk-dashboard-wechselrichter-verbindungstest](./quick/260323-muk-dashboard-wechselrichter-verbindungstest/) |
+| 260323-q66 | Tagesverbrauch SA->SU: Daylight-only consumption fuer Morgen-Verzoegerung | 2026-03-23 | f430b17 | [260323-q66-tagesverbrauch-sensor-sonnenaufgang-sonn](./quick/260323-q66-tagesverbrauch-sensor-sonnenaufgang-sonn/) |
 
 ## Session Continuity
 
-Last session: 2026-03-23T16:30:00Z
-Stopped at: Completed quick-260323-muk
+Last session: 2026-03-23T18:00:00Z
+Stopped at: Completed quick-260323-q66
 Resume file: None
