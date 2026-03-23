@@ -1073,14 +1073,18 @@ class EegOptimizerPanel extends HTMLElement {
           "forecast_remaining_entity",
           this._wizardData.forecast_remaining_entity,
           "Sensor für PV Prognose verbleibend heute *",
-          "Verbleibende PV-Produktion f\u00fcr den heutigen Tag in kWh (Solcast: sensor.solcast_pv_forecast_prognose_fuer_heute).",
+          solcastSelected
+            ? "Verbleibende PV-Produktion f\u00fcr den heutigen Tag in kWh (Solcast: sensor.solcast_pv_forecast_prognose_fuer_heute)."
+            : "Verbleibende PV-Produktion f\u00fcr den heutigen Tag in kWh (Forecast.Solar: sensor.energy_production_today_remaining).",
           "sensor"
         )}
         ${this._entityPickerHtml(
           "forecast_tomorrow_entity",
           this._wizardData.forecast_tomorrow_entity,
           "Sensor für PV Prognose morgen *",
-          "Prognostizierte PV-Produktion f\u00fcr morgen in kWh (Solcast: sensor.solcast_pv_forecast_prognose_fuer_morgen).",
+          solcastSelected
+            ? "Prognostizierte PV-Produktion f\u00fcr morgen in kWh (Solcast: sensor.solcast_pv_forecast_prognose_fuer_morgen)."
+            : "Prognostizierte PV-Produktion f\u00fcr morgen in kWh (Forecast.Solar: sensor.energy_production_tomorrow).",
           "sensor"
         )}
       </div>` : "";
