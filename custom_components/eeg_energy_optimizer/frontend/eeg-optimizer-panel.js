@@ -1493,36 +1493,32 @@ class EegOptimizerPanel extends HTMLElement {
     // Weekday colors (7 distinct colors)
     const weekdayColors = ["#4CAF50", "#2196F3", "#FF9800", "#9C27B0", "#F44336", "#00BCD4", "#FF5722"];
 
-    // Background lines (non-highlighted weekdays) with distinct colors
-    let bgLines = "";
+    // All lines as hoverable groups
+    let allLines = "";
     datasets.forEach((ds, idx) => {
-      if (idx === highlightIndex) return;
-      let pts = "";
-      ds.data.forEach((val, i) => {
-        const x = padding.left + (i / 23) * chartW;
-        const y = padding.top + chartH - (val / maxVal) * chartH;
-        pts += `${x},${y} `;
-      });
-      bgLines += `<polyline points="${pts}" fill="none" stroke="${weekdayColors[idx % weekdayColors.length]}" stroke-width="1" opacity="0.3"/>`;
-    });
-
-    // Highlighted line (today) with area fill
-    let hlLine = "";
-    const hlDs = datasets[highlightIndex];
-    const hlColor = weekdayColors[highlightIndex % weekdayColors.length];
-    if (hlDs) {
+      const color = weekdayColors[idx % weekdayColors.length];
+      const isHighlight = idx === highlightIndex;
       let pts = "";
       let areaPts = `${padding.left},${padding.top + chartH} `;
-      hlDs.data.forEach((val, i) => {
+      ds.data.forEach((val, i) => {
         const x = padding.left + (i / 23) * chartW;
         const y = padding.top + chartH - (val / maxVal) * chartH;
         pts += `${x},${y} `;
         areaPts += `${x},${y} `;
       });
       areaPts += `${padding.left + chartW},${padding.top + chartH}`;
-      hlLine += `<polygon points="${areaPts}" fill="${hlColor}" opacity="0.12"/>`;
-      hlLine += `<polyline points="${pts}" fill="none" stroke="${hlColor}" stroke-width="2.5"/>`;
-    }
+
+      const baseOpacity = isHighlight ? "1" : "0.3";
+      const baseSw = isHighlight ? "2.5" : "1";
+      allLines += `<g class="wl${isHighlight ? " wl-today" : ""}" data-idx="${idx}">`;
+      // Invisible wide hit area for easier hover
+      allLines += `<polyline points="${pts}" fill="none" stroke="transparent" stroke-width="12" style="pointer-events:stroke"/>`;
+      // Area fill (visible on highlight or hover)
+      allLines += `<polygon class="wl-area" points="${areaPts}" fill="${color}" opacity="${isHighlight ? '0.12' : '0'}"/>`;
+      // Visible line
+      allLines += `<polyline class="wl-line" points="${pts}" fill="none" stroke="${color}" stroke-width="${baseSw}" opacity="${baseOpacity}"/>`;
+      allLines += `</g>`;
+    });
 
     // Legend (compact horizontal, below x-axis)
     let legend = "";
@@ -1541,9 +1537,15 @@ class EegOptimizerPanel extends HTMLElement {
     });
 
     return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">
+      <style>
+        .wl { cursor: pointer; }
+        .wl:hover .wl-line { stroke-width: 2.5 !important; opacity: 1 !important; }
+        .wl:hover .wl-area { opacity: 0.12 !important; }
+        svg:has(.wl:hover) .wl:not(:hover):not(.wl-today) .wl-line { opacity: 0.12 !important; }
+        svg:has(.wl:hover) .wl-today:not(:hover) .wl-line { opacity: 0.4 !important; }
+      </style>
       ${yLines}
-      ${bgLines}
-      ${hlLine}
+      ${allLines}
       ${xLabels}
       ${legend}
     </svg>`;
