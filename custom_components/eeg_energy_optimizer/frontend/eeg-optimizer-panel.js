@@ -976,9 +976,7 @@ class EegOptimizerPanel extends HTMLElement {
       ? '<span class="status-badge installed">Installiert</span>'
       : '<span class="status-badge missing">Nicht installiert</span>';
 
-    const huaweiAutoDetect = huaweiOk && this._detectedSensors?.detected
-      ? '<div style="margin-top:6px;font-size:12px;color:var(--success-color,#4caf50)">✓ Sensoren automatisch erkannt</div>'
-      : "";
+    const huaweiAutoDetect = "";
 
     return `
       <p style="margin-bottom:12px;color:var(--secondary-text-color)">Wähle deinen Wechselrichter-Typ:</p>
@@ -1004,10 +1002,6 @@ class EegOptimizerPanel extends HTMLElement {
         <p style="font-size:13px;color:var(--secondary-text-color);margin:0 0 12px">
           Diese Sensoren werden f&uuml;r die Berechnung des Hausverbrauchs verwendet (PV &minus; Batterie &minus; Netz).
         </p>
-        ${this._detectedSensors?.detected ? `
-        <div class="success-card" style="margin-bottom:12px">
-          Sensoren automatisch erkannt! Bitte &uuml;berpr&uuml;fe die Vorauswahl.
-        </div>` : ""}
         ${this._entityPickerHtml(
           "pv_power_sensor",
           this._wizardData.pv_power_sensor,
@@ -1063,12 +1057,8 @@ class EegOptimizerPanel extends HTMLElement {
     }
 
     // Sensor fields shown below cards when a source is selected
-    const hasDefaults = selected && this._wizardData.forecast_remaining_entity;
     const sensorFields = selected ? `
       <div style="margin-top:16px">
-        ${hasDefaults ? `<div class="success-card" style="margin-bottom:12px">
-          Prognose-Sensoren automatisch vorausgew&auml;hlt! Bitte &uuml;berpr&uuml;fe die Vorauswahl.
-        </div>` : ""}
         ${this._entityPickerHtml(
           "forecast_remaining_entity",
           this._wizardData.forecast_remaining_entity,
@@ -1121,12 +1111,6 @@ class EegOptimizerPanel extends HTMLElement {
     const detected = this._detectedSensors && this._detectedSensors.detected;
 
     let detectionInfo = "";
-    if (detected) {
-      detectionInfo = `
-        <div class="success-card">
-          Huawei-Sensoren erkannt! Bitte überprüfe die Vorauswahl.
-        </div>`;
-    }
 
     const socHelp =
       "Der SOC-Sensor zeigt den aktuellen Ladestand deiner Batterie in Prozent.";
