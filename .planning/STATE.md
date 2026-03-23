@@ -121,9 +121,10 @@ None yet.
 | 260323-q66 | Tagesverbrauch SA->SU: Daylight-only consumption fuer Morgen-Verzoegerung | 2026-03-23 | f430b17 | [260323-q66-tagesverbrauch-sensor-sonnenaufgang-sonn](./quick/260323-q66-tagesverbrauch-sensor-sonnenaufgang-sonn/) |
 | 260323-rzw | Dashboard: Ein/Test Toggle + Metrics Row entfernt + Mode Badge entfernt | 2026-03-23 | 32bb793 | [260323-rzw-dashboard-ein-test-toggle-metrics-row-we](./quick/260323-rzw-dashboard-ein-test-toggle-metrics-row-we/) |
 | 260323-tg9 | Dashboard: SVG Energy Flow Diagramm + Live Values Card | 2026-03-23 | 96ee638 | [260323-tg9-dashboard-svg-energy-flow-diagramm-live-](./quick/260323-tg9-dashboard-svg-energy-flow-diagramm-live-/) |
+| 260323-u1p | Simulation: Verbrauchsfaktor + SOC Override fuer Optimizer-Testing | 2026-03-23 | 0a2b305 | [260323-u1p-testing-bereich-verbrauchswerte-berschre](./quick/260323-u1p-testing-bereich-verbrauchswerte-berschre/) |
 
 ## Session Continuity
 
-Last session: 2026-03-23T20:19:00Z
-Stopped at: Completed quick-260323-tg9
+Last session: 2026-03-23T20:50:00Z
+Stopped at: Completed quick-260323-u1p
 Resume file: None
