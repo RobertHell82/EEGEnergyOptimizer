@@ -39,9 +39,8 @@ Feed solar energy into the grid when the community actually needs it, not when e
 
 ## Context
 
-- Developed alongside an existing private Energieoptimierung integration in this repo (`custom_components/energieoptimierung/`) which serves as reference for core algorithms (night discharge logic, surplus factor calculation, guard delays)
-- The existing integration is Fronius-specific and feature-heavy — the new one is deliberately simpler and more universal
-- Will be developed in this repo initially, then moved to its own repo before HACS publication
+- Originally developed alongside an existing private Energieoptimierung integration which served as reference for core algorithms — that integration has been removed from this repo
+- Will be moved to its own repo before HACS publication
 - Austrian/German energy community context: EEG members share surplus PV production, but midday feed-in is worth less because everyone produces at the same time
 - Huawei SUN2000 is the initial target because control via HA services is simpler than Fronius Modbus; this allows faster validation of the core optimization logic
 - Forecast sources: Solcast (paid, accurate) and Forecast.Solar (free, simpler) — user chooses during setup
