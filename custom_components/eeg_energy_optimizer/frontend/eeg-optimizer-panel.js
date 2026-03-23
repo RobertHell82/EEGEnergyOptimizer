@@ -2017,11 +2017,11 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="card header-card">
           <div class="header-top">
             <div class="header-live-values">
-              <div class="hlv"><span class="hlv-label">PV</span><span class="hlv-val val-green">${pvKw.toFixed(1)} kW</span></div>
-              <div class="hlv"><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${Math.abs(batKw).toFixed(1)} kW <small>(${batLabel})</small></span></div>
+              <div class="hlv"><span class="hlv-label">PV</span><span class="hlv-val val-green">${pvKw.toFixed(2)} kW</span></div>
+              <div class="hlv"><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${Math.abs(batKw).toFixed(2)} kW <small>(${batLabel})</small></span></div>
               <div class="hlv"><span class="hlv-label">SOC</span><span class="hlv-val ${socColor}">${socText}%</span></div>
-              <div class="hlv"><span class="hlv-label">Netz</span><span class="hlv-val ${gridColor}">${Math.abs(gridKw).toFixed(1)} kW <small>(${gridLabel})</small></span></div>
-              <div class="hlv"><span class="hlv-label">Haus</span><span class="hlv-val val-blue">${hausKw.toFixed(1)} kW</span></div>
+              <div class="hlv"><span class="hlv-label">Netz</span><span class="hlv-val ${gridColor}">${Math.abs(gridKw).toFixed(2)} kW <small>(${gridLabel})</small></span></div>
+              <div class="hlv"><span class="hlv-label">Haus</span><span class="hlv-val val-blue">${hausKw.toFixed(2)} kW</span></div>
             </div>
             <div class="header-toggle">
               <div class="mode-toggle ${modeToggleClass}" data-action="toggle-mode">
