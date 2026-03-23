@@ -114,9 +114,10 @@ None yet.
 | 260323-ddr | Dashboard: Grouped bar chart (Verbrauch+PV) + Multi-weekday line chart | 2026-03-23 | 54a57bf | [260323-ddr-dashboard-pv-erzeugungsprognose-im-7-tag](./quick/260323-ddr-dashboard-pv-erzeugungsprognose-im-7-tag/) |
 | 260323-dyi | Wizard Step 1: 3 Hausverbrauch-Sensoren (PV, Batterie, Netz) entity pickers + Validation + Summary | 2026-03-23 | 6493551 | [260323-dyi-hausverbrauch-sensoren-pv-batterie-netz-](./quick/260323-dyi-hausverbrauch-sensoren-pv-batterie-netz-/) |
 | 260323-fzl | Einmaliger Backfill Hausverbrauch-Statistiken aus PV/Batterie/Netz-Sensoren | 2026-03-23 | d827f6f | [260323-fzl-einmaliger-backfill-hausverbrauch-statis](./quick/260323-fzl-einmaliger-backfill-hausverbrauch-statis/) |
+| 260323-lmg | Manuelle Wechselrichter-Steuerung: 3 WS-Commands + Dashboard-UI | 2026-03-23 | 8e68b95 | [260323-lmg-manuelle-wechselrichter-steuerung-am-das](./quick/260323-lmg-manuelle-wechselrichter-steuerung-am-das/) |
 
 ## Session Continuity
 
-Last session: 2026-03-23T10:34:57Z
-Stopped at: Completed quick-260323-fzl
+Last session: 2026-03-23T14:47:00Z
+Stopped at: Completed quick-260323-lmg
 Resume file: None
