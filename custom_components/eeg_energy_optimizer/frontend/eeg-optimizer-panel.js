@@ -1420,6 +1420,22 @@ class EegOptimizerPanel extends HTMLElement {
     return s;
   }
 
+  _renderTimestamps(decisionState, profilState) {
+    const fmtTime = (isoStr) => {
+      if (!isoStr) return "---";
+      try {
+        const d = new Date(isoStr);
+        return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      } catch { return "---"; }
+    };
+    const optimizerTs = fmtTime(decisionState?.attributes?.letzte_aktualisierung);
+    const profilTs = fmtTime(profilState?.last_updated);
+    return `<div class="timestamps-row">
+      <span>Optimizer: ${optimizerTs}</span>
+      <span>Verbrauchsdaten: ${profilTs}</span>
+    </div>`;
+  }
+
   _readFloat(entityId) {
     const s = this._readState(entityId);
     if (!s) return null;
@@ -1905,6 +1921,9 @@ class EegOptimizerPanel extends HTMLElement {
         <!-- Status Cards Row -->
         ${this._renderStatusCards(decisionState)}
 
+        <!-- Update timestamps -->
+        ${this._renderTimestamps(decisionState, profilState)}
+
         <!-- Charts (or loading hint if no consumption data yet) -->
         ${(profilState?.attributes?.stats_count || 0) === 0 ? `
         <div class="card" style="text-align:center;padding:32px">
@@ -2271,6 +2290,7 @@ class EegOptimizerPanel extends HTMLElement {
         .condition-row .check { color: var(--success-color, #4caf50); }
         .condition-row .cross { color: var(--error-color, #f44336); }
         .status-divider { border: none; border-top: 1px solid var(--divider-color, #e0e0e0); margin: 8px 0; }
+        .timestamps-row { display: flex; justify-content: space-between; padding: 4px 8px; font-size: 12px; color: var(--secondary-text-color, #999); }
         .status-card-title { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 16px; }
         .dashboard-grid.narrow .status-cards-row { flex-direction: column; }
         .btn-manual-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
