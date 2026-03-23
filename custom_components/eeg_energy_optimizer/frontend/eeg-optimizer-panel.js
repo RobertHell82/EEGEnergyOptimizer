@@ -161,6 +161,7 @@ class EegOptimizerPanel extends HTMLElement {
     this._simFactor = 1.0;
     this._simSocOverride = null;
     this._simActive = false;
+    this._simLoading = false;
     this._simSocEnabled = false;
 
     // Event delegation on shadow root
@@ -381,22 +382,24 @@ class EegOptimizerPanel extends HTMLElement {
         if (this._simSocEnabled && this._simSocOverride !== null) {
           params.soc_override = this._simSocOverride;
         }
+        this._simLoading = true;
+        this._render();
         this._hass.callWS(params).then(res => {
-          if (res.success) {
-            this._simActive = true;
-            this._render();
-          }
-        }).catch(err => console.error("set_test_overrides failed:", err));
+          if (res.success) this._simActive = true;
+        }).catch(err => console.error("set_test_overrides failed:", err))
+        .finally(() => { this._simLoading = false; this._render(); });
         break;
       }
       case "sim-reset":
+        this._simLoading = true;
+        this._render();
         this._hass.callWS({ type: "eeg_optimizer/clear_test_overrides" }).then(() => {
           this._simActive = false;
           this._simFactor = 1.0;
           this._simSocOverride = null;
           this._simSocEnabled = false;
-          this._render();
-        }).catch(err => console.error("clear_test_overrides failed:", err));
+        }).catch(err => console.error("clear_test_overrides failed:", err))
+        .finally(() => { this._simLoading = false; this._render(); });
         break;
     }
   }
@@ -2171,20 +2174,25 @@ class EegOptimizerPanel extends HTMLElement {
           </div>
           <div style="display:flex;gap:8px;margin-top:12px">
             <button class="btn-manual btn-manual-discharge" data-action="sim-apply"
-              style="flex:1">
+              style="flex:1" ${this._simLoading ? "disabled" : ""}>
               <ha-icon icon="mdi:play"></ha-icon>
               <span>Anwenden</span>
             </button>
             <button class="btn-manual btn-manual-normal" data-action="sim-reset"
-              style="flex:1" ${!this._simActive ? "disabled" : ""}>
+              style="flex:1" ${!this._simActive || this._simLoading ? "disabled" : ""}>
               <ha-icon icon="mdi:restore"></ha-icon>
               <span>Zuruecksetzen</span>
             </button>
           </div>
-          ${this._simActive ? `
+          ${this._simLoading ? `
+          <div class="manual-loading">
+            <div class="manual-spinner"></div>
+            <span>Simulation wird angewendet\u2026</span>
+          </div>` : ""}
+          ${!this._simLoading && this._simActive ? `
             <div class="help-text" style="margin-top:12px;color:var(--warning-color, #ff9800)">
               <ha-icon icon="mdi:alert-outline" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
-              Override aktiv. Werte werden im naechsten Optimizer-Zyklus (60s) angewendet.
+              Override aktiv.
             </div>
           ` : ""}
         </div>
