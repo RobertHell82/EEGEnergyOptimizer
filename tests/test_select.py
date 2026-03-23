@@ -28,10 +28,11 @@ class TestOptimizerModeSelect:
         assert select_entity._attr_options == OPTIMIZER_MODES
         assert MODE_EIN in select_entity._attr_options
         assert MODE_TEST in select_entity._attr_options
-        assert MODE_AUS in select_entity._attr_options
+        assert MODE_AUS not in select_entity._attr_options
+        assert len(select_entity._attr_options) == 2
 
-    def test_default_option_is_aus(self, select_entity):
-        assert select_entity._attr_current_option == MODE_AUS
+    def test_default_option_is_test(self, select_entity):
+        assert select_entity._attr_current_option == MODE_TEST
 
     @pytest.mark.asyncio
     async def test_select_option_updates_current(self, select_entity):
@@ -53,13 +54,22 @@ class TestOptimizerModeSelect:
         last_state.state = "Garbage"
         select_entity.async_get_last_state = AsyncMock(return_value=last_state)
         await select_entity.async_added_to_hass()
-        assert select_entity._attr_current_option == MODE_AUS
+        assert select_entity._attr_current_option == MODE_TEST
+
+    @pytest.mark.asyncio
+    async def test_restore_aus_state_rejected(self, select_entity):
+        """Existing users with Aus saved state should fall back to Test."""
+        last_state = MagicMock()
+        last_state.state = MODE_AUS
+        select_entity.async_get_last_state = AsyncMock(return_value=last_state)
+        await select_entity.async_added_to_hass()
+        assert select_entity._attr_current_option == MODE_TEST
 
     @pytest.mark.asyncio
     async def test_restore_none_state(self, select_entity):
         select_entity.async_get_last_state = AsyncMock(return_value=None)
         await select_entity.async_added_to_hass()
-        assert select_entity._attr_current_option == MODE_AUS
+        assert select_entity._attr_current_option == MODE_TEST
 
     def test_device_info_identifiers(self, select_entity):
         info = select_entity._attr_device_info

@@ -56,7 +56,7 @@ class OptimizerModeSelect(SelectEntity, RestoreEntity):
     _attr_name = "Optimizer"
     _attr_icon = "mdi:robot"
     _attr_options = OPTIMIZER_MODES
-    _attr_current_option = MODE_AUS
+    _attr_current_option = MODE_TEST
 
     def __init__(self, entry_id: str) -> None:
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_optimizer"
@@ -69,7 +69,7 @@ class OptimizerModeSelect(SelectEntity, RestoreEntity):
         )
 
     async def async_added_to_hass(self) -> None:
-        """Restore previous state (default: Aus)."""
+        """Restore previous state (default: Test)."""
         last_state = await self.async_get_last_state()
         if last_state and last_state.state in self._attr_options:
             self._attr_current_option = last_state.state

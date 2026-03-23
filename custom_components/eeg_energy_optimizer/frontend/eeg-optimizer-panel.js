@@ -253,6 +253,16 @@ class EegOptimizerPanel extends HTMLElement {
       case "recheck-prerequisites":
         this._checkPrerequisites();
         break;
+      case "toggle-mode": {
+        const modeState = this._readState(this._entityIds?.select || "select.eeg_energy_optimizer_optimizer");
+        const currentMode = modeState ? modeState.state : "Test";
+        const newMode = currentMode === "Ein" ? "Test" : "Ein";
+        this._hass.callService("select", "select_option", {
+          entity_id: this._entityIds?.select || "select.eeg_energy_optimizer_optimizer",
+          option: newMode
+        });
+        break;
+      }
       case "manual-stop":
         this._executeManualAction("stop", { type: "eeg_optimizer/manual_stop" });
         break;
@@ -1417,7 +1427,7 @@ class EegOptimizerPanel extends HTMLElement {
     return isNaN(v) ? null : v;
   }
 
-  _renderStatusCards(decisionState, modeValue, modeBadgeClass) {
+  _renderStatusCards(decisionState) {
     const ma = decisionState?.attributes || {};
     const mStatus = ma.morning_status || "deaktiviert";
     const dStatus = ma.discharge_status || "deaktiviert";
@@ -1558,7 +1568,6 @@ class EegOptimizerPanel extends HTMLElement {
           </h3>
           <div class="status-indicator ${dColorClass}">${dIndicator}</div>
           ${dConditionsHtml}
-          <div class="mode-line">Modus: <span class="badge ${modeBadgeClass}">${modeValue}</span></div>
         </div>
       </div>`;
   }
@@ -1722,7 +1731,7 @@ class EegOptimizerPanel extends HTMLElement {
     // --- Status card ---
     const modeState = this._readState(this._entityIds?.select || "select.eeg_energy_optimizer_optimizer");
     const modeValue = modeState ? modeState.state : "---";
-    const modeBadgeClass = modeValue === "Ein" ? "green" : modeValue === "Test" ? "yellow" : modeValue === "Aus" ? "gray" : "gray";
+    const modeToggleClass = modeValue === "Ein" ? "ein" : "test";
 
     const decisionState = this._readState(this._entityIds?.entscheidung || "sensor.eeg_energy_optimizer_entscheidung");
 
@@ -1875,33 +1884,16 @@ class EegOptimizerPanel extends HTMLElement {
 
     return `
       <div class="dashboard-grid${narrowClass}">
-        <!-- Status Cards Row -->
-        ${this._renderStatusCards(decisionState, modeValue, modeBadgeClass)}
-
-        <!-- Metrics Row -->
-        <div class="metrics-row">
-          <div class="card metric-card">
-            <div class="value ${socColorClass}">${socText}</div>
-            <div class="unit">${socVal != null ? "%" : ""}</div>
-            <div class="label">Batterie SOC</div>
-          </div>
-          <div class="card metric-card">
-            <div class="value">${pvHeuteText}</div>
-            <div class="unit">${pvHeute != null ? "kWh" : ""}</div>
-            <div class="label">
-              <ha-icon icon="mdi:solar-power" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
-              PV Heute
-            </div>
-          </div>
-          <div class="card metric-card">
-            <div class="value">${pvMorgenText}</div>
-            <div class="unit">${pvMorgen != null ? "kWh" : ""}</div>
-            <div class="label">
-              <ha-icon icon="mdi:solar-power" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
-              PV Morgen
-            </div>
+        <!-- Mode Toggle -->
+        <div class="mode-toggle-row">
+          <span class="mode-toggle-label">${modeValue === "Ein" ? "Ein" : "Test"}</span>
+          <div class="mode-toggle ${modeToggleClass}" data-action="toggle-mode">
+            <div class="toggle-knob"></div>
           </div>
         </div>
+
+        <!-- Status Cards Row -->
+        ${this._renderStatusCards(decisionState)}
 
         <!-- Charts (or loading hint if no consumption data yet) -->
         ${(profilState?.attributes?.stats_count || 0) === 0 ? `
@@ -2235,11 +2227,14 @@ class EegOptimizerPanel extends HTMLElement {
         .forecast-option.selected { border-color: var(--primary-color); background: var(--primary-color-light, rgba(3,169,244,0.08)); }
         /* Dashboard styles */
         .dashboard-grid { display: grid; gap: 16px; }
-        .metrics-row { display: flex; gap: 16px; flex-wrap: wrap; }
-        .metric-card { flex: 1; min-width: 140px; text-align: center; }
-        .metric-card .value { font-size: 28px; font-weight: 500; color: var(--primary-text-color); }
-        .metric-card .label { font-size: 12px; color: var(--secondary-text-color); margin-top: 4px; }
-        .metric-card .unit { font-size: 14px; color: var(--secondary-text-color); }
+        .mode-toggle-row { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 12px; }
+        .mode-toggle-label { font-size: 14px; font-weight: 500; color: var(--primary-text-color); }
+        .mode-toggle { position: relative; width: 56px; height: 28px; border-radius: 14px; cursor: pointer; transition: background 0.2s; }
+        .mode-toggle.ein { background: var(--success-color, #4caf50); }
+        .mode-toggle.test { background: var(--warning-color, #ff9800); }
+        .mode-toggle .toggle-knob { position: absolute; top: 3px; width: 22px; height: 22px; border-radius: 50%; background: white; transition: left 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+        .mode-toggle.ein .toggle-knob { left: 31px; }
+        .mode-toggle.test .toggle-knob { left: 3px; }
         .status-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
         .status-item { display: flex; align-items: center; gap: 8px; }
         .status-item .label { font-size: 14px; color: var(--secondary-text-color); }
@@ -2267,10 +2262,7 @@ class EegOptimizerPanel extends HTMLElement {
         .condition-row .cross { color: var(--error-color, #f44336); }
         .status-divider { border: none; border-top: 1px solid var(--divider-color, #e0e0e0); margin: 8px 0; }
         .status-card-title { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 16px; }
-        .mode-line { font-size: 12px; color: var(--secondary-text-color); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--divider-color); }
         .dashboard-grid.narrow .status-cards-row { flex-direction: column; }
-        .dashboard-grid.narrow .metrics-row { flex-direction: column; }
-        .dashboard-grid.narrow .metric-card { min-width: unset; }
         .btn-manual-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
         .btn-manual {
           display: flex; flex-direction: column; align-items: center; gap: 8px;
