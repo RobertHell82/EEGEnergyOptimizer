@@ -656,6 +656,12 @@ class EegOptimizerPanel extends HTMLElement {
       if (this._config?.battery_soc_sensor) {
         watchList.push(this._config.battery_soc_sensor);
       }
+      // Watch Solcast/Forecast.Solar original sensors for PV chart updates
+      const fTomorrow = this._config?.forecast_tomorrow_entity;
+      if (fTomorrow && fTomorrow.includes("solcast")) {
+        const pfx = fTomorrow.replace(/morgen$/, "");
+        ["heute", "morgen", "tag_3", "tag_4", "tag_5", "tag_6", "tag_7"].forEach(s => watchList.push(pfx + s));
+      }
       for (const eid of watchList) {
         if (oldHass.states[eid] !== hass.states[eid]) {
           changed = true;
@@ -1566,11 +1572,39 @@ class EegOptimizerPanel extends HTMLElement {
     const socText = socVal != null ? `${Math.round(socVal)}` : (socSensor ? "---" : "Nicht konfiguriert");
     const socColorClass = socVal == null ? "" : socVal > 50 ? "soc-green" : socVal >= 25 ? "soc-yellow" : "soc-red";
 
-    const pvHeute = this._readFloat(this._entityIds?.pv_heute || "sensor.eeg_energy_optimizer_pv_prognose_heute");
+    // --- PV forecast: read from original Solcast/Forecast.Solar sensors ---
+    const forecastSource = this._config?.forecast_source || "solcast_solar";
+    const forecastTomorrowId = this._config?.forecast_tomorrow_entity || "";
+    // Derive Solcast prefix from tomorrow sensor (e.g. "sensor.solcast_pv_forecast_prognose_morgen" → "sensor.solcast_pv_forecast_prognose_")
+    let solcastPrefix = "";
+    if (forecastTomorrowId && forecastTomorrowId.includes("solcast")) {
+      solcastPrefix = forecastTomorrowId.replace(/morgen$/, "");
+    }
+
+    // PV total today (Solcast: _heute, our sensor as fallback)
+    const pvHeuteTotal = solcastPrefix
+      ? this._readFloat(solcastPrefix + "heute")
+      : null;
+    const pvHeute = pvHeuteTotal != null
+      ? pvHeuteTotal
+      : this._readFloat(this._entityIds?.pv_heute || "sensor.eeg_energy_optimizer_pv_prognose_heute");
     const pvHeuteText = pvHeute != null ? `${pvHeute.toFixed(1)}` : "---";
 
-    const pvMorgen = this._readFloat(this._entityIds?.pv_morgen || "sensor.eeg_energy_optimizer_pv_prognose_morgen");
+    const pvMorgen = solcastPrefix
+      ? this._readFloat(solcastPrefix + "morgen")
+      : this._readFloat(this._entityIds?.pv_morgen || "sensor.eeg_energy_optimizer_pv_prognose_morgen");
     const pvMorgenText = pvMorgen != null ? `${pvMorgen.toFixed(1)}` : "---";
+
+    // 7-day PV forecast array (Solcast provides day 3-7)
+    const pvWeek = [
+      pvHeute || 0,
+      pvMorgen || 0,
+      solcastPrefix ? (this._readFloat(solcastPrefix + "tag_3") || 0) : 0,
+      solcastPrefix ? (this._readFloat(solcastPrefix + "tag_4") || 0) : 0,
+      solcastPrefix ? (this._readFloat(solcastPrefix + "tag_5") || 0) : 0,
+      solcastPrefix ? (this._readFloat(solcastPrefix + "tag_6") || 0) : 0,
+      solcastPrefix ? (this._readFloat(solcastPrefix + "tag_7") || 0) : 0,
+    ];
 
     // --- 7-day forecast chart ---
     const forecastSensors = [
@@ -1596,11 +1630,9 @@ class EegOptimizerPanel extends HTMLElement {
       return { label, value: val || 0 };
     });
 
-    // --- PV forecast data for grouped bar chart ---
+    // --- PV forecast data for grouped bar chart (all 7 days if Solcast) ---
     const pvForecastData = forecastData.map((d, i) => {
-      if (i === 0) return { label: d.label, value: pvHeute || 0 };
-      if (i === 1) return { label: d.label, value: pvMorgen || 0 };
-      return { label: d.label, value: 0 };
+      return { label: d.label, value: pvWeek[i] || 0 };
     });
 
     // --- Hourly profile chart (all weekdays) ---
