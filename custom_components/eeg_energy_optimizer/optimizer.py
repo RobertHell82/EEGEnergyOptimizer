@@ -108,6 +108,9 @@ class Decision:
     morning_in_window: bool = False
     morning_pv_today_kwh: float = 0.0
     morning_threshold_kwh: float = 0.0
+    morning_consumption_kwh: float = 0.0
+    morning_buffer_kwh: float = 0.0
+    morning_battery_kwh: float = 0.0
     morning_end_time: str = ""
     morning_sunrise_tomorrow: str = ""
 
@@ -345,6 +348,9 @@ class EEGOptimizer:
             "in_window": False,
             "pv_today_kwh": 0.0,
             "threshold_kwh": 0.0,
+            "consumption_kwh": 0.0,
+            "buffer_kwh": 0.0,
+            "battery_kwh": 0.0,
             "end_time": end_time_str,
             "sunrise_tomorrow": "",
         }
@@ -356,6 +362,16 @@ class EEGOptimizer:
         result["threshold_kwh"] = bedarf
         pv_today = snap.pv_remaining_today_kwh if snap.pv_remaining_today_kwh is not None else 0.0
         result["pv_today_kwh"] = pv_today
+
+        # Breakdown for today (in-window)
+        consumption_today = snap.consumption_today_daylight_kwh
+        buffer_today = consumption_today * self._safety_buffer_pct / 100
+        battery_today = 0.0
+        if snap.battery_capacity_kwh > 0:
+            battery_today = (100 - snap.battery_soc) / 100 * snap.battery_capacity_kwh
+        result["consumption_kwh"] = consumption_today
+        result["buffer_kwh"] = buffer_today
+        result["battery_kwh"] = battery_today
 
         # Check if in morning window
         in_window = False
@@ -388,12 +404,17 @@ class EEGOptimizer:
             missing_battery_est = 0.0
             if snap.battery_capacity_kwh > 0:
                 missing_battery_est = (100 - self._min_soc) / 100 * snap.battery_capacity_kwh
-            consumption_with_buffer = snap.consumption_tomorrow_daylight_kwh * (1 + self._safety_buffer_pct / 100)
+            consumption_tomorrow = snap.consumption_tomorrow_daylight_kwh
+            buffer_tomorrow = consumption_tomorrow * self._safety_buffer_pct / 100
+            consumption_with_buffer = consumption_tomorrow + buffer_tomorrow
             tomorrow_threshold = consumption_with_buffer + missing_battery_est
 
             # Show tomorrow's values in the card (not today's remaining)
             result["pv_today_kwh"] = pv_tomorrow
             result["threshold_kwh"] = tomorrow_threshold
+            result["consumption_kwh"] = consumption_tomorrow
+            result["buffer_kwh"] = buffer_tomorrow
+            result["battery_kwh"] = missing_battery_est
 
             if pv_tomorrow > tomorrow_threshold:
                 sunrise_str = result["sunrise_tomorrow"] or "Sonnenaufgang"
@@ -615,6 +636,9 @@ class EEGOptimizer:
             morning_in_window=morning_info["in_window"],
             morning_pv_today_kwh=round(morning_info["pv_today_kwh"], 1),
             morning_threshold_kwh=round(morning_info["threshold_kwh"], 1),
+            morning_consumption_kwh=round(morning_info["consumption_kwh"], 1),
+            morning_buffer_kwh=round(morning_info["buffer_kwh"], 1),
+            morning_battery_kwh=round(morning_info["battery_kwh"], 1),
             morning_end_time=morning_info["end_time"],
             morning_sunrise_tomorrow=morning_info["sunrise_tomorrow"],
             # Discharge status card fields

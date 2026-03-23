@@ -560,6 +560,9 @@ class EntscheidungsSensor(SensorEntity):
             "morning_in_window": decision.morning_in_window,
             "morning_pv_today_kwh": round(decision.morning_pv_today_kwh, 1),
             "morning_threshold_kwh": round(decision.morning_threshold_kwh, 1),
+            "morning_consumption_kwh": round(decision.morning_consumption_kwh, 1),
+            "morning_buffer_kwh": round(decision.morning_buffer_kwh, 1),
+            "morning_battery_kwh": round(decision.morning_battery_kwh, 1),
             "morning_end_time": decision.morning_end_time,
             "morning_sunrise_tomorrow": decision.morning_sunrise_tomorrow,
             # Discharge status card

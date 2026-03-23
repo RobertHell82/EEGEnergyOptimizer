@@ -1445,39 +1445,42 @@ class EegOptimizerPanel extends HTMLElement {
     }
 
     if (mStatus !== "deaktiviert") {
-      const pvToday = ma.morning_pv_today_kwh != null ? Number(ma.morning_pv_today_kwh).toFixed(1) : "---";
+      const pvVal = ma.morning_pv_today_kwh != null ? Number(ma.morning_pv_today_kwh).toFixed(1) : "---";
       const threshold = ma.morning_threshold_kwh != null ? Number(ma.morning_threshold_kwh).toFixed(1) : "---";
+      const consumption = ma.morning_consumption_kwh != null ? Number(ma.morning_consumption_kwh).toFixed(1) : "---";
+      const buffer = ma.morning_buffer_kwh != null ? Number(ma.morning_buffer_kwh).toFixed(1) : "---";
+      const battery = ma.morning_battery_kwh != null ? Number(ma.morning_battery_kwh).toFixed(1) : "---";
       const pvOk = Number(ma.morning_pv_today_kwh || 0) > Number(ma.morning_threshold_kwh || 0);
+      const pvLabel = (mStatus === "morgen_erwartet" || mStatus === "morgen_nicht_erwartet") ? "PV Prognose morgen" : "PV Prognose heute";
+      const fensterStart = ma.morning_sunrise_tomorrow || "---";
+      const fensterEnd = ma.morning_end_time || "---";
 
-      if (mStatus === "morgen_erwartet" || mStatus === "morgen_nicht_erwartet") {
-        // Outside window: show tomorrow's info
-        mConditionsHtml = `
-          <hr class="status-divider">
-          <div class="condition-row">
-            <span>Fenster</span>
-            <span>ab ${ma.morning_sunrise_tomorrow || "---"} bis ${ma.morning_end_time || "---"}</span>
-          </div>
-          <div class="condition-row">
-            <span>PV Prognose morgen</span>
-            <span>${pvToday} kWh <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}</span></span>
-          </div>
-          <div class="condition-row">
-            <span>Bedarf + Puffer</span>
-            <span>${threshold} kWh</span>
-          </div>`;
-      } else {
-        // In window
-        mConditionsHtml = `
-          <hr class="status-divider">
-          <div class="condition-row">
-            <span>PV Prognose heute</span>
-            <span>${pvToday} kWh <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}</span></span>
-          </div>
-          <div class="condition-row">
-            <span>Bedarf + Puffer</span>
-            <span>${threshold} kWh</span>
-          </div>`;
-      }
+      mConditionsHtml = `
+        <hr class="status-divider">
+        <div class="condition-row">
+          <span>Bedarf SA\u2192SU</span>
+          <span>${consumption} kWh</span>
+        </div>
+        <div class="condition-row">
+          <span>Sicherheitspuffer</span>
+          <span>${buffer} kWh</span>
+        </div>
+        <div class="condition-row">
+          <span>Batterieladung</span>
+          <span>${battery} kWh</span>
+        </div>
+        <div class="condition-row" style="font-weight:500">
+          <span>Gesamtbedarf</span>
+          <span>${threshold} kWh</span>
+        </div>
+        <div class="condition-row">
+          <span>${pvLabel}</span>
+          <span>${pvVal} kWh <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}</span></span>
+        </div>
+        <div class="condition-row">
+          <span>Fenster</span>
+          <span>${fensterStart} bis ${fensterEnd}</span>
+        </div>`;
     }
 
     // --- Right card: Abend-Entladung ---
