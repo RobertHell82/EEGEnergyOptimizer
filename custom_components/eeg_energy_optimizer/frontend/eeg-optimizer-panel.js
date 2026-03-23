@@ -1875,10 +1875,10 @@ class EegOptimizerPanel extends HTMLElement {
     const manualResult = this._manualResult;
     let manualStatusHtml = "";
     if (manualAction) {
-      const actionLabels = { stop: "Normalbetrieb", discharge: "Entladung", block: "Ladung blockieren" };
+      const actionLabels = { stop: "Normalbetrieb wird aktiviert", discharge: "Entladung wird gestartet", block: "Ladung wird blockiert" };
       manualStatusHtml = `<div class="manual-loading">
         <div class="manual-spinner"></div>
-        <span>${actionLabels[manualAction] || "Befehl"} wird ausgef\u00fchrt\u2026</span>
+        <span>${actionLabels[manualAction] || "Befehl wird ausgef\u00fchrt"}\u2026</span>
       </div>`;
     } else if (manualResult) {
       if (manualResult.success) {
