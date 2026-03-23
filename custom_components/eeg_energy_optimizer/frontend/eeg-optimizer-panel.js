@@ -1890,9 +1890,10 @@ class EegOptimizerPanel extends HTMLElement {
     let manualStatusHtml = "";
     if (manualAction) {
       const actionLabels = { stop: "Normalbetrieb", discharge: "Entladung", block: "Ladung blockieren" };
-      manualStatusHtml = `<div class="help-text" style="margin-top:12px">
-        <ha-icon icon="mdi:loading" style="--mdc-icon-size:16px;vertical-align:middle;animation:spin 1s linear infinite"></ha-icon>
-        ${actionLabels[manualAction] || "Befehl"} wird ausgeführt...
+      manualStatusHtml = `<div class="manual-loading">
+        <div class="manual-spinner"></div>
+        <span>${actionLabels[manualAction] || "Befehl"} wird ausgef\u00fchrt\u2026</span>
+        <span class="manual-loading-hint">Der Wechselrichter kann bis zu 30 Sekunden brauchen.</span>
       </div>`;
     } else if (manualResult) {
       if (manualResult.success) {
@@ -2314,6 +2315,19 @@ class EegOptimizerPanel extends HTMLElement {
         .btn-manual-block ha-icon { color: #2196f3; }
         .btn-manual-block:hover:not([disabled]) { background: rgba(33,150,243,0.1); }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .manual-loading {
+          display: flex; flex-direction: column; align-items: center; gap: 12px;
+          padding: 24px 16px; margin-top: 12px;
+          background: var(--secondary-background-color, #f5f5f5); border-radius: 12px;
+        }
+        .manual-spinner {
+          width: 40px; height: 40px; border-radius: 50%;
+          border: 4px solid var(--divider-color, #e0e0e0);
+          border-top-color: var(--primary-color, #03a9f4);
+          animation: spin 0.8s linear infinite;
+        }
+        .manual-loading span { font-size: 15px; font-weight: 500; }
+        .manual-loading-hint { font-size: 12px; font-weight: 400; color: var(--secondary-text-color, #999); }
         .connection-lost { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; text-align: center; }
         .connection-lost-icon { font-size: 48px; color: var(--warning-color, #ffa726); margin-bottom: 8px; }
         .connection-lost h2 { color: var(--primary-text-color); font-weight: 500; margin: 8px 0; }
