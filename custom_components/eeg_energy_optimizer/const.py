@@ -29,7 +29,7 @@ CONF_UPDATE_INTERVAL_SLOW = "update_interval_slow_min"
 FORECAST_SOURCE_SOLCAST = "solcast_solar"
 FORECAST_SOURCE_FORECAST_SOLAR = "forecast_solar"
 
-DEFAULT_CONSUMPTION_SENSOR = "sensor.power_meter_verbrauch"
+DEFAULT_CONSUMPTION_SENSOR = "sensor.eeg_energy_optimizer_hausverbrauch"
 DEFAULT_GRID_POWER_SENSOR = "sensor.power_meter_wirkleistung"
 DEFAULT_BATTERY_POWER_SENSOR = "sensor.batteries_lade_entladeleistung"
 DEFAULT_LOOKBACK_WEEKS = 8

@@ -60,7 +60,7 @@ const WIZARD_DEFAULTS = {
   forecast_source: "solcast_solar",
   forecast_remaining_entity: "",
   forecast_tomorrow_entity: "",
-  consumption_sensor: "sensor.power_meter_verbrauch",
+  consumption_sensor: "sensor.eeg_energy_optimizer_hausverbrauch",
   lookback_weeks: 8,
   update_interval_fast_min: 1,
   update_interval_slow_min: 15,

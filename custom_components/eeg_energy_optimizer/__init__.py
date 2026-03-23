@@ -68,6 +68,13 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data.setdefault("battery_power_sensor", "sensor.batteries_lade_entladeleistung")
         hass.config_entries.async_update_entry(entry, data=new_data, version=7)
 
+    if entry.version < 8:
+        new_data = {**entry.data}
+        # Switch default consumption sensor to own Hausverbrauch sensor
+        if new_data.get("consumption_sensor") == "sensor.power_meter_verbrauch":
+            new_data["consumption_sensor"] = "sensor.eeg_energy_optimizer_hausverbrauch"
+        hass.config_entries.async_update_entry(entry, data=new_data, version=8)
+
     return True
 
 

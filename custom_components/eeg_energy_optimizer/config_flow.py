@@ -21,7 +21,7 @@ class EegEnergyOptimizerConfigFlow(ConfigFlow, domain=DOMAIN):
     Full configuration happens in the onboarding panel.
     """
 
-    VERSION = 7
+    VERSION = 8
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
