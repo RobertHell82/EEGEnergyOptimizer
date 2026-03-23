@@ -351,7 +351,13 @@ class EegOptimizerPanel extends HTMLElement {
     // Always refresh prerequisites on steps that show install status
     if (step === 1) {
       await this._checkPrerequisites();
-      return; // _checkPrerequisites calls _render
+      await this._ensureEntityPicker();
+      if (!this._detectedSensors) {
+        await this._detectSensors();
+        return; // _detectSensors calls _render
+      }
+      this._render();
+      return;
     }
     if (step === 2) {
       await this._checkPrerequisites();
