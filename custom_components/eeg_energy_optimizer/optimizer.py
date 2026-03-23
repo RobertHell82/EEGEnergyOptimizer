@@ -352,10 +352,10 @@ class EEGOptimizer:
         if not self._enable_morning_delay:
             return result
 
-        threshold = bedarf * (1 + self._safety_buffer_pct / 100)
+        # bedarf already includes buffer on consumption (not on battery)
+        result["threshold_kwh"] = bedarf
         pv_today = snap.pv_remaining_today_kwh if snap.pv_remaining_today_kwh is not None else 0.0
         result["pv_today_kwh"] = pv_today
-        result["threshold_kwh"] = threshold
 
         # Check if in morning window
         in_window = False
@@ -375,7 +375,7 @@ class EEGOptimizer:
             result["sunrise_tomorrow"] = f"~{snap.sunrise.strftime('%H:%M')}"
 
         if in_window:
-            if pv_today > threshold:
+            if pv_today > bedarf:
                 result["status"] = "aktiv"
                 result["reason"] = f"Ladung blockiert bis {end_time_str}"
             else:
@@ -388,8 +388,8 @@ class EEGOptimizer:
             missing_battery_est = 0.0
             if snap.battery_capacity_kwh > 0:
                 missing_battery_est = (100 - self._min_soc) / 100 * snap.battery_capacity_kwh
-            tomorrow_demand = snap.consumption_tomorrow_daylight_kwh + missing_battery_est
-            tomorrow_threshold = tomorrow_demand * (1 + self._safety_buffer_pct / 100)
+            consumption_with_buffer = snap.consumption_tomorrow_daylight_kwh * (1 + self._safety_buffer_pct / 100)
+            tomorrow_threshold = consumption_with_buffer + missing_battery_est
 
             # Show tomorrow's values in the card (not today's remaining)
             result["pv_today_kwh"] = pv_tomorrow
@@ -451,23 +451,21 @@ class EEGOptimizer:
         return result
 
     def _calc_energiebedarf(self, snap: Snapshot) -> float:
-        """Calculate total energy demand: daylight consumption (SA->SU) + missing battery energy.
+        """Calculate total energy demand: daylight consumption with buffer + missing battery.
 
-        This represents everything that must be covered by today's PV:
-        - Household consumption during daylight hours (sunrise to sunset)
-        - Energy needed to fully charge the battery
+        Safety buffer applies only to consumption (variable/uncertain),
+        not to missing battery energy (fixed physical quantity).
         """
-        # Daylight consumption (SA -> SU) for morning delay decision
         consumption = snap.consumption_today_daylight_kwh
+        consumption_with_buffer = consumption * (1 + self._safety_buffer_pct / 100)
 
-        # Missing battery energy (kWh to reach 100%)
         missing_battery = 0.0
         if snap.battery_capacity_kwh > 0:
             missing_battery = (
                 (100 - snap.battery_soc) / 100 * snap.battery_capacity_kwh
             )
 
-        return consumption + missing_battery
+        return consumption_with_buffer + missing_battery
 
     def _should_block_charging(self, snap: Snapshot) -> bool:
         """Determine if morning charge blocking should be active.
@@ -500,9 +498,8 @@ class EEGOptimizer:
             return False
 
         bedarf = self._calc_energiebedarf(snap)
-        schwelle = bedarf * (1 + self._safety_buffer_pct / 100)
 
-        return pv_today > schwelle
+        return pv_today > bedarf
 
     def _calc_min_soc(self, snap: Snapshot) -> float:
         """Calculate dynamic minimum SOC for discharge.
