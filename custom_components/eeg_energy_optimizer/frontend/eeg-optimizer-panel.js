@@ -1543,9 +1543,9 @@ class EegOptimizerPanel extends HTMLElement {
       const soc = ma.discharge_soc != null ? Math.round(Number(ma.discharge_soc)) : "---";
       const minSoc = ma.discharge_min_soc != null ? Math.round(Number(ma.discharge_min_soc)) : "---";
       const pvTom = ma.discharge_pv_tomorrow_kwh != null ? Number(ma.discharge_pv_tomorrow_kwh).toFixed(1) : "---";
-      const demandTom = ma.discharge_demand_tomorrow_kwh != null ? Number(ma.discharge_demand_tomorrow_kwh).toFixed(1) : "---";
+      const overnightDemand = ma.discharge_demand_overnight_kwh != null ? Number(ma.discharge_demand_overnight_kwh).toFixed(1) : "---";
       const socOk = Number(ma.discharge_soc || 0) > Number(ma.discharge_min_soc || 0);
-      const pvOk = Number(ma.discharge_pv_tomorrow_kwh || 0) >= Number(ma.discharge_demand_tomorrow_kwh || 0);
+      const pvOk = Number(ma.discharge_pv_tomorrow_kwh || 0) >= Number(ma.discharge_demand_overnight_kwh || 0);
 
       const infoTooltip = "Der Ziel-SOC ergibt sich aus: Eingestellter Mindest-SOC + geschätzter Nachtverbrauch (Entladestart bis Sonnenaufgang) + Sicherheitspuffer. So bleibt genug Energie für die Nacht.";
 
@@ -1560,8 +1560,8 @@ class EegOptimizerPanel extends HTMLElement {
           <span>${minSoc}%</span>
         </div>
         <div class="condition-row">
-          <span>Tagesbedarf morgen (SA\u2192SU)</span>
-          <span>${demandTom} kWh</span>
+          <span>Nachtverbrauch (Entladestart\u2192SA)</span>
+          <span>${overnightDemand} kWh</span>
         </div>
         <div class="condition-row">
           <span>PV Prognose morgen</span>

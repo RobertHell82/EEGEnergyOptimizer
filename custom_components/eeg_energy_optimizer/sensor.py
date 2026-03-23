@@ -571,7 +571,7 @@ class EntscheidungsSensor(SensorEntity):
             "discharge_soc": round(decision.discharge_soc, 0),
             "discharge_min_soc": round(decision.discharge_min_soc, 1),
             "discharge_pv_tomorrow_kwh": round(decision.discharge_pv_tomorrow_kwh, 1),
-            "discharge_demand_tomorrow_kwh": round(decision.discharge_demand_tomorrow_kwh, 1),
+            "discharge_demand_overnight_kwh": round(decision.discharge_demand_overnight_kwh, 1),
             "discharge_power_kw": decision.discharge_power_kw,
             "discharge_start_time": decision.discharge_start_time,
         }

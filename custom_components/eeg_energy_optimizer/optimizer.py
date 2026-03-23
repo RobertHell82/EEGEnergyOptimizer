@@ -120,7 +120,7 @@ class Decision:
     discharge_soc: float = 0.0
     discharge_min_soc: float = 0.0
     discharge_pv_tomorrow_kwh: float = 0.0
-    discharge_demand_tomorrow_kwh: float = 0.0
+    discharge_demand_overnight_kwh: float = 0.0
     discharge_power_kw: float = 0.0
     discharge_start_time: str = ""
 
@@ -436,7 +436,7 @@ class EEGOptimizer:
         """
         start_time_str = f"{self._discharge_start_h:02d}:{self._discharge_start_m:02d}"
         pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
-        tomorrow_demand_daylight = snap.consumption_tomorrow_daylight_kwh
+        overnight_kwh = snap.consumption_overnight_kwh
 
         result: dict = {
             "status": "deaktiviert",
@@ -444,7 +444,7 @@ class EEGOptimizer:
             "soc": snap.battery_soc,
             "min_soc": min_soc,
             "pv_tomorrow_kwh": pv_tomorrow,
-            "demand_tomorrow_kwh": tomorrow_demand_daylight,
+            "demand_overnight_kwh": overnight_kwh,
             "power_kw": self._discharge_power_kw,
             "start_time": start_time_str,
         }
@@ -648,7 +648,7 @@ class EEGOptimizer:
             discharge_soc=round(snap.battery_soc, 0),
             discharge_min_soc=round(min_soc, 1),
             discharge_pv_tomorrow_kwh=round(discharge_info["pv_tomorrow_kwh"], 1),
-            discharge_demand_tomorrow_kwh=round(discharge_info["demand_tomorrow_kwh"], 1),
+            discharge_demand_overnight_kwh=round(discharge_info["demand_overnight_kwh"], 1),
             discharge_power_kw=self._discharge_power_kw,
             discharge_start_time=discharge_info["start_time"],
         )
