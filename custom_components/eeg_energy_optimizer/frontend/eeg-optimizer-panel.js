@@ -1004,6 +1004,10 @@ class EegOptimizerPanel extends HTMLElement {
         <p style="font-size:13px;color:var(--secondary-text-color);margin:0 0 12px">
           Diese Sensoren werden f&uuml;r die Berechnung des Hausverbrauchs verwendet (PV &minus; Batterie &minus; Netz).
         </p>
+        ${this._detectedSensors?.detected ? `
+        <div class="success-card" style="margin-bottom:12px">
+          Sensoren automatisch erkannt! Bitte &uuml;berpr&uuml;fe die Vorauswahl.
+        </div>` : ""}
         ${this._entityPickerHtml(
           "pv_power_sensor",
           this._wizardData.pv_power_sensor,
