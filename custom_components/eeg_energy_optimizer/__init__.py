@@ -87,10 +87,8 @@ async def async_backfill_hausverbrauch_stats(
             return
 
         # --- Read source sensor IDs from config ---
-        pv_id = config.get(CONF_PV_POWER_SENSOR, "")
-        if not pv_id:
-            _LOGGER.info("Hausverbrauch backfill skipped — no PV sensor configured")
-            return
+        # Fallback to Huawei defaults if not in config (pre-wizard configs)
+        pv_id = config.get(CONF_PV_POWER_SENSOR, "") or "sensor.inverter_eingangsleistung"
         battery_id = config.get(CONF_BATTERY_POWER_SENSOR, DEFAULT_BATTERY_POWER_SENSOR)
         grid_id = config.get(CONF_GRID_POWER_SENSOR, DEFAULT_GRID_POWER_SENSOR)
 
