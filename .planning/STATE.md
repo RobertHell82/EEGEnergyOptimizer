@@ -111,9 +111,10 @@ None yet.
 | 260322-v8z | Hausverbrauch-Formel korrigiert: PV - Batterie - Netz (3-Term) + Migration v7 | 2026-03-22 | 686e918 | [260322-v8z-fix-hausverbrauch-formel-pv-eingang-minu](./quick/260322-v8z-fix-hausverbrauch-formel-pv-eingang-minu/) |
 | 260323-cs1 | Default Consumption Sensor auf eigenen Hausverbrauch umgestellt + Migration v8 | 2026-03-23 | 450c302 | [260323-cs1-verbrauchsprognose-auf-eigenen-hausverbr](./quick/260323-cs1-verbrauchsprognose-auf-eigenen-hausverbr/) |
 | 260323-czf | consumption_sensor Config entfernt, hardcoded auf Hausverbrauch + Wizard 8->7 Steps + Migration v9 | 2026-03-23 | 39b389f | [260323-czf-consumption-sensor-config-entfernen-fest](./quick/260323-czf-consumption-sensor-config-entfernen-fest/) |
+| 260323-ddr | Dashboard: Grouped bar chart (Verbrauch+PV) + Multi-weekday line chart | 2026-03-23 | 54a57bf | [260323-ddr-dashboard-pv-erzeugungsprognose-im-7-tag](./quick/260323-ddr-dashboard-pv-erzeugungsprognose-im-7-tag/) |
 
 ## Session Continuity
 
-Last session: 2026-03-23T08:32:33Z
-Stopped at: Completed quick-260323-czf
+Last session: 2026-03-23T08:46:00Z
+Stopped at: Completed quick-260323-ddr
 Resume file: None
