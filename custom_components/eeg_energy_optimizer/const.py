@@ -21,15 +21,15 @@ INVERTER_PREREQUISITES = {
 CONF_FORECAST_SOURCE = "forecast_source"
 CONF_FORECAST_REMAINING_ENTITY = "forecast_remaining_entity"
 CONF_FORECAST_TOMORROW_ENTITY = "forecast_tomorrow_entity"
-CONF_CONSUMPTION_SENSOR = "consumption_sensor"
 CONF_LOOKBACK_WEEKS = "lookback_weeks"
 CONF_UPDATE_INTERVAL_FAST = "update_interval_fast_min"
 CONF_UPDATE_INTERVAL_SLOW = "update_interval_slow_min"
 
+CONSUMPTION_SENSOR = "sensor.eeg_energy_optimizer_hausverbrauch"
+
 FORECAST_SOURCE_SOLCAST = "solcast_solar"
 FORECAST_SOURCE_FORECAST_SOLAR = "forecast_solar"
 
-DEFAULT_CONSUMPTION_SENSOR = "sensor.eeg_energy_optimizer_hausverbrauch"
 DEFAULT_GRID_POWER_SENSOR = "sensor.power_meter_wirkleistung"
 DEFAULT_BATTERY_POWER_SENSOR = "sensor.batteries_lade_entladeleistung"
 DEFAULT_LOOKBACK_WEEKS = 8

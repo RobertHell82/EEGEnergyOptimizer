@@ -40,15 +40,13 @@
       },
       "consumption": {
         "title": "Consumption Measurement",
-        "description": "Configure the consumption sensor and calculation parameters.",
+        "description": "Configure the calculation parameters for consumption profiles.",
         "data": {
-          "consumption_sensor": "Consumption Sensor",
           "lookback_weeks": "Lookback Period",
           "update_interval_fast_min": "Fast Update Interval",
           "update_interval_slow_min": "Slow Update Interval"
         },
         "data_description": {
-          "consumption_sensor": "Sensor measuring total power consumption in kWh (total_increasing). Default: Power Meter Consumption.",
           "lookback_weeks": "Number of weeks for the rolling consumption average (default: 8 weeks).",
           "update_interval_fast_min": "Update interval for PV forecast and battery sensors in minutes (default: 1 min).",
           "update_interval_slow_min": "Update interval for the consumption profile in minutes (default: 15 min)."

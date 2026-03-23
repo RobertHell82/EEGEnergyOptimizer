@@ -75,6 +75,11 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             new_data["consumption_sensor"] = "sensor.eeg_energy_optimizer_hausverbrauch"
         hass.config_entries.async_update_entry(entry, data=new_data, version=8)
 
+    if entry.version < 9:
+        new_data = {**entry.data}
+        new_data.pop("consumption_sensor", None)
+        hass.config_entries.async_update_entry(entry, data=new_data, version=9)
+
     return True
 
 

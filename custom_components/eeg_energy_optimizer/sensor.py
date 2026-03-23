@@ -22,7 +22,6 @@ from .const import (
     CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_POWER_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
-    CONF_CONSUMPTION_SENSOR,
     CONF_FORECAST_REMAINING_ENTITY,
     CONF_FORECAST_SOURCE,
     CONF_FORECAST_TOMORROW_ENTITY,
@@ -31,8 +30,8 @@ from .const import (
     CONF_PV_POWER_SENSOR,
     CONF_UPDATE_INTERVAL_FAST,
     CONF_UPDATE_INTERVAL_SLOW,
+    CONSUMPTION_SENSOR,
     DEFAULT_BATTERY_POWER_SENSOR,
-    DEFAULT_CONSUMPTION_SENSOR,
     DEFAULT_GRID_POWER_SENSOR,
     DEFAULT_LOOKBACK_WEEKS,
     DEFAULT_UPDATE_INTERVAL_FAST,
@@ -461,7 +460,7 @@ class HausverbrauchSensor(SensorEntity):
     """Calculates actual house consumption from PV input, battery, and grid power.
 
     Formula: Hausverbrauch = PV-Eingangsleistung - Batterie-Lade/Entladeleistung - Netz-Wirkleistung
-    (battery positive = charging, negative = discharging; grid positive = import, negative = export)
+    (battery positive = charging, negative = discharging; grid positive = export, negative = import)
     Result clamped to >= 0.
     state_class=MEASUREMENT so HA recorder stores mean statistics.
     """
@@ -503,7 +502,7 @@ class HausverbrauchSensor(SensorEntity):
 
         # PV input - battery power - grid power
         # battery positive = charging, negative = discharging
-        # grid positive = import, negative = export
+        # grid positive = export, negative = import
         hausverbrauch = max(pv_power - battery_power - grid_power, 0.0)
         self._attr_native_value = round(hausverbrauch, 3)
         self._attr_extra_state_attributes = {
@@ -573,9 +572,8 @@ async def async_setup_entry(
     config = data["config"]
 
     # Create coordinator
-    consumption_sensor = config.get(CONF_CONSUMPTION_SENSOR, DEFAULT_CONSUMPTION_SENSOR)
     lookback_weeks = config.get(CONF_LOOKBACK_WEEKS, DEFAULT_LOOKBACK_WEEKS)
-    coordinator = ConsumptionCoordinator(hass, consumption_sensor, lookback_weeks)
+    coordinator = ConsumptionCoordinator(hass, CONSUMPTION_SENSOR, lookback_weeks)
     await coordinator.async_update()
 
     # Create forecast provider
