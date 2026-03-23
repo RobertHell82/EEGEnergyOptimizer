@@ -1481,7 +1481,10 @@ class EegOptimizerPanel extends HTMLElement {
       xLabels += `<text x="${x}" y="${padding.top + chartH + 15}" text-anchor="middle" font-size="10" fill="var(--secondary-text-color)">${h}:00</text>`;
     }
 
-    // Background lines (non-highlighted weekdays)
+    // Weekday colors (7 distinct colors)
+    const weekdayColors = ["#4CAF50", "#2196F3", "#FF9800", "#9C27B0", "#F44336", "#00BCD4", "#FF5722"];
+
+    // Background lines (non-highlighted weekdays) with distinct colors
     let bgLines = "";
     datasets.forEach((ds, idx) => {
       if (idx === highlightIndex) return;
@@ -1491,12 +1494,13 @@ class EegOptimizerPanel extends HTMLElement {
         const y = padding.top + chartH - (val / maxVal) * chartH;
         pts += `${x},${y} `;
       });
-      bgLines += `<polyline points="${pts}" fill="none" stroke="var(--primary-color)" stroke-width="1" opacity="0.2"/>`;
+      bgLines += `<polyline points="${pts}" fill="none" stroke="${weekdayColors[idx % weekdayColors.length]}" stroke-width="1" opacity="0.3"/>`;
     });
 
     // Highlighted line (today) with area fill
     let hlLine = "";
     const hlDs = datasets[highlightIndex];
+    const hlColor = weekdayColors[highlightIndex % weekdayColors.length];
     if (hlDs) {
       let pts = "";
       let areaPts = `${padding.left},${padding.top + chartH} `;
@@ -1507,8 +1511,8 @@ class EegOptimizerPanel extends HTMLElement {
         areaPts += `${x},${y} `;
       });
       areaPts += `${padding.left + chartW},${padding.top + chartH}`;
-      hlLine += `<polygon points="${areaPts}" fill="var(--primary-color)" opacity="0.1"/>`;
-      hlLine += `<polyline points="${pts}" fill="none" stroke="var(--primary-color)" stroke-width="2.5"/>`;
+      hlLine += `<polygon points="${areaPts}" fill="${hlColor}" opacity="0.12"/>`;
+      hlLine += `<polyline points="${pts}" fill="none" stroke="${hlColor}" stroke-width="2.5"/>`;
     }
 
     // Legend (compact horizontal, below x-axis)
@@ -1519,11 +1523,12 @@ class EegOptimizerPanel extends HTMLElement {
     datasets.forEach((ds, idx) => {
       const lx = legendStartX + idx * legendSpacing;
       const isHighlight = idx === highlightIndex;
+      const color = weekdayColors[idx % weekdayColors.length];
       const fw = isHighlight ? "bold" : "normal";
-      const opacity = isHighlight ? "1" : "0.4";
-      const sw = isHighlight ? "2.5" : "1";
-      legend += `<line x1="${lx}" y1="${legendY - 4}" x2="${lx + 14}" y2="${legendY - 4}" stroke="var(--primary-color)" stroke-width="${sw}" opacity="${opacity}"/>`;
-      legend += `<text x="${lx + 18}" y="${legendY}" font-size="10" font-weight="${fw}" fill="var(--primary-text-color)" opacity="${isHighlight ? '1' : '0.5'}">${ds.label}</text>`;
+      const opacity = isHighlight ? "1" : "0.5";
+      const sw = isHighlight ? "2.5" : "1.5";
+      legend += `<line x1="${lx}" y1="${legendY - 4}" x2="${lx + 14}" y2="${legendY - 4}" stroke="${color}" stroke-width="${sw}" opacity="${opacity}"/>`;
+      legend += `<text x="${lx + 18}" y="${legendY}" font-size="10" font-weight="${fw}" fill="var(--primary-text-color)" opacity="${opacity}">${ds.label}</text>`;
     });
 
     return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">
