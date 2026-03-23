@@ -554,6 +554,23 @@ class EntscheidungsSensor(SensorEntity):
             "entladeleistung_kw": decision.entladeleistung_kw,
             "ausfuehrung": decision.ausfuehrung,
             "letzte_aktualisierung": decision.timestamp,
+            # Morning delay status card
+            "morning_status": decision.morning_status,
+            "morning_reason": decision.morning_reason,
+            "morning_in_window": decision.morning_in_window,
+            "morning_pv_today_kwh": round(decision.morning_pv_today_kwh, 1),
+            "morning_threshold_kwh": round(decision.morning_threshold_kwh, 1),
+            "morning_end_time": decision.morning_end_time,
+            "morning_sunrise_tomorrow": decision.morning_sunrise_tomorrow,
+            # Discharge status card
+            "discharge_status": decision.discharge_status,
+            "discharge_reasons": decision.discharge_reasons,
+            "discharge_soc": round(decision.discharge_soc, 0),
+            "discharge_min_soc": round(decision.discharge_min_soc, 1),
+            "discharge_pv_tomorrow_kwh": round(decision.discharge_pv_tomorrow_kwh, 1),
+            "discharge_demand_tomorrow_kwh": round(decision.discharge_demand_tomorrow_kwh, 1),
+            "discharge_power_kw": decision.discharge_power_kw,
+            "discharge_start_time": decision.discharge_start_time,
         }
         self.async_write_ha_state()
 

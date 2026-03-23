@@ -1442,6 +1442,149 @@ class EegOptimizerPanel extends HTMLElement {
     return isNaN(v) ? null : v;
   }
 
+  _renderStatusCards(decisionState, modeValue, modeBadgeClass) {
+    const ma = decisionState?.attributes || {};
+    const mStatus = ma.morning_status || "deaktiviert";
+    const dStatus = ma.discharge_status || "deaktiviert";
+
+    // --- Left card: Verzogerte Ladung ---
+    let mIndicator = "";
+    let mColorClass = "gray";
+    let mConditionsHtml = "";
+
+    if (mStatus === "aktiv") {
+      mColorClass = "green";
+      mIndicator = `\u25CF AKTIV \u2014 Ladung blockiert bis ${ma.morning_end_time || ""}`;
+    } else if (mStatus === "nicht_aktiv") {
+      mColorClass = "red";
+      mIndicator = `\u2715 Nicht aktiv \u2014 PV reicht nicht fuer Bedarf + Puffer`;
+    } else if (mStatus === "morgen_erwartet") {
+      mColorClass = "blue";
+      mIndicator = `\u25CB Morgen ab ${ma.morning_sunrise_tomorrow || ""} (PV ausreichend)`;
+    } else if (mStatus === "morgen_nicht_erwartet") {
+      mColorClass = "red";
+      mIndicator = `\u2715 Morgen nicht erwartet \u2014 PV Prognose zu gering`;
+    } else {
+      mColorClass = "gray";
+      mIndicator = `\u2014 Deaktiviert`;
+    }
+
+    if (mStatus !== "deaktiviert") {
+      const pvToday = ma.morning_pv_today_kwh != null ? Number(ma.morning_pv_today_kwh).toFixed(1) : "---";
+      const threshold = ma.morning_threshold_kwh != null ? Number(ma.morning_threshold_kwh).toFixed(1) : "---";
+      const pvOk = Number(ma.morning_pv_today_kwh || 0) > Number(ma.morning_threshold_kwh || 0);
+
+      if (mStatus === "morgen_erwartet" || mStatus === "morgen_nicht_erwartet") {
+        // Outside window: show tomorrow's info
+        mConditionsHtml = `
+          <hr class="status-divider">
+          <div class="condition-row">
+            <span>Fenster</span>
+            <span>ab ${ma.morning_sunrise_tomorrow || "---"} bis ${ma.morning_end_time || "---"}</span>
+          </div>
+          <div class="condition-row">
+            <span>PV Prognose</span>
+            <span>${pvToday} kWh <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}</span></span>
+          </div>
+          <div class="condition-row">
+            <span>Bedarf + Puffer</span>
+            <span>${threshold} kWh</span>
+          </div>`;
+      } else {
+        // In window
+        mConditionsHtml = `
+          <hr class="status-divider">
+          <div class="condition-row">
+            <span>PV Prognose heute</span>
+            <span>${pvToday} kWh <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}</span></span>
+          </div>
+          <div class="condition-row">
+            <span>Bedarf + Puffer</span>
+            <span>${threshold} kWh</span>
+          </div>`;
+      }
+    }
+
+    // --- Right card: Abend-Entladung ---
+    let dIndicator = "";
+    let dColorClass = "gray";
+    let dConditionsHtml = "";
+
+    if (dStatus === "aktiv") {
+      dColorClass = "green";
+      const pw = ma.discharge_power_kw != null ? Number(ma.discharge_power_kw).toFixed(1) : "---";
+      const minSoc = ma.discharge_min_soc != null ? Math.round(Number(ma.discharge_min_soc)) : "---";
+      dIndicator = `\u25CF AKTIV \u2014 ${pw} kW Entladung bis ${minSoc}% SOC`;
+    } else if (dStatus === "geplant") {
+      dColorClass = "blue";
+      const minSoc = ma.discharge_min_soc != null ? Math.round(Number(ma.discharge_min_soc)) : "---";
+      dIndicator = `\u25CB Geplant ab ${ma.discharge_start_time || ""} bis ${minSoc}% SOC`;
+    } else if (dStatus === "nicht_geplant") {
+      dColorClass = "red";
+      // Build reason text from reasons array
+      const reasons = ma.discharge_reasons || [];
+      let reasonParts = [];
+      reasons.forEach(r => {
+        if (r.includes("SOC")) reasonParts.push("SOC zu niedrig");
+        if (r.includes("PV")) reasonParts.push("PV morgen nicht ausreichend");
+      });
+      const reasonText = reasonParts.length > 0 ? reasonParts.join(", ") : "Bedingungen nicht erfuellt";
+      dIndicator = `\u2715 Nicht geplant \u2014 ${reasonText}`;
+    } else {
+      dColorClass = "gray";
+      dIndicator = `\u2014 Deaktiviert`;
+    }
+
+    if (dStatus !== "deaktiviert") {
+      const soc = ma.discharge_soc != null ? Math.round(Number(ma.discharge_soc)) : "---";
+      const minSoc = ma.discharge_min_soc != null ? Math.round(Number(ma.discharge_min_soc)) : "---";
+      const pvTom = ma.discharge_pv_tomorrow_kwh != null ? Number(ma.discharge_pv_tomorrow_kwh).toFixed(1) : "---";
+      const demandTom = ma.discharge_demand_tomorrow_kwh != null ? Number(ma.discharge_demand_tomorrow_kwh).toFixed(1) : "---";
+      const socOk = Number(ma.discharge_soc || 0) > Number(ma.discharge_min_soc || 0);
+      const pvOk = Number(ma.discharge_pv_tomorrow_kwh || 0) >= Number(ma.discharge_demand_tomorrow_kwh || 0);
+
+      dConditionsHtml = `
+        <hr class="status-divider">
+        <div class="condition-row">
+          <span>SOC ${soc}% &gt; Min ${minSoc}%</span>
+          <span class="${socOk ? "check" : "cross"}">${socOk ? "\u2713" : "\u2717"}</span>
+        </div>
+        <div class="condition-row">
+          <span>PV morgen ${pvTom} kWh</span>
+          <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}${!pvOk ? " (" + demandTom + " kWh Bedarf)" : ""}</span>
+        </div>`;
+      if (dStatus === "aktiv") {
+        const pw = ma.discharge_power_kw != null ? Number(ma.discharge_power_kw).toFixed(1) : "---";
+        dConditionsHtml += `
+        <div class="condition-row">
+          <span>Entladeleistung</span>
+          <span>${pw} kW</span>
+        </div>`;
+      }
+    }
+
+    return `
+      <div class="status-cards-row">
+        <div class="card">
+          <h3 class="status-card-title" style="margin-top:0">
+            <ha-icon icon="mdi:weather-sunny" style="--mdc-icon-size:20px;color:var(--warning-color,#ff9800)"></ha-icon>
+            Verz&ouml;gerte Ladung
+          </h3>
+          <div class="status-indicator ${mColorClass}">${mIndicator}</div>
+          ${mConditionsHtml}
+        </div>
+        <div class="card">
+          <h3 class="status-card-title" style="margin-top:0">
+            <ha-icon icon="mdi:weather-night" style="--mdc-icon-size:20px;color:var(--info-color,#2196f3)"></ha-icon>
+            Abend-Entladung
+          </h3>
+          <div class="status-indicator ${dColorClass}">${dIndicator}</div>
+          ${dConditionsHtml}
+          <div class="mode-line">Modus: <span class="badge ${modeBadgeClass}">${modeValue}</span></div>
+        </div>
+      </div>`;
+  }
+
   _renderBarChart(data, pvData = null) {
     if (!data || data.length === 0) return "<p>Keine Daten verfügbar</p>";
     const width = 700, height = 300, padding = {top: 30, right: 20, bottom: 40, left: 50};
@@ -1761,29 +1904,8 @@ class EegOptimizerPanel extends HTMLElement {
 
     return `
       <div class="dashboard-grid${narrowClass}">
-        <!-- Status Card -->
-        <div class="card">
-          <h3 style="margin-top:0">Optimizer Status</h3>
-          <div class="status-row">
-            <div class="status-item">
-              <span class="label">Modus:</span>
-              <span class="badge ${modeBadgeClass}">${modeValue}</span>
-            </div>
-            <div class="status-item">
-              <span class="label">Zustand:</span>
-              <span class="badge ${zustandBadgeClass}">${zustand}</span>
-            </div>
-          </div>
-          <div class="status-row" style="margin-top:8px">
-            <div class="status-item">
-              <span class="label">Energiebedarf:</span>
-              <span style="font-weight:500">${energiebedarfText}</span>
-            </div>
-          </div>
-          <div class="next-action">
-            <strong>Nächste Aktion:</strong> ${naechsteAktion}
-          </div>
-        </div>
+        <!-- Status Cards Row -->
+        ${this._renderStatusCards(decisionState, modeValue, modeBadgeClass)}
 
         <!-- Metrics Row -->
         <div class="metrics-row">
@@ -2181,6 +2303,20 @@ class EegOptimizerPanel extends HTMLElement {
         .soc-green { color: var(--success-color, #4caf50); }
         .soc-yellow { color: var(--warning-color, #ff9800); }
         .soc-red { color: var(--error-color, #f44336); }
+        .status-cards-row { display: flex; gap: 16px; margin-bottom: 0; }
+        .status-cards-row .card { flex: 1; min-width: 260px; }
+        .status-indicator { font-weight: 600; margin-bottom: 8px; font-size: 15px; }
+        .status-indicator.green { color: var(--success-color, #4caf50); }
+        .status-indicator.blue { color: var(--info-color, #2196f3); }
+        .status-indicator.red { color: var(--error-color, #f44336); }
+        .status-indicator.gray { color: var(--secondary-text-color, #999); }
+        .condition-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 14px; }
+        .condition-row .check { color: var(--success-color, #4caf50); }
+        .condition-row .cross { color: var(--error-color, #f44336); }
+        .status-divider { border: none; border-top: 1px solid var(--divider-color, #e0e0e0); margin: 8px 0; }
+        .status-card-title { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 16px; }
+        .mode-line { font-size: 12px; color: var(--secondary-text-color); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--divider-color); }
+        .dashboard-grid.narrow .status-cards-row { flex-direction: column; }
         .dashboard-grid.narrow .metrics-row { flex-direction: column; }
         .dashboard-grid.narrow .metric-card { min-width: unset; }
         .btn-manual-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
