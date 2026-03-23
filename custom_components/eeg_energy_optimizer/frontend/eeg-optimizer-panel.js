@@ -156,7 +156,7 @@ class EegOptimizerPanel extends HTMLElement {
     this._manualAction = null;
     this._manualResult = null;
     this._manualDischargeKw = null;
-    this._manualDischargeSoc = 12;
+    this._manualDischargeSoc = 25;
 
     // Event delegation on shadow root
     this._shadow.addEventListener("click", (e) => {
