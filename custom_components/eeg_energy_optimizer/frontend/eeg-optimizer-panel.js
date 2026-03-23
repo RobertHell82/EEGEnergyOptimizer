@@ -1438,7 +1438,7 @@ class EegOptimizerPanel extends HTMLElement {
       mIndicator = `\u25CB Morgen ab ${ma.morning_sunrise_tomorrow || ""} (PV ausreichend)`;
     } else if (mStatus === "morgen_nicht_erwartet") {
       mColorClass = "red";
-      mIndicator = `\u2715 Morgen nicht erwartet \u2014 PV Prognose zu gering`;
+      mIndicator = `\u2715 Morgen nicht geplant \u2014 PV Prognose zu gering`;
     } else {
       mColorClass = "gray";
       mIndicator = `\u2014 Deaktiviert`;
@@ -1458,7 +1458,7 @@ class EegOptimizerPanel extends HTMLElement {
             <span>ab ${ma.morning_sunrise_tomorrow || "---"} bis ${ma.morning_end_time || "---"}</span>
           </div>
           <div class="condition-row">
-            <span>PV Prognose</span>
+            <span>PV Prognose morgen</span>
             <span>${pvToday} kWh <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}</span></span>
           </div>
           <div class="condition-row">

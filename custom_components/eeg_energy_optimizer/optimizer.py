@@ -352,6 +352,10 @@ class EEGOptimizer:
             tomorrow_demand = snap.consumption_tomorrow_kwh + missing_battery_est
             tomorrow_threshold = tomorrow_demand * (1 + self._safety_buffer_pct / 100)
 
+            # Show tomorrow's values in the card (not today's remaining)
+            result["pv_today_kwh"] = pv_tomorrow
+            result["threshold_kwh"] = tomorrow_threshold
+
             if pv_tomorrow > tomorrow_threshold:
                 sunrise_str = result["sunrise_tomorrow"] or "Sonnenaufgang"
                 result["status"] = "morgen_erwartet"
