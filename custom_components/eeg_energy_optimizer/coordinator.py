@@ -188,23 +188,12 @@ class ConsumptionCoordinator:
         )
 
     def _process_mean_entries(self, entries: list[dict]) -> None:
-        """Process 'mean' statistics (measurement sensors, W/kW).
+        """Process 'mean' statistics (measurement sensors, kW).
 
-        Each entry has a mean power value in the sensor's unit.
-        For kW sensors, values are converted to W for internal consistency.
-        Internal storage is always in watts for calculate_period() compatibility.
+        The consumption sensor (Hausverbrauch) reports in kW.
+        Values are converted to W (* 1000) for internal consistency,
+        since calculate_period() expects watts.
         """
-        # Detect unit: check if sensor reports in kW (our Hausverbrauch sensor does)
-        is_kw = False
-        try:
-            state = self.hass.states.get(self._consumption_id)
-            if state and hasattr(state, "attributes"):
-                unit = state.attributes.get("unit_of_measurement", "")
-                if unit.lower() in ("kw", "kilowatt"):
-                    is_kw = True
-        except Exception:
-            pass
-
         accum: dict[str, dict[int, list[float]]] = {
             day: {h: [] for h in range(24)} for day in WEEKDAY_KEYS
         }
@@ -219,8 +208,8 @@ class ConsumptionCoordinator:
             if local_dt is None:
                 continue
 
-            # Convert kW to W for internal consistency
-            value = mean * 1000.0 if is_kw else mean
+            # Convert kW to W (consumption sensor always reports in kW)
+            value = mean * 1000.0
 
             weekday_key = WEEKDAY_KEYS[local_dt.weekday()]
             accum[weekday_key][local_dt.hour].append(value)
