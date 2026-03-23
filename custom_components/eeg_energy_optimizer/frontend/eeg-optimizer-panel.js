@@ -1893,7 +1893,6 @@ class EegOptimizerPanel extends HTMLElement {
       manualStatusHtml = `<div class="manual-loading">
         <div class="manual-spinner"></div>
         <span>${actionLabels[manualAction] || "Befehl"} wird ausgef\u00fchrt\u2026</span>
-        <span class="manual-loading-hint">Der Wechselrichter kann bis zu 30 Sekunden brauchen.</span>
       </div>`;
     } else if (manualResult) {
       if (manualResult.success) {

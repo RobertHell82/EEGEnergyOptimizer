@@ -13,23 +13,13 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 HUAWEI_DOMAIN = "huawei_solar"
+MAX_CHARGE_POWER_ENTITY = "number.batteries_maximale_ladeleistung"
 
 
 class HuaweiInverter(InverterBase):
-    """Huawei SUN2000 inverter control via HA Huawei Solar services.
-
-    Translates kW power commands to HA service calls to the huawei_solar
-    integration. Power is always passed as a string per Huawei Solar's
-    services.yaml text selector requirement.
-    """
+    """Huawei SUN2000 inverter control via HA Huawei Solar services."""
 
     def __init__(self, hass: Any, config: dict) -> None:
-        """Initialize HuaweiInverter.
-
-        Args:
-            hass: Home Assistant instance.
-            config: Integration config containing 'huawei_device_id'.
-        """
         super().__init__(hass, config)
         device_id = config.get("huawei_device_id")
         if not device_id:
@@ -39,37 +29,38 @@ class HuaweiInverter(InverterBase):
             )
         self._device_id: str = device_id
 
-    async def async_set_charge_limit(self, power_kw: float) -> bool:
-        """Set battery charge limit in kW.
+    async def _get_max_charge_power(self) -> float:
+        """Read the max value of the charge power number entity."""
+        state = self._hass.states.get(MAX_CHARGE_POWER_ENTITY)
+        if state is None:
+            return 5000.0
+        return float(state.attributes.get("max", 5000))
 
-        Calls huawei_solar.forcible_charge_soc to charge at the given power
-        up to 100% SOC. Power is converted to watts and passed as string.
+    async def async_set_charge_limit(self, power_kw: float) -> bool:
+        """Set battery max charge power via number entity.
+
+        power_kw=0 blocks charging, any other value sets the limit.
         """
-        power_w = str(int(power_kw * 1000))
+        power_w = int(power_kw * 1000)
         try:
             await self._hass.services.async_call(
-                HUAWEI_DOMAIN,
-                "forcible_charge_soc",
+                "number",
+                "set_value",
                 {
-                    "device_id": self._device_id,
-                    "power": power_w,
-                    "target_soc": 100,
+                    "entity_id": MAX_CHARGE_POWER_ENTITY,
+                    "value": power_w,
                 },
                 blocking=True,
             )
             return True
         except Exception:
-            _LOGGER.exception("Huawei: Failed to set charge limit")
+            _LOGGER.exception("Huawei: Failed to set charge limit via %s", MAX_CHARGE_POWER_ENTITY)
             return False
 
     async def async_set_discharge(
         self, power_kw: float, target_soc: float | None = None
     ) -> bool:
-        """Set battery discharge at given power in kW.
-
-        Calls huawei_solar.forcible_discharge_soc. If target_soc is not
-        provided, defaults to 10% as the discharge floor.
-        """
+        """Start forced battery discharge at given power and target SOC."""
         power_w = str(int(power_kw * 1000))
         soc = max(int(target_soc) if target_soc is not None else 12, 12)
         try:
@@ -91,9 +82,22 @@ class HuaweiInverter(InverterBase):
     async def async_stop_forcible(self) -> bool:
         """Stop forced charge/discharge, return to automatic mode.
 
-        Calls huawei_solar.stop_forcible_charge.
+        Resets max charge power to hardware maximum and stops any
+        forcible charge/discharge mode.
         """
         try:
+            # Restore max charge power
+            max_power = await self._get_max_charge_power()
+            await self._hass.services.async_call(
+                "number",
+                "set_value",
+                {
+                    "entity_id": MAX_CHARGE_POWER_ENTITY,
+                    "value": max_power,
+                },
+                blocking=True,
+            )
+            # Stop forcible discharge if active
             await self._hass.services.async_call(
                 HUAWEI_DOMAIN,
                 "stop_forcible_charge",
