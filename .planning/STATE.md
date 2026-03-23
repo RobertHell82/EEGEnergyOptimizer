@@ -115,9 +115,10 @@ None yet.
 | 260323-dyi | Wizard Step 1: 3 Hausverbrauch-Sensoren (PV, Batterie, Netz) entity pickers + Validation + Summary | 2026-03-23 | 6493551 | [260323-dyi-hausverbrauch-sensoren-pv-batterie-netz-](./quick/260323-dyi-hausverbrauch-sensoren-pv-batterie-netz-/) |
 | 260323-fzl | Einmaliger Backfill Hausverbrauch-Statistiken aus PV/Batterie/Netz-Sensoren | 2026-03-23 | d827f6f | [260323-fzl-einmaliger-backfill-hausverbrauch-statis](./quick/260323-fzl-einmaliger-backfill-hausverbrauch-statis/) |
 | 260323-lmg | Manuelle Wechselrichter-Steuerung: 3 WS-Commands + Dashboard-UI | 2026-03-23 | 8e68b95 | [260323-lmg-manuelle-wechselrichter-steuerung-am-das](./quick/260323-lmg-manuelle-wechselrichter-steuerung-am-das/) |
+| 260323-m0o | Dashboard Status-Header: 2 Status-Cards (Verzogerte Ladung + Abend-Entladung) mit Bedingungen | 2026-03-23 | 7885d0d | [260323-m0o-dashboard-status-header-berarbeiten-opti](./quick/260323-m0o-dashboard-status-header-berarbeiten-opti/) |
 
 ## Session Continuity
 
-Last session: 2026-03-23T14:47:00Z
-Stopped at: Completed quick-260323-lmg
+Last session: 2026-03-23T15:14:00Z
+Stopped at: Completed quick-260323-m0o
 Resume file: None
