@@ -1687,6 +1687,16 @@ class EegOptimizerPanel extends HTMLElement {
           </div>
         </div>
 
+        <!-- Charts (or loading hint if no consumption data yet) -->
+        ${(profilState?.attributes?.stats_count || 0) === 0 ? `
+        <div class="card" style="text-align:center;padding:32px">
+          <ha-icon icon="mdi:chart-line" style="--mdc-icon-size:48px;color:var(--secondary-text-color);opacity:0.5"></ha-icon>
+          <h3 style="margin:16px 0 8px;color:var(--secondary-text-color)">Verbrauchsdaten werden berechnet...</h3>
+          <p style="color:var(--secondary-text-color);font-size:14px;margin:0">
+            Die historischen Verbrauchsdaten werden aus deinen Sensoren berechnet. Das kann beim ersten Start einige Sekunden dauern.
+          </p>
+        </div>
+        ` : `
         <!-- 7-Day Forecast Chart -->
         <div class="card chart-card">
           <h3>Energieprognose (7 Tage)</h3>
@@ -1698,6 +1708,7 @@ class EegOptimizerPanel extends HTMLElement {
           <h3>Verbrauchsprofil (Wochentage)</h3>
           ${this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0)}
         </div>
+        `}
 
         <!-- Inverter Test Card -->
         <div class="card">
