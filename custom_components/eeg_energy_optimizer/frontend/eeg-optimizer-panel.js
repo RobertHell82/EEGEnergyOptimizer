@@ -71,6 +71,7 @@ const WIZARD_DEFAULTS = {
   discharge_power_kw: 3.0,
   min_soc: 10,
   safety_buffer_pct: 25,
+  expert_mode: false,
 };
 
 const SOLCAST_DEFAULTS = {
@@ -242,6 +243,10 @@ class EegOptimizerPanel extends HTMLElement {
         if (field === "sim_soc_enabled") {
           this._simSocEnabled = target.checked;
           this._render();
+          return;
+        }
+        if (field === "expert_mode") {
+          this._wizardData[field] = target.checked;
           return;
         }
         if (target.tagName === "SELECT") {
@@ -1388,6 +1393,14 @@ class EegOptimizerPanel extends HTMLElement {
                value="${this._wizardData.update_interval_slow_min}"
                min="5" max="120">
         <div class="help-text">Update-Intervall für das Verbrauchsprofil.</div>
+      </div>
+      <div class="field-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" data-field="expert_mode"
+                 ${this._wizardData.expert_mode ? "checked" : ""}>
+          Expertenmodus aktivieren
+        </label>
+        <div class="help-text">Zeigt manuelle Wechselrichter-Steuerung und Simulations-Werkzeuge auf dem Dashboard.</div>
       </div>`;
   }
 
@@ -1452,6 +1465,7 @@ class EegOptimizerPanel extends HTMLElement {
         <h3>Allgemein</h3>
         ${row("Sicherheitspuffer", d.safety_buffer_pct + " %")}
         ${row("Verbrauchsdurchschnitt", d.lookback_weeks + " Wochen")}
+        ${row("Expertenmodus", d.expert_mode ? "Aktiviert" : "Deaktiviert")}
       </div>`;
   }
 
@@ -2062,6 +2076,7 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
         `}
 
+        ${this._config?.expert_mode ? `
         <!-- Manual Control Card -->
         <div class="card">
           <h3 style="margin-top:0">Manuelle Steuerung</h3>
@@ -2174,6 +2189,7 @@ class EegOptimizerPanel extends HTMLElement {
           ` : ""}
         </div>
         ` : ""}
+        ` : "<!-- Expert mode disabled -->"}
 
       </div>`;
   }
