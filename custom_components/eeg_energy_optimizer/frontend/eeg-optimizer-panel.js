@@ -1750,6 +1750,126 @@ class EegOptimizerPanel extends HTMLElement {
     </svg>`;
   }
 
+  _renderEnergyFlow() {
+    const pvW = this._readFloat(this._config?.pv_power_sensor || "sensor.inverter_eingangsleistung") || 0;
+    const batW = this._readFloat(this._config?.battery_power_sensor || "sensor.batteries_lade_entladeleistung") || 0;
+    const gridW = this._readFloat(this._config?.grid_power_sensor || "sensor.power_meter_wirkleistung") || 0;
+    const socVal = this._readFloat(this._config?.battery_soc_sensor || "sensor.batteries_batterieladung");
+    const hausState = this._readFloat("sensor.eeg_energy_optimizer_hausverbrauch");
+    const hausW = hausState != null ? hausState * 1000 : Math.max(0, pvW - batW - gridW);
+
+    // Flow calculations
+    const THRESHOLD = 50;
+    const flows = [];
+
+    // PV -> House
+    if (pvW > THRESHOLD && hausW > THRESHOLD) {
+      flows.push({ from: "pv", to: "house", value: Math.min(pvW, hausW), color: "#4CAF50", anim: "flowDash" });
+    }
+    // PV -> Battery (charging from PV)
+    if (pvW > hausW && batW > THRESHOLD) {
+      flows.push({ from: "pv", to: "bat", value: Math.min(pvW - hausW, batW), color: "#4CAF50", anim: "flowDash" });
+    }
+    // PV -> Grid (export)
+    if (gridW < -THRESHOLD && pvW > THRESHOLD) {
+      flows.push({ from: "pv", to: "grid", value: Math.abs(gridW), color: "#4CAF50", anim: "flowDash" });
+    }
+    // Battery -> House (discharging)
+    if (batW < -THRESHOLD) {
+      flows.push({ from: "bat", to: "house", value: Math.abs(batW), color: "#FF9800", anim: "flowDash" });
+    }
+    // Grid -> House (import)
+    if (gridW > THRESHOLD) {
+      flows.push({ from: "grid", to: "house", value: gridW, color: "#f44336", anim: "flowDashReverse" });
+    }
+
+    // Node positions (viewBox 300x260)
+    const nodes = {
+      pv:    { x: 150, y: 40,  label: "PV",       valColor: "#4CAF50" },
+      bat:   { x: 40,  y: 140, label: "Batterie",  valColor: "#FF9800" },
+      house: { x: 260, y: 140, label: "Haus",      valColor: "#2196F3" },
+      grid:  { x: 150, y: 230, label: "Netz",      valColor: gridW < -THRESHOLD ? "#4CAF50" : gridW > THRESHOLD ? "#f44336" : "#999" },
+    };
+
+    const strokeW = (w) => Math.max(1.5, Math.min(6, w / 500));
+
+    // Build flow lines SVG
+    let flowLines = "";
+    for (const f of flows) {
+      const n1 = nodes[f.from], n2 = nodes[f.to];
+      flowLines += `<line x1="${n1.x}" y1="${n1.y}" x2="${n2.x}" y2="${n2.y}"
+        stroke="${f.color}" stroke-width="${strokeW(f.value)}"
+        stroke-dasharray="8 4" class="flow-line" style="animation: ${f.anim} 1s linear infinite;" />`;
+    }
+
+    // Build node SVGs
+    const fmt = (w) => `${(Math.abs(w)/1000).toFixed(1)} kW`;
+    let nodeSvg = "";
+    // PV node - sun icon
+    nodeSvg += `<circle cx="${nodes.pv.x}" cy="${nodes.pv.y}" r="28" fill="var(--card-background-color, #fff)" stroke="var(--divider-color, #e0e0e0)" stroke-width="1.5"/>`;
+    nodeSvg += `<text x="${nodes.pv.x}" y="${nodes.pv.y - 8}" text-anchor="middle" font-size="18" fill="#FFC107">&#9728;</text>`;
+    nodeSvg += `<text x="${nodes.pv.x}" y="${nodes.pv.y + 8}" text-anchor="middle" font-size="10" fill="var(--primary-text-color)">PV</text>`;
+    nodeSvg += `<text x="${nodes.pv.x}" y="${nodes.pv.y + 20}" text-anchor="middle" font-size="9" font-weight="600" fill="${nodes.pv.valColor}">${fmt(pvW)}</text>`;
+
+    // Battery node
+    nodeSvg += `<rect x="${nodes.bat.x - 28}" y="${nodes.bat.y - 28}" width="56" height="56" rx="8" fill="var(--card-background-color, #fff)" stroke="var(--divider-color, #e0e0e0)" stroke-width="1.5"/>`;
+    nodeSvg += `<text x="${nodes.bat.x}" y="${nodes.bat.y - 6}" text-anchor="middle" font-size="16" fill="#FF9800">&#9211;</text>`;
+    nodeSvg += `<text x="${nodes.bat.x}" y="${nodes.bat.y + 10}" text-anchor="middle" font-size="9" fill="var(--primary-text-color)">Batterie</text>`;
+    nodeSvg += `<text x="${nodes.bat.x}" y="${nodes.bat.y + 22}" text-anchor="middle" font-size="9" font-weight="600" fill="${nodes.bat.valColor}">${fmt(batW)}</text>`;
+    if (socVal != null) {
+      nodeSvg += `<text x="${nodes.bat.x}" y="${nodes.bat.y + 33}" text-anchor="middle" font-size="9" fill="${socVal > 50 ? '#4CAF50' : socVal >= 25 ? '#FFC107' : '#f44336'}">${Math.round(socVal)}%</text>`;
+    }
+
+    // House node
+    nodeSvg += `<rect x="${nodes.house.x - 28}" y="${nodes.house.y - 28}" width="56" height="56" rx="8" fill="var(--card-background-color, #fff)" stroke="var(--divider-color, #e0e0e0)" stroke-width="1.5"/>`;
+    nodeSvg += `<text x="${nodes.house.x}" y="${nodes.house.y - 4}" text-anchor="middle" font-size="18" fill="#2196F3">&#8962;</text>`;
+    nodeSvg += `<text x="${nodes.house.x}" y="${nodes.house.y + 12}" text-anchor="middle" font-size="9" fill="var(--primary-text-color)">Haus</text>`;
+    nodeSvg += `<text x="${nodes.house.x}" y="${nodes.house.y + 24}" text-anchor="middle" font-size="9" font-weight="600" fill="${nodes.house.valColor}">${fmt(hausW)}</text>`;
+
+    // Grid node
+    nodeSvg += `<circle cx="${nodes.grid.x}" cy="${nodes.grid.y}" r="28" fill="var(--card-background-color, #fff)" stroke="var(--divider-color, #e0e0e0)" stroke-width="1.5"/>`;
+    nodeSvg += `<text x="${nodes.grid.x}" y="${nodes.grid.y - 6}" text-anchor="middle" font-size="16" fill="${nodes.grid.valColor}">&#9889;</text>`;
+    nodeSvg += `<text x="${nodes.grid.x}" y="${nodes.grid.y + 8}" text-anchor="middle" font-size="9" fill="var(--primary-text-color)">Netz</text>`;
+    nodeSvg += `<text x="${nodes.grid.x}" y="${nodes.grid.y + 20}" text-anchor="middle" font-size="9" font-weight="600" fill="${nodes.grid.valColor}">${fmt(gridW)}</text>`;
+
+    return `
+      <h3 style="margin-top:0">Energiefluss</h3>
+      <svg class="energy-flow-svg" viewBox="0 0 300 270" xmlns="http://www.w3.org/2000/svg">
+        ${flowLines}
+        ${nodeSvg}
+      </svg>`;
+  }
+
+  _renderLiveValues() {
+    const pvW = this._readFloat(this._config?.pv_power_sensor || "sensor.inverter_eingangsleistung") || 0;
+    const batW = this._readFloat(this._config?.battery_power_sensor || "sensor.batteries_lade_entladeleistung") || 0;
+    const gridW = this._readFloat(this._config?.grid_power_sensor || "sensor.power_meter_wirkleistung") || 0;
+    const socVal = this._readFloat(this._config?.battery_soc_sensor || "sensor.batteries_batterieladung");
+    const hausState = this._readFloat("sensor.eeg_energy_optimizer_hausverbrauch");
+    const hausW = hausState != null ? hausState * 1000 : Math.max(0, pvW - batW - gridW);
+    const maxChargeW = this._readFloat("number.batteries_maximale_ladeleistung");
+
+    const batLabel = batW >= 0 ? "Ladung" : "Entladung";
+    const batColor = "val-orange";
+    const gridLabel = gridW >= 0 ? "Bezug" : "Einspeisung";
+    const gridColor = gridW >= 0 ? "val-red" : "val-green";
+    const socColor = socVal == null ? "" : socVal > 50 ? "val-green" : socVal >= 25 ? "val-orange" : "val-red";
+
+    const row = (label, value, unit, colorClass, sub) =>
+      `<div class="live-val-label">${label}</div>
+       <div class="live-val ${colorClass}">${value} ${unit}${sub ? ` <span class="live-val-sub">${sub}</span>` : ""}</div>`;
+
+    return `
+      <h3 style="margin-top:0">Aktuelle Werte</h3>
+      <div class="live-values-grid">
+        ${row("PV Leistung", (pvW/1000).toFixed(1), "kW", "val-green", "")}
+        ${row("Batterie", (Math.abs(batW)/1000).toFixed(1), "kW", batColor, `(${batLabel})`)}
+        ${row("Batterie SOC", socVal != null ? Math.round(socVal) : "---", "%", socColor, maxChargeW != null ? `Max: ${(maxChargeW/1000).toFixed(1)} kW` : "")}
+        ${row("Netz", (Math.abs(gridW)/1000).toFixed(1), "kW", gridColor, `(${gridLabel})`)}
+        ${row("Hausverbrauch", (hausW/1000).toFixed(1), "kW", "val-blue", "")}
+      </div>`;
+  }
+
   _renderDashboard() {
     const h = this._hass;
     if (!h) return "<p>Lade...</p>";
@@ -1923,6 +2043,12 @@ class EegOptimizerPanel extends HTMLElement {
 
         <!-- Update timestamps -->
         ${this._renderTimestamps(decisionState, profilState)}
+
+        <!-- Energy Flow + Live Values Row -->
+        <div class="status-cards-row">
+          <div class="card">${this._renderEnergyFlow()}</div>
+          <div class="card">${this._renderLiveValues()}</div>
+        </div>
 
         <!-- Charts (or loading hint if no consumption data yet) -->
         ${(profilState?.attributes?.stats_count || 0) === 0 ? `
@@ -2333,6 +2459,22 @@ class EegOptimizerPanel extends HTMLElement {
         .connection-lost p { color: var(--secondary-text-color, #666); font-size: 14px; margin: 4px 0 24px; }
         .connection-lost-spinner { width: 32px; height: 32px; border: 3px solid var(--divider-color, #e0e0e0); border-top-color: var(--warning-color, #ffa726); border-radius: 50%; animation: conn-spin 1s linear infinite; }
         @keyframes conn-spin { to { transform: rotate(360deg); } }
+
+        /* Energy Flow Diagram */
+        .energy-flow-svg { width: 100%; height: auto; }
+        .flow-line { fill: none; stroke-linecap: round; }
+        @keyframes flowDash { to { stroke-dashoffset: -12; } }
+        @keyframes flowDashReverse { to { stroke-dashoffset: 12; } }
+
+        /* Live Values Card */
+        .live-values-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: baseline; }
+        .live-val-label { color: var(--primary-text-color); font-size: 14px; }
+        .live-val { text-align: right; font-weight: 600; font-size: 14px; white-space: nowrap; }
+        .live-val-sub { font-weight: 400; font-size: 12px; color: var(--secondary-text-color); }
+        .val-green { color: #4CAF50; }
+        .val-red { color: #f44336; }
+        .val-orange { color: #FF9800; }
+        .val-blue { color: #2196F3; }
       </style>
       <div class="toolbar">
         <h1>EEG Optimizer</h1>
