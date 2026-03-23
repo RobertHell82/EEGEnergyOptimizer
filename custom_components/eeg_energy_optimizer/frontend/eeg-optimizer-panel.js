@@ -1063,8 +1063,12 @@ class EegOptimizerPanel extends HTMLElement {
     }
 
     // Sensor fields shown below cards when a source is selected
+    const hasDefaults = selected && this._wizardData.forecast_remaining_entity;
     const sensorFields = selected ? `
       <div style="margin-top:16px">
+        ${hasDefaults ? `<div class="success-card" style="margin-bottom:12px">
+          Prognose-Sensoren automatisch vorausgew&auml;hlt! Bitte &uuml;berpr&uuml;fe die Vorauswahl.
+        </div>` : ""}
         ${this._entityPickerHtml(
           "forecast_remaining_entity",
           this._wizardData.forecast_remaining_entity,
