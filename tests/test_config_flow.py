@@ -260,7 +260,7 @@ class TestStepConsumption:
             CONF_FORECAST_TOMORROW_ENTITY: "sensor.solcast_tomorrow",
         }
         result = await flow.async_step_consumption(user_input={
-            CONF_CONSUMPTION_SENSOR: "sensor.power_meter_verbrauch",
+            CONF_CONSUMPTION_SENSOR: "sensor.eeg_energy_optimizer_hausverbrauch",
             CONF_LOOKBACK_WEEKS: 8,
             CONF_UPDATE_INTERVAL_FAST: 1,
             CONF_UPDATE_INTERVAL_SLOW: 15,
@@ -304,7 +304,7 @@ class TestFullFlow:
 
         # Step 4: consumption -> optimizer form
         result = await flow.async_step_consumption(user_input={
-            CONF_CONSUMPTION_SENSOR: "sensor.power_meter_verbrauch",
+            CONF_CONSUMPTION_SENSOR: "sensor.eeg_energy_optimizer_hausverbrauch",
             CONF_LOOKBACK_WEEKS: 8,
             CONF_UPDATE_INTERVAL_FAST: 1,
             CONF_UPDATE_INTERVAL_SLOW: 15,
@@ -327,7 +327,7 @@ class TestFullFlow:
         assert data[CONF_INVERTER_TYPE] == "huawei_sun2000"
         assert data[CONF_BATTERY_SOC_SENSOR] == "sensor.battery_soc"
         assert data[CONF_FORECAST_SOURCE] == "solcast_solar"
-        assert data[CONF_CONSUMPTION_SENSOR] == "sensor.power_meter_verbrauch"
+        assert data[CONF_CONSUMPTION_SENSOR] == "sensor.eeg_energy_optimizer_hausverbrauch"
         assert data[CONF_LOOKBACK_WEEKS] == 8
         assert data[CONF_UEBERSCHUSS_SCHWELLE] == 1.25
         assert data[CONF_MORNING_END_TIME] == "10:00"
