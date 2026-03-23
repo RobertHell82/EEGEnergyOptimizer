@@ -112,9 +112,10 @@ None yet.
 | 260323-cs1 | Default Consumption Sensor auf eigenen Hausverbrauch umgestellt + Migration v8 | 2026-03-23 | 450c302 | [260323-cs1-verbrauchsprognose-auf-eigenen-hausverbr](./quick/260323-cs1-verbrauchsprognose-auf-eigenen-hausverbr/) |
 | 260323-czf | consumption_sensor Config entfernt, hardcoded auf Hausverbrauch + Wizard 8->7 Steps + Migration v9 | 2026-03-23 | 39b389f | [260323-czf-consumption-sensor-config-entfernen-fest](./quick/260323-czf-consumption-sensor-config-entfernen-fest/) |
 | 260323-ddr | Dashboard: Grouped bar chart (Verbrauch+PV) + Multi-weekday line chart | 2026-03-23 | 54a57bf | [260323-ddr-dashboard-pv-erzeugungsprognose-im-7-tag](./quick/260323-ddr-dashboard-pv-erzeugungsprognose-im-7-tag/) |
+| 260323-dyi | Wizard Step 1: 3 Hausverbrauch-Sensoren (PV, Batterie, Netz) entity pickers + Validation + Summary | 2026-03-23 | 6493551 | [260323-dyi-hausverbrauch-sensoren-pv-batterie-netz-](./quick/260323-dyi-hausverbrauch-sensoren-pv-batterie-netz-/) |
 
 ## Session Continuity
 
-Last session: 2026-03-23T08:46:00Z
-Stopped at: Completed quick-260323-ddr
+Last session: 2026-03-23T09:07:00Z
+Stopped at: Completed quick-260323-dyi
 Resume file: None
