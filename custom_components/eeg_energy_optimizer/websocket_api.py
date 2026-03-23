@@ -410,6 +410,17 @@ async def ws_set_test_overrides(
         overrides["soc_override"] = msg["soc_override"]
 
     data["test_overrides"] = overrides
+
+    # Trigger immediate optimizer cycle so dashboard updates instantly
+    optimizer = data.get("optimizer")
+    if optimizer:
+        select = data.get("select")
+        mode = select._attr_current_option if select else "Test"
+        decision = await optimizer.async_run_cycle(mode)
+        decision_sensor = data.get("decision_sensor")
+        if decision_sensor and decision:
+            decision_sensor.update_from_decision(decision)
+
     connection.send_result(msg["id"], {"success": True, "overrides": overrides})
 
 
@@ -449,4 +460,15 @@ async def ws_clear_test_overrides(
         return
 
     data.pop("test_overrides", None)
+
+    # Trigger immediate optimizer cycle to restore real values
+    optimizer = data.get("optimizer")
+    if optimizer:
+        select = data.get("select")
+        mode = select._attr_current_option if select else "Test"
+        decision = await optimizer.async_run_cycle(mode)
+        decision_sensor = data.get("decision_sensor")
+        if decision_sensor and decision:
+            decision_sensor.update_from_decision(decision)
+
     connection.send_result(msg["id"], {"success": True})
