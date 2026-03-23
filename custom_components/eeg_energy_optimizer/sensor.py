@@ -571,7 +571,11 @@ async def async_setup_entry(
     data = hass.data[DOMAIN][entry.entry_id]
     config = data["config"]
 
-    # Create coordinator
+    # Backfill Hausverbrauch statistics before first coordinator load
+    from .__init__ import async_backfill_hausverbrauch_stats
+    await async_backfill_hausverbrauch_stats(hass, config)
+
+    # Create coordinator (now finds backfilled data immediately)
     lookback_weeks = config.get(CONF_LOOKBACK_WEEKS, DEFAULT_LOOKBACK_WEEKS)
     coordinator = ConsumptionCoordinator(hass, CONSUMPTION_SENSOR, lookback_weeks)
     await coordinator.async_update()

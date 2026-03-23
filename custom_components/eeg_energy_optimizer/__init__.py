@@ -319,11 +319,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     provider = data.get("provider")
 
     if coordinator and provider:
-        # One-time backfill of Hausverbrauch statistics from source sensors
-        await async_backfill_hausverbrauch_stats(hass, config)
-        # Reload coordinator so it picks up the backfilled statistics
-        await coordinator.async_update()
-
         optimizer = EEGOptimizer(hass, config, inverter, coordinator, provider)
         data["optimizer"] = optimizer
 
