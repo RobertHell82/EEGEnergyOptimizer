@@ -1912,7 +1912,7 @@ class EegOptimizerPanel extends HTMLElement {
       <div class="dashboard-grid${narrowClass}">
         <!-- Mode Toggle -->
         <div class="mode-toggle-row">
-          <span class="mode-toggle-label">${modeValue === "Ein" ? "Ein" : "Test"}</span>
+          <span class="mode-toggle-label">${modeValue === "Ein" ? "Ein" : "Testmodus"}</span>
           <div class="mode-toggle ${modeToggleClass}" data-action="toggle-mode">
             <div class="toggle-knob"></div>
           </div>
