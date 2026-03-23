@@ -1350,23 +1350,49 @@ class EegOptimizerPanel extends HTMLElement {
     return isNaN(v) ? null : v;
   }
 
-  _renderBarChart(data) {
+  _renderBarChart(data, pvData = null) {
     if (!data || data.length === 0) return "<p>Keine Daten verfügbar</p>";
     const width = 700, height = 300, padding = {top: 30, right: 20, bottom: 40, left: 50};
     const chartW = width - padding.left - padding.right;
     const chartH = height - padding.top - padding.bottom;
-    const maxVal = Math.max(...data.map(d => d.value), 1) * 1.1;
-    const barW = chartW / data.length * 0.7;
-    const gap = chartW / data.length * 0.3;
+    const maxVal = Math.max(...data.map(d => d.value), ...(pvData || []).map(d => d.value || 0), 1) * 1.1;
+    const slotW = chartW / data.length;
+    const grouped = pvData != null;
+    const barW = grouped ? slotW * 0.35 : slotW * 0.7;
+    const gap = grouped ? 2 : slotW * 0.3;
 
     let bars = "";
     data.forEach((d, i) => {
-      const x = padding.left + i * (chartW / data.length) + gap / 2;
-      const barH = (d.value / maxVal) * chartH;
-      const y = padding.top + chartH - barH;
-      bars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="var(--primary-color)" rx="3"/>`;
-      bars += `<text x="${x + barW/2}" y="${y - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${d.value.toFixed(1)}</text>`;
-      bars += `<text x="${x + barW/2}" y="${height - 10}" text-anchor="middle" font-size="11" fill="var(--secondary-text-color)">${d.label}</text>`;
+      const slotX = padding.left + i * slotW;
+      if (grouped) {
+        // Consumption bar (left)
+        const x1 = slotX + (slotW - barW * 2 - gap) / 2;
+        const barH1 = (d.value / maxVal) * chartH;
+        const y1 = padding.top + chartH - barH1;
+        bars += `<rect x="${x1}" y="${y1}" width="${barW}" height="${barH1}" fill="var(--primary-color)" rx="3"/>`;
+        bars += `<text x="${x1 + barW/2}" y="${y1 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${d.value.toFixed(1)}</text>`;
+
+        // PV bar (right)
+        const pvVal = pvData[i]?.value || 0;
+        if (pvVal > 0) {
+          const x2 = x1 + barW + gap;
+          const barH2 = (pvVal / maxVal) * chartH;
+          const y2 = padding.top + chartH - barH2;
+          bars += `<rect x="${x2}" y="${y2}" width="${barW}" height="${barH2}" fill="#FF9800" rx="3"/>`;
+          bars += `<text x="${x2 + barW/2}" y="${y2 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${pvVal.toFixed(1)}</text>`;
+        }
+
+        // Day label centered under group
+        bars += `<text x="${slotX + slotW/2}" y="${height - 10}" text-anchor="middle" font-size="11" fill="var(--secondary-text-color)">${d.label}</text>`;
+      } else {
+        // Original single-bar rendering
+        const x = slotX + (slotW - barW) / 2;
+        const barH = (d.value / maxVal) * chartH;
+        const y = padding.top + chartH - barH;
+        bars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="var(--primary-color)" rx="3"/>`;
+        bars += `<text x="${x + barW/2}" y="${y - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${d.value.toFixed(1)}</text>`;
+        bars += `<text x="${x + barW/2}" y="${height - 10}" text-anchor="middle" font-size="11" fill="var(--secondary-text-color)">${d.label}</text>`;
+      }
     });
 
     let yLines = "";
@@ -1377,32 +1403,29 @@ class EegOptimizerPanel extends HTMLElement {
       yLines += `<text x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
     }
 
-    return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${yLines}${bars}</svg>`;
-  }
-
-  _renderLineChart(hourlyData, label) {
-    if (!hourlyData || hourlyData.length !== 24) return "<p>Keine Daten verfügbar</p>";
-    const width = 700, height = 250, padding = {top: 20, right: 20, bottom: 40, left: 50};
-    const chartW = width - padding.left - padding.right;
-    const chartH = height - padding.top - padding.bottom;
-    const maxVal = Math.max(...hourlyData, 0.1) * 1.1;
-
-    let points = "";
-    let areaPoints = `${padding.left},${padding.top + chartH} `;
-    hourlyData.forEach((val, i) => {
-      const x = padding.left + (i / 23) * chartW;
-      const y = padding.top + chartH - (val / maxVal) * chartH;
-      points += `${x},${y} `;
-      areaPoints += `${x},${y} `;
-    });
-    areaPoints += `${padding.left + chartW},${padding.top + chartH}`;
-
-    let xLabels = "";
-    for (let h = 0; h < 24; h += 3) {
-      const x = padding.left + (h / 23) * chartW;
-      xLabels += `<text x="${x}" y="${height - 10}" text-anchor="middle" font-size="10" fill="var(--secondary-text-color)">${h}:00</text>`;
+    // Legend for grouped bars
+    let legend = "";
+    if (grouped) {
+      const lx = width - padding.right - 200;
+      const ly = 14;
+      legend += `<rect x="${lx}" y="${ly - 8}" width="10" height="10" fill="var(--primary-color)" rx="2"/>`;
+      legend += `<text x="${lx + 14}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Verbrauch</text>`;
+      legend += `<rect x="${lx + 100}" y="${ly - 8}" width="10" height="10" fill="#FF9800" rx="2"/>`;
+      legend += `<text x="${lx + 114}" y="${ly}" font-size="11" fill="var(--primary-text-color)">PV Erzeugung</text>`;
     }
 
+    return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${yLines}${bars}${legend}</svg>`;
+  }
+
+  _renderLineChart(datasets, highlightIndex = 0) {
+    if (!datasets || datasets.length === 0) return "<p>Keine Daten verfügbar</p>";
+    const width = 700, height = 280, padding = {top: 20, right: 20, bottom: 55, left: 50};
+    const chartW = width - padding.left - padding.right;
+    const chartH = height - padding.top - padding.bottom;
+    const allVals = datasets.flatMap(ds => ds.data);
+    const maxVal = Math.max(...allVals, 0.1) * 1.1;
+
+    // Y-axis grid
     let yLines = "";
     for (let i = 0; i <= 4; i++) {
       const y = padding.top + (chartH / 4) * i;
@@ -1411,12 +1434,64 @@ class EegOptimizerPanel extends HTMLElement {
       yLines += `<text x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
     }
 
+    // X-axis labels
+    let xLabels = "";
+    for (let h = 0; h < 24; h += 3) {
+      const x = padding.left + (h / 23) * chartW;
+      xLabels += `<text x="${x}" y="${padding.top + chartH + 15}" text-anchor="middle" font-size="10" fill="var(--secondary-text-color)">${h}:00</text>`;
+    }
+
+    // Background lines (non-highlighted weekdays)
+    let bgLines = "";
+    datasets.forEach((ds, idx) => {
+      if (idx === highlightIndex) return;
+      let pts = "";
+      ds.data.forEach((val, i) => {
+        const x = padding.left + (i / 23) * chartW;
+        const y = padding.top + chartH - (val / maxVal) * chartH;
+        pts += `${x},${y} `;
+      });
+      bgLines += `<polyline points="${pts}" fill="none" stroke="var(--primary-color)" stroke-width="1" opacity="0.2"/>`;
+    });
+
+    // Highlighted line (today) with area fill
+    let hlLine = "";
+    const hlDs = datasets[highlightIndex];
+    if (hlDs) {
+      let pts = "";
+      let areaPts = `${padding.left},${padding.top + chartH} `;
+      hlDs.data.forEach((val, i) => {
+        const x = padding.left + (i / 23) * chartW;
+        const y = padding.top + chartH - (val / maxVal) * chartH;
+        pts += `${x},${y} `;
+        areaPts += `${x},${y} `;
+      });
+      areaPts += `${padding.left + chartW},${padding.top + chartH}`;
+      hlLine += `<polygon points="${areaPts}" fill="var(--primary-color)" opacity="0.1"/>`;
+      hlLine += `<polyline points="${pts}" fill="none" stroke="var(--primary-color)" stroke-width="2.5"/>`;
+    }
+
+    // Legend (compact horizontal, below x-axis)
+    let legend = "";
+    const legendY = height - 8;
+    const legendStartX = padding.left;
+    const legendSpacing = (width - padding.left - padding.right) / datasets.length;
+    datasets.forEach((ds, idx) => {
+      const lx = legendStartX + idx * legendSpacing;
+      const isHighlight = idx === highlightIndex;
+      const fw = isHighlight ? "bold" : "normal";
+      const opacity = isHighlight ? "1" : "0.4";
+      const sw = isHighlight ? "2.5" : "1";
+      legend += `<line x1="${lx}" y1="${legendY - 4}" x2="${lx + 14}" y2="${legendY - 4}" stroke="var(--primary-color)" stroke-width="${sw}" opacity="${opacity}"/>`;
+      legend += `<text x="${lx + 18}" y="${legendY}" font-size="10" font-weight="${fw}" fill="var(--primary-text-color)" opacity="${isHighlight ? '1' : '0.5'}">${ds.label}</text>`;
+    });
+
     return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">
       ${yLines}
-      <polygon points="${areaPoints}" fill="var(--primary-color)" opacity="0.1"/>
-      <polyline points="${points}" fill="none" stroke="var(--primary-color)" stroke-width="2"/>
+      ${bgLines}
+      ${hlLine}
       ${xLabels}
-      <text x="${width/2}" y="${height - 25}" text-anchor="middle" font-size="11" fill="var(--secondary-text-color)">${label}</text>
+      ${legend}
     </svg>`;
   }
 
@@ -1476,16 +1551,30 @@ class EegOptimizerPanel extends HTMLElement {
       return { label, value: val || 0 };
     });
 
-    // --- Hourly profile chart ---
+    // --- PV forecast data for grouped bar chart ---
+    const pvForecastData = forecastData.map((d, i) => {
+      if (i === 0) return { label: d.label, value: pvHeute || 0 };
+      if (i === 1) return { label: d.label, value: pvMorgen || 0 };
+      return { label: d.label, value: 0 };
+    });
+
+    // --- Hourly profile chart (all weekdays) ---
     const profilState = this._readState(this._entityIds?.verbrauchsprofil || "sensor.eeg_energy_optimizer_verbrauchsprofil");
     const dayKey = this._getWeekdayKey(today);
-    const dayLabel = this._getWeekdayLabel(today);
-    let hourlyWatts = profilState?.attributes?.[`${dayKey}_watts`] || null;
-    // Convert watts to kWh for display (divide by 1000)
-    let hourlyKwh = null;
-    if (hourlyWatts && Array.isArray(hourlyWatts) && hourlyWatts.length === 24) {
-      hourlyKwh = hourlyWatts.map(w => w / 1000);
-    }
+    const weekdayKeys = ["mo", "di", "mi", "do", "fr", "sa", "so"];
+    const weekdayLabels = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+    const weekdayDatasets = [];
+    weekdayKeys.forEach((key, idx) => {
+      const watts = profilState?.attributes?.[`${key}_watts`];
+      if (watts && Array.isArray(watts) && watts.length === 24) {
+        weekdayDatasets.push({
+          data: watts.map(w => w / 1000),
+          label: weekdayLabels[idx],
+          key: key
+        });
+      }
+    });
+    const highlightIdx = weekdayDatasets.findIndex(ds => ds.key === dayKey);
 
     // --- Inverter test (keep existing) ---
     const testResult = this._inverterTestResult;
@@ -1560,14 +1649,14 @@ class EegOptimizerPanel extends HTMLElement {
 
         <!-- 7-Day Forecast Chart -->
         <div class="card chart-card">
-          <h3>Verbrauchsprognose (7 Tage)</h3>
-          ${this._renderBarChart(forecastData)}
+          <h3>Energieprognose (7 Tage)</h3>
+          ${this._renderBarChart(forecastData, pvForecastData)}
         </div>
 
         <!-- Hourly Profile Chart -->
         <div class="card chart-card">
-          <h3>Verbrauchsprofil (Stundenmittel)</h3>
-          ${this._renderLineChart(hourlyKwh, dayLabel)}
+          <h3>Verbrauchsprofil (Wochentage)</h3>
+          ${this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0)}
         </div>
 
         <!-- Inverter Test Card -->
