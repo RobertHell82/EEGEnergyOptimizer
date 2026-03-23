@@ -55,6 +55,8 @@ const WIZARD_DEFAULTS = {
   battery_capacity_sensor: "",
   battery_capacity_kwh: 10,
   pv_power_sensor: "",
+  battery_power_sensor: "",
+  grid_power_sensor: "",
   huawei_device_id: "",
   forecast_source: "solcast_solar",
   forecast_remaining_entity: "",
@@ -912,9 +914,14 @@ class EegOptimizerPanel extends HTMLElement {
 
   _isNextDisabled() {
     const step = this._wizardStep;
-    // Step 1: block if Huawei not installed
-    if (step === 1 && this._prerequisites && !this._prerequisites.huawei_solar) {
-      return true;
+    // Step 1: block if Huawei not installed or Hausverbrauch sensors missing
+    if (step === 1) {
+      if (this._prerequisites && !this._prerequisites.huawei_solar) return true;
+      const d = this._wizardData;
+      if (d.inverter_type === "huawei_sun2000" &&
+          (!d.pv_power_sensor || !d.battery_power_sensor || !d.grid_power_sensor)) {
+        return true;
+      }
     }
     // Step 2: block if no forecast integration
     if (
@@ -985,6 +992,35 @@ class EegOptimizerPanel extends HTMLElement {
           <p style="font-size:12px;color:var(--secondary-text-color);margin:0">Fronius, SMA, ...</p>
         </div>
       </div>
+      ${huaweiSelected ? `
+      <div class="card" style="padding:16px;margin-bottom:16px">
+        <h3 style="margin:0 0 4px">Hausverbrauch-Sensoren</h3>
+        <p style="font-size:13px;color:var(--secondary-text-color);margin:0 0 12px">
+          Diese Sensoren werden f&uuml;r die Berechnung des Hausverbrauchs verwendet (PV &minus; Batterie &minus; Netz).
+        </p>
+        ${this._entityPickerHtml(
+          "pv_power_sensor",
+          this._wizardData.pv_power_sensor,
+          "PV-Eingangsleistung *",
+          "Aktuelle PV-Produktion in W oder kW.",
+          "sensor"
+        )}
+        ${this._entityPickerHtml(
+          "battery_power_sensor",
+          this._wizardData.battery_power_sensor,
+          "Batterie Lade-/Entladeleistung *",
+          "Lade- und Entladeleistung der Batterie in W oder kW.",
+          "sensor"
+        )}
+        ${this._entityPickerHtml(
+          "grid_power_sensor",
+          this._wizardData.grid_power_sensor,
+          "Netzbezug/-einspeisung *",
+          "Wirkleistung am Netzanschluss in W oder kW.",
+          "sensor"
+        )}
+      </div>
+      ` : ""}
       <button class="btn-secondary" data-action="recheck-prerequisites">Erneut prüfen</button>`;
   }
 
@@ -1273,6 +1309,8 @@ class EegOptimizerPanel extends HTMLElement {
             : d.battery_capacity_kwh + " kWh (manuell)"
         )}
         ${row("PV-Sensor", d.pv_power_sensor || "—")}
+        ${row("Batterie-Leistung", d.battery_power_sensor || "—")}
+        ${row("Netz-Leistung", d.grid_power_sensor || "—")}
       </div>
 
       <div class="summary-section">
