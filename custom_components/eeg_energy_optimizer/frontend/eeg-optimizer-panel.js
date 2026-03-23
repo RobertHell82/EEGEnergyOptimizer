@@ -1700,27 +1700,39 @@ class EegOptimizerPanel extends HTMLElement {
     }
 
     let content = "";
-    if (this._view === "wizard") {
-      content = `
-        <div class="content">
-          ${this._renderWizard()}
-        </div>
-        ${this._renderDialog()}`;
-    } else if (!this._setupComplete) {
-      content = `
-        <div class="content">
-          <div class="card setup-card">
-            <img src="/eeg_optimizer_panel/logo.png" alt="EEG Energy Optimizer" class="setup-logo">
-            <h2>Die Einrichtung wurde noch nicht abgeschlossen</h2>
-            <p>Richte den EEG Energy Optimizer ein, um die Batteriesteuerung für deine Energiegemeinschaft zu optimieren.</p>
-            <button class="btn-primary" data-action="start-wizard">Einrichtung starten</button>
+    try {
+      if (this._view === "wizard") {
+        content = `
+          <div class="content">
+            ${this._renderWizard()}
           </div>
-        </div>`;
-    } else {
+          ${this._renderDialog()}`;
+      } else if (!this._setupComplete) {
+        content = `
+          <div class="content">
+            <div class="card setup-card">
+              <img src="/eeg_optimizer_panel/logo.png" alt="EEG Energy Optimizer" class="setup-logo">
+              <h2>Die Einrichtung wurde noch nicht abgeschlossen</h2>
+              <p>Richte den EEG Energy Optimizer ein, um die Batteriesteuerung für deine Energiegemeinschaft zu optimieren.</p>
+              <button class="btn-primary" data-action="start-wizard">Einrichtung starten</button>
+            </div>
+          </div>`;
+      } else {
+        content = `
+          <div class="content">
+            <div id="dashboard-root">
+              ${this._renderDashboard()}
+            </div>
+          </div>`;
+      }
+    } catch (err) {
+      console.error("EEG Optimizer render error:", err);
       content = `
         <div class="content">
-          <div id="dashboard-root">
-            ${this._renderDashboard()}
+          <div class="card" style="border-left:4px solid var(--error-color, #db4437); margin:16px">
+            <h3 style="color:var(--error-color, #db4437); margin-top:0">Render-Fehler</h3>
+            <p style="color:var(--secondary-text-color)">Das Dashboard konnte nicht gerendert werden. Details:</p>
+            <pre style="font-size:12px; overflow:auto; background:var(--secondary-background-color, #f5f5f5); padding:12px; border-radius:4px">${err.message}\n${err.stack}</pre>
           </div>
         </div>`;
     }
