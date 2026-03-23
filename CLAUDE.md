@@ -4,131 +4,136 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Energieoptimierung** (v3.0.0) — a Home Assistant custom integration for predictive energy management at a dual-location smart home in Austria (Grünbach and Traun). It optimizes Heizstab (heating rod), battery charge/discharge, and grid feed-in based on PV forecasts, consumption history, and real-time sensor data.
+**EEG Energy Optimizer** (v0.1.0) — a Home Assistant custom integration for grid-friendly battery management, optimized for energy communities (Energiegemeinschaften / EEG) in the DACH region. It controls when a PV battery charges and discharges to maximize feed-in during EEG-relevant time windows (mornings and evenings).
 
-**Language**: Python (async, Home Assistant framework)
-**HA Instance**: `http://192.168.100.211:8123`
-**Fronius Inverter**: `192.168.100.57` (HTTP Digest Auth)
+**Language**: Python (async, Home Assistant framework) + plain JS (panel)
+**Distribution**: HACS-compatible repository structure
 
 ## Architecture
 
-All code lives in `custom_components/energieoptimierung/`. The integration runs as a Home Assistant config-flow hub.
+All code lives in `custom_components/eeg_energy_optimizer/`. The integration runs as a Home Assistant config-flow hub with a sidebar onboarding panel.
 
 ### Core Processing Loop (60-second cycle)
 
 ```
 __init__.py: async_setup_entry()
-  → EnergyOptimizer instantiated
-  → Platforms forwarded: sensor, switch, number, select
-  → Initial read-only cycle, then 60s timer: async_run_cycle(execute=switch_on)
+  → Inverter created via factory (inverter/__init__.py)
+  → Platforms forwarded: sensor, select
+  → WebSocket API registered for panel
+  → Frontend panel registered
+  → 60s timer: _optimizer_cycle()
 
-optimizer.py: async_run_cycle()
-  → _gather_inputs() → Snapshot (all sensor states as dataclass)
-  → _evaluate() → Decision (strategy + actions)
-     1. _check_guards() — safety overrides with morning delay:
-        - KRITISCH (always active): WW < 40°C, Battery < 10%
-        - HOCH (delayed by guard_delay_h after sunrise): WW < 55°C, Battery < 25%
-        - MITTEL: Holzvergaser active + PV < 6kW
-     2. Critical guards → immediate return with "Sicherheit" strategy
-     3. Strategy selection based on PV forecast vs demand:
-        - ÜBERSCHUSS: PV surplus → feed-in priority, then battery, then Heizstab
-        - BALANCIERT: moderate PV → battery priority, then Heizstab
-        - ENGPASS: low PV → maximize self-consumption
-        - NACHT: after sunset → defaults + evening discharge check
-     4. HOCH guards applied as overrides after strategy
-     5. Guard-Delay info appended to reasoning
-     6. Nachtentladung preview (daytime only)
-  → _execute() — writes to HA entities + Fronius API
+optimizer.py: async_run_cycle(mode)
+  → _gather_snapshot() → Snapshot (all sensor states as dataclass)
+  → _evaluate() → Decision
+     1. _calc_energiebedarf() — consumption to sunset + missing battery energy
+     2. _should_block_charging() — morning charge blocking check:
+        - Feature enabled + sunrise known
+        - Within window (sunrise - 1h to morning_end_time)
+        - PV forecast > demand * (1 + safety_buffer%)
+     3. _should_discharge() — evening discharge check:
+        - Feature enabled
+        - Time >= discharge_start
+        - SOC > dynamic min_soc
+        - PV tomorrow >= tomorrow_demand
+     4. State: Morgen-Einspeisung / Abend-Entladung / Normal
+  → _execute() — inverter commands (only in mode "Ein")
 ```
 
 ### Key Files
 
 | File | Role |
 |------|------|
-| `__init__.py` | Entry setup, 60s optimizer timer, platform forwarding |
-| `optimizer.py` | Decision engine — strategies, guards, guard-delay, Snapshot/Decision dataclasses |
-| `sensor.py` | 16 sensors: forecasts, demand components, consumption profile, optimizer decision |
-| `coordinator.py` | Loads hourly consumption averages from recorder (rolling, 4-zone weekday split) |
-| `config_flow.py` | 6-step UI configuration flow + options flow |
-| `fronius_api.py` | HTTP Digest Auth client for Fronius inverter battery control |
-| `fronius_sync.py` | Shared sync function between switches/number and Fronius API |
-| `const.py` | All constants, defaults, strategy/mode enums, entity IDs |
-| `select.py` | Optimizer mode select entity (Ein/EV-Modi/Aus), restores state across restarts |
-| `switch.py` | Einspeisung (feed-in) toggle, triggers Fronius sync |
-| `number.py` | Feed-in power control (0–12 kW), triggers Fronius sync |
+| `__init__.py` | Entry setup, 60s optimizer timer, panel registration, config migration |
+| `optimizer.py` | Decision engine — Snapshot/Decision dataclasses, charge blocking, discharge logic |
+| `sensor.py` | 14 sensors: consumption profile, forecasts, battery, PV, Hausverbrauch, decision |
+| `coordinator.py` | Loads hourly consumption averages from recorder (rolling, 7-day weekday split) |
+| `forecast_provider.py` | Abstract PV forecast provider — Solcast and Forecast.Solar implementations |
+| `config_flow.py` | Single-click config flow (full setup happens in panel) |
+| `websocket_api.py` | WebSocket commands for panel: get/save config, prerequisites, sensor detection, inverter test |
+| `inverter/base.py` | Abstract inverter interface (InverterBase ABC) |
+| `inverter/huawei.py` | Huawei SUN2000 implementation via HA services |
+| `inverter/__init__.py` | Factory function `create_inverter()` |
+| `select.py` | Optimizer mode select entity (Ein/Test/Aus), restores state across restarts |
+| `const.py` | All constants, defaults, mode enums, state names |
+| `frontend/eeg-optimizer-panel.js` | Onboarding panel (plain HTMLElement, Shadow DOM) |
 
-### Sensors (16 total)
+### Sensors (14 total)
 
 | # | Sensor | Update | Description |
 |---|--------|--------|-------------|
-| 1 | Prognose bis Sonnenaufgang | slow (15min) | Consumption forecast now → sunrise+offset |
-| 2 | Prognose bis Sonnenuntergang | slow | Consumption forecast now → sunset |
-| 3 | Batterie fehlende Energie | fast (2min) | kWh needed to fully charge battery |
-| 4 | Tesla fehlende Ladeenergie | fast | kWh needed to charge Tesla (0 if not home) |
-| 5 | Puffer Aufheizenergie | fast | kWh needed to heat buffer to target temp |
-| 6 | Energiebedarf heute | fast | Sum of sensors 2+3+4+5 |
-| 7 | Verbrauchsprofil | slow | Hourly averages per zone for dashboard charts |
-| 8–15 | Prognose heute/morgen/Tag 2–7 | slow | Daily consumption forecasts (8 sensors) |
-| 16 | Entscheidung | 60s | Current optimizer strategy + full decision as attributes |
+| 1 | Verbrauchsprofil | slow | Hourly averages per weekday for dashboard charts |
+| 2–8 | Tagesverbrauchsprognose heute..Tag 6 | fast | Daily consumption forecasts (7 sensors) |
+| 9 | Prognose bis Sonnenaufgang | fast | Consumption now → next sunrise |
+| 10 | Batterie fehlende Energie | fast | kWh needed to fully charge battery |
+| 11 | PV Prognose heute | fast | Remaining PV today from forecast provider |
+| 12 | PV Prognose morgen | fast | PV forecast tomorrow |
+| 13 | Hausverbrauch | fast | Calculated: PV - Battery - Grid (kW, MEASUREMENT) |
+| 14 | Entscheidung | 60s | Current optimizer state + Markdown dashboard |
 
-### Switches & Number
+### Select Entity
 
-| Entity | Type | Description |
-|--------|------|-------------|
-| `select.energieoptimierung_optimizer` | Select | Optimizer mode: Ein / EV Heizstab / EV Batterie / EV Balanciert / Aus |
-| `switch.energieoptimierung_einspeisung` | Switch | Feed-in toggle, triggers Fronius sync |
-| `number.energieoptimierung_einspeiseleistung` | Number | Feed-in power 0–12 kW, triggers Fronius sync |
+| Entity | Options | Description |
+|--------|---------|-------------|
+| `select.eeg_energy_optimizer_optimizer` | Ein / Test / Aus | Optimizer mode — Ein executes, Test is dry-run, Aus disables |
 
-### Output Entities (written by optimizer)
+### Optimizer States
 
-- `input_select.heizstab` — Aus / 1-Phasig / 3-Phasig
-- `input_number.batterie_ladelimit_kw` — charge limit in kW
-- `switch.energieoptimierung_einspeisung` — feed-in enable
-- `number.energieoptimierung_einspeiseleistung` — feed-in power (0–12 kW)
-- Fronius API: `HYB_EM_MODE` (0=auto, 1=manual), `HYB_EM_POWER` (negative W for discharge)
+- **Morgen-Einspeisung**: Battery charging blocked to maximize morning EEG feed-in
+- **Abend-Entladung**: Battery discharging for evening EEG feed-in
+- **Normal**: Standard operation (inverter in auto mode)
+
+### Inverter Abstraction
+
+```
+InverterBase (ABC)
+  ├── async_set_charge_limit(power_kw) → bool
+  ├── async_set_discharge(power_kw, target_soc) → bool
+  ├── async_stop_forcible() → bool
+  └── is_available → bool
+
+Implementations:
+  └── HuaweiInverter — via HA huawei_solar services
+```
 
 ### Dependencies
 
 - **recorder** — long-term hourly statistics for consumption history
-- **sun** — sunrise/sunset calculations, guard-delay timing
-- **solcast_solar** (after_dependency) — PV production forecasts
-
-## Dashboards
-
-- `dashboard_energieoptimierung.yaml` — optimizer status, strategy, decisions, controls
-- `dashboard_energie.yaml` — consumption profiles, 7-day forecasts
-- `dashboard_gruenbach.yaml` — location-specific overview
+- **sun** — sunrise/sunset calculations
+- **http**, **frontend**, **websocket_api** — onboarding panel
+- **huawei_solar** (after_dependency) — Huawei inverter control
+- **solcast_solar**, **forecast_solar** (after_dependency) — PV forecasts
 
 ## Key Domain Concepts
 
-- **Strategies**: ÜBERSCHUSS / BALANCIERT / ENGPASS / NACHT / INAKTIV — selected based on Solcast PV forecast vs. calculated energy demand (Überschuss-Faktor)
-- **Guards**: Safety conditions checked every cycle. Two levels:
-  - **KRITISCH** (always active): WW < 40°C → sofort aufheizen, Battery < 10% → sofort laden
-  - **HOCH** (delayed mornings): WW < 55°C → Heizstab Priorität, Battery < 25% → Ladelimit erhöhen
-  - **MITTEL**: Holzvergaser aktiv + PV < 6kW → Heizstab aus
-- **Guard-Delay** (`guard_delay_h`, default 3h): HOCH-Guards werden in den ersten Stunden nach Sonnenaufgang unterdrückt, damit morgens die EEG-Einspeisung Vorrang hat. KRITISCH-Guards sind immer aktiv.
-- **Consumption profile**: Hourly averages from recorder, split by 4 zones (Mo–Do / Fr / Sa / So), rolling window (default 8 weeks)
-- **Heizstab**: OhmPilot heating rod — Aus (0 kW), 1-Phasig (2 kW), 3-Phasig (6 kW)
-- **Entladung**: Evening battery discharge after configurable start time (default 20:00) when SOC above dynamic min-SOC and tomorrow is a surplus day (PV forecast >= total energy demand)
-- **Inverter-Drosselung**: When feed-in is at the limit, PV is speculatively increased by 2 kW to break the deadlock and allow battery/Heizstab activation
-- **Nachtentladung Vorschau**: Daytime preview of tonight's discharge plan (shown in decision reasoning)
+- **Morning Charge Blocking**: Prevents battery from charging during morning hours so PV surplus feeds into the grid when the EEG community needs it most. Active when PV forecast exceeds demand + safety buffer.
+- **Evening Discharge**: Discharges battery into grid during evening hours when community demand is high. Requires: sufficient SOC above dynamic min-SOC, and tomorrow's PV forecast covers tomorrow's demand.
+- **Dynamic Min-SOC**: base_min_soc + ceil((overnight_consumption * (1 + buffer%) / capacity) * 100) — ensures enough energy for overnight household consumption.
+- **Safety Buffer** (`safety_buffer_pct`, default 25%): Applied to both morning blocking threshold and overnight consumption reserve.
+- **Consumption Profile**: Hourly averages from recorder, split by 7 individual weekdays (mo–so), rolling window (default 8 weeks), with weekday fallback chain for missing data.
+- **Dual Update Timers**: Slow sensors (profile) every 15min, fast sensors (forecasts, battery, Hausverbrauch) every 1min.
 
-## Config Flow (6 Steps)
+## Config Flow & Onboarding
 
-1. **Energiemessung** — Consumption sensor, Heizstab sensor, Wallbox sensor, lookback weeks, update interval, sunrise offset
-2. **Hausbatterie** — SOC sensor, capacity sensor
-3. **Warmwasserpuffer** — Temperature sensor, volume, target temperature
-4. **Tesla-Fahrzeug** — Tracker, SOC, limit, capacity, efficiency, home zone
-5. **Optimizer** — PV sensor, feed-in sensor, Solcast sensors, Holzvergaser, Einspeiselimit, Überschuss-Faktor, Guard-Delay
-6. **Abend-Entladung & Fronius** — Discharge power/time, min SOC, safety buffer, min WW temp, Fronius credentials
+The config flow is a single-click setup that creates a config entry with `setup_complete=False`. Full configuration happens through the sidebar panel (`/eeg-optimizer`), which provides:
+
+1. Prerequisite checks (inverter integration installed?)
+2. Inverter type selection + auto-detection of sensors
+3. Battery & PV sensor mapping
+4. Forecast source selection (Solcast / Forecast.Solar)
+5. Consumption sensor configuration
+6. Optimizer settings (morning window, discharge time, min-SOC, etc.)
+7. Inverter connection test
+8. Live dashboard
+
+Config entry version: 8 (migrations in `__init__.py`)
 
 ## Development Notes
 
-- No build system, tests, or CI — component is deployed by copying files to HA's `custom_components/` directory
-- All UI strings are in German (`strings.json`, `translations/de.json`)
-- The optimizer always calculates but only executes actions when `select.energieoptimierung_optimizer` is not "Aus"
-- Optimizer modes: Ein (full optimization), Eigenverbrauch Heizstab/Batterie/Balanciert (self-consumption variants), Aus (dry-run)
+- Tests in `tests/` directory, run with `pytest` (asyncio_mode=auto)
+- `pyproject.toml` configures pytest
+- All UI strings in German (`strings.json`, `translations/de.json`), English fallback (`translations/en.json`)
+- HA imports are guarded with try/except for test environment compatibility (stubs provided)
+- The optimizer calculates every cycle but only executes inverter commands when mode is "Ein"
 - Config changes trigger full integration reload via `_async_update_listener`
-- `HOME_ASSISTANT_OVERVIEW.md` contains a complete inventory of all HA entities (3,400+) across both locations
-- Fronius Gen24 uses hybrid digest auth: HA1=MD5, HA2+response=SHA256, URI without query string
-- `INSTALL.md` contains detailed documentation of all strategies, guards, Fronius integration, and sensor details in German
+- `__pycache__/` directories should be added to `.gitignore`
