@@ -664,3 +664,7 @@ async def async_setup_entry(
         )
         entry.async_on_unload(unsub_slow)
         entry.async_on_unload(unsub_fast)
+
+        # Immediate initial update so dashboard has data right away
+        await _slow_update()
+        await _fast_update()

@@ -344,7 +344,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await _optimizer_cycle()
 
             if async_call_later is not None:
-                entry.async_on_unload(async_call_later(hass, 5, _initial_cycle))
+                entry.async_on_unload(async_call_later(hass, 10, _initial_cycle))
     else:
         missing = []
         if not coordinator:
