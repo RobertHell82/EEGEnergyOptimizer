@@ -31,9 +31,10 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 try:
-    from homeassistant.helpers.event import async_track_time_interval
+    from homeassistant.helpers.event import async_track_time_interval, async_call_later
 except ImportError:
     async_track_time_interval = None  # type: ignore[assignment]
+    async_call_later = None  # type: ignore[assignment]
 
 PLATFORMS: list[str] = ["sensor", "select"]
 
@@ -325,18 +326,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async def _optimizer_cycle(_now=None):
             select = data.get("select")
             mode = select._attr_current_option if select else MODE_AUS
-            if mode != MODE_AUS:
-                decision = await optimizer.async_run_cycle(mode)
-                # Update decision sensor if available
-                decision_sensor = data.get("decision_sensor")
-                if decision_sensor and decision:
-                    decision_sensor.update_from_decision(decision)
+            # Always run cycle to update status cards; optimizer only
+            # executes inverter commands when mode is "Ein"
+            decision = await optimizer.async_run_cycle(mode)
+            decision_sensor = data.get("decision_sensor")
+            if decision_sensor and decision:
+                decision_sensor.update_from_decision(decision)
 
         if async_track_time_interval is not None:
             unsub = async_track_time_interval(
                 hass, _optimizer_cycle, timedelta(seconds=60)
             )
             entry.async_on_unload(unsub)
+
+            # Run initial cycle after short delay so sensors are ready
+            async def _initial_cycle(_now=None):
+                await _optimizer_cycle()
+
+            if async_call_later is not None:
+                entry.async_on_unload(async_call_later(hass, 5, _initial_cycle))
     else:
         missing = []
         if not coordinator:
