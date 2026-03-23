@@ -740,9 +740,10 @@ class EegOptimizerPanel extends HTMLElement {
     if (oldHass && this._view === "dashboard") {
       let changed = false;
       const watchList = [...(this._watchedEntities || DEFAULT_WATCHED)];
-      if (this._config?.battery_soc_sensor) {
-        watchList.push(this._config.battery_soc_sensor);
-      }
+      if (this._config?.battery_soc_sensor) watchList.push(this._config.battery_soc_sensor);
+      if (this._config?.pv_power_sensor) watchList.push(this._config.pv_power_sensor);
+      if (this._config?.battery_power_sensor) watchList.push(this._config.battery_power_sensor);
+      if (this._config?.grid_power_sensor) watchList.push(this._config.grid_power_sensor);
       // Watch Solcast/Forecast.Solar original sensors for PV chart updates
       const fTomorrow = this._config?.forecast_tomorrow_entity;
       if (fTomorrow && fTomorrow.includes("solcast")) {
