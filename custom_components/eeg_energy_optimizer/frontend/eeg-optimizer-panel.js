@@ -661,6 +661,9 @@ class EegOptimizerPanel extends HTMLElement {
       if (fTomorrow && fTomorrow.includes("solcast")) {
         const pfx = fTomorrow.replace(/morgen$/, "");
         ["heute", "morgen", "tag_3", "tag_4", "tag_5", "tag_6", "tag_7"].forEach(s => watchList.push(pfx + s));
+      } else if (fTomorrow && fTomorrow.includes("energy_production")) {
+        const pfx = fTomorrow.replace(/tomorrow$/, "");
+        ["today", "tomorrow"].forEach(s => watchList.push(pfx + s));
       }
       for (const eid of watchList) {
         if (oldHass.states[eid] !== hass.states[eid]) {
@@ -1573,29 +1576,45 @@ class EegOptimizerPanel extends HTMLElement {
     const socColorClass = socVal == null ? "" : socVal > 50 ? "soc-green" : socVal >= 25 ? "soc-yellow" : "soc-red";
 
     // --- PV forecast: read from original Solcast/Forecast.Solar sensors ---
-    const forecastSource = this._config?.forecast_source || "solcast_solar";
     const forecastTomorrowId = this._config?.forecast_tomorrow_entity || "";
-    // Derive Solcast prefix from tomorrow sensor (e.g. "sensor.solcast_pv_forecast_prognose_morgen" → "sensor.solcast_pv_forecast_prognose_")
+    const forecastRemainingId = this._config?.forecast_remaining_entity || "";
+
+    // Derive prefix from configured sensors
+    // Solcast: "sensor.solcast_pv_forecast_prognose_morgen" → prefix "sensor.solcast_pv_forecast_prognose_"
+    // Forecast.Solar: "sensor.energy_production_tomorrow" → prefix "sensor.energy_production_"
     let solcastPrefix = "";
-    if (forecastTomorrowId && forecastTomorrowId.includes("solcast")) {
+    let forecastSolarPrefix = "";
+    if (forecastTomorrowId.includes("solcast")) {
       solcastPrefix = forecastTomorrowId.replace(/morgen$/, "");
+    } else if (forecastTomorrowId.includes("energy_production")) {
+      forecastSolarPrefix = forecastTomorrowId.replace(/tomorrow$/, "");
     }
 
-    // PV total today (Solcast: _heute, our sensor as fallback)
-    const pvHeuteTotal = solcastPrefix
-      ? this._readFloat(solcastPrefix + "heute")
-      : null;
-    const pvHeute = pvHeuteTotal != null
-      ? pvHeuteTotal
-      : this._readFloat(this._entityIds?.pv_heute || "sensor.eeg_energy_optimizer_pv_prognose_heute");
+    // PV total today
+    let pvHeute = null;
+    if (solcastPrefix) {
+      pvHeute = this._readFloat(solcastPrefix + "heute");
+    } else if (forecastSolarPrefix) {
+      pvHeute = this._readFloat(forecastSolarPrefix + "today");
+    }
+    if (pvHeute == null) {
+      pvHeute = this._readFloat(this._entityIds?.pv_heute || "sensor.eeg_energy_optimizer_pv_prognose_heute");
+    }
     const pvHeuteText = pvHeute != null ? `${pvHeute.toFixed(1)}` : "---";
 
-    const pvMorgen = solcastPrefix
-      ? this._readFloat(solcastPrefix + "morgen")
-      : this._readFloat(this._entityIds?.pv_morgen || "sensor.eeg_energy_optimizer_pv_prognose_morgen");
+    // PV tomorrow
+    let pvMorgen = null;
+    if (solcastPrefix) {
+      pvMorgen = this._readFloat(solcastPrefix + "morgen");
+    } else if (forecastSolarPrefix) {
+      pvMorgen = this._readFloat(forecastSolarPrefix + "tomorrow");
+    }
+    if (pvMorgen == null) {
+      pvMorgen = this._readFloat(this._entityIds?.pv_morgen || "sensor.eeg_energy_optimizer_pv_prognose_morgen");
+    }
     const pvMorgenText = pvMorgen != null ? `${pvMorgen.toFixed(1)}` : "---";
 
-    // 7-day PV forecast array (Solcast provides day 3-7)
+    // 7-day PV forecast array (Solcast provides day 3-7, Forecast.Solar only today+tomorrow)
     const pvWeek = [
       pvHeute || 0,
       pvMorgen || 0,
