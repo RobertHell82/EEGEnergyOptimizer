@@ -71,7 +71,7 @@ class HuaweiInverter(InverterBase):
         provided, defaults to 10% as the discharge floor.
         """
         power_w = str(int(power_kw * 1000))
-        soc = int(target_soc) if target_soc is not None else 10
+        soc = max(int(target_soc) if target_soc is not None else 12, 12)
         try:
             await self._hass.services.async_call(
                 HUAWEI_DOMAIN,

@@ -156,7 +156,7 @@ class EegOptimizerPanel extends HTMLElement {
     this._manualAction = null;
     this._manualResult = null;
     this._manualDischargeKw = null;
-    this._manualDischargeSoc = 10;
+    this._manualDischargeSoc = 12;
 
     // Event delegation on shadow root
     this._shadow.addEventListener("click", (e) => {
@@ -192,7 +192,7 @@ class EegOptimizerPanel extends HTMLElement {
           return;
         }
         if (field === "manual_discharge_soc") {
-          this._manualDischargeSoc = parseFloat(target.value) || 10;
+          this._manualDischargeSoc = parseFloat(target.value) || 12;
           return;
         }
         const type = target.type;
