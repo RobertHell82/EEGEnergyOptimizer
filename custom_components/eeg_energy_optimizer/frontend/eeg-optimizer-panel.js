@@ -157,6 +157,10 @@ class EegOptimizerPanel extends HTMLElement {
     this._manualResult = null;
     this._manualDischargeKw = null;
     this._manualDischargeSoc = 25;
+    this._simFactor = 1.0;
+    this._simSocOverride = null;
+    this._simActive = false;
+    this._simSocEnabled = false;
 
     // Event delegation on shadow root
     // Legend hover: highlight matching weekday line
@@ -214,6 +218,14 @@ class EegOptimizerPanel extends HTMLElement {
           this._manualDischargeSoc = parseFloat(target.value) || 12;
           return;
         }
+        if (field === "sim_factor") {
+          this._simFactor = parseFloat(target.value) || 1.0;
+          return;
+        }
+        if (field === "sim_soc") {
+          this._simSocOverride = parseFloat(target.value);
+          return;
+        }
         const type = target.type;
         if (type === "number") {
           this._wizardData[field] = parseFloat(target.value) || 0;
@@ -227,6 +239,11 @@ class EegOptimizerPanel extends HTMLElement {
       const target = e.target.closest("[data-field]");
       if (target) {
         const field = target.dataset.field;
+        if (field === "sim_soc_enabled") {
+          this._simSocEnabled = target.checked;
+          this._render();
+          return;
+        }
         if (target.tagName === "SELECT") {
           this._wizardData[field] = target.value;
           if (field === "forecast_source") {
@@ -352,6 +369,29 @@ class EegOptimizerPanel extends HTMLElement {
         const section = dataset?.section || "default";
         this._showAdvanced[section] = !this._showAdvanced[section];
         this._render();
+        break;
+      case "sim-apply": {
+        const factor = this._simFactor;
+        const params = { type: "eeg_optimizer/set_test_overrides", consumption_factor: factor };
+        if (this._simSocEnabled && this._simSocOverride !== null) {
+          params.soc_override = this._simSocOverride;
+        }
+        this._hass.callWS(params).then(res => {
+          if (res.success) {
+            this._simActive = true;
+            this._render();
+          }
+        }).catch(err => console.error("set_test_overrides failed:", err));
+        break;
+      }
+      case "sim-reset":
+        this._hass.callWS({ type: "eeg_optimizer/clear_test_overrides" }).then(() => {
+          this._simActive = false;
+          this._simFactor = 1.0;
+          this._simSocOverride = null;
+          this._simSocEnabled = false;
+          this._render();
+        }).catch(err => console.error("clear_test_overrides failed:", err));
         break;
     }
   }
@@ -747,6 +787,19 @@ class EegOptimizerPanel extends HTMLElement {
       }
       this._config = null;
     }
+    // Load test overrides state
+    if (this._setupComplete) {
+      try {
+        const ovRes = await this._hass.callWS({ type: "eeg_optimizer/get_test_overrides" });
+        if (ovRes.overrides) {
+          this._simFactor = ovRes.overrides.consumption_factor || 1.0;
+          this._simSocOverride = ovRes.overrides.soc_override ?? null;
+          this._simSocEnabled = this._simSocOverride !== null;
+          this._simActive = true;
+        }
+      } catch (_) { /* ignore */ }
+    }
+
     this._initialized = true;
     this._render();
   }
@@ -1939,8 +1992,19 @@ class EegOptimizerPanel extends HTMLElement {
     const optimizerTs = fmtTime(decisionState?.attributes?.letzte_aktualisierung);
     const profilTs = fmtTime(profilState?.last_updated);
 
+    const simBanner = this._simActive ? `
+      <div style="background:var(--warning-color, #ff9800);color:#fff;padding:12px 16px;border-radius:12px;
+        margin-bottom:16px;display:flex;align-items:center;gap:8px;font-weight:500;flex-wrap:wrap">
+        <ha-icon icon="mdi:flask-outline" style="--mdc-icon-size:20px"></ha-icon>
+        Simulation aktiv — Verbrauchsfaktor: ${this._simFactor}x${this._simSocOverride !== null ? `, SOC: ${this._simSocOverride}%` : ""}
+        <button style="margin-left:auto;background:rgba(255,255,255,0.2);border:none;color:#fff;
+          padding:6px 12px;border-radius:8px;cursor:pointer;font-size:13px"
+          data-action="sim-reset">Zuruecksetzen</button>
+      </div>` : "";
+
     return `
       <div class="dashboard-grid${narrowClass}">
+        ${simBanner}
         <!-- Header Card: Toggle + Live Values + Timestamps -->
         <div class="card header-card">
           <div class="header-top">
@@ -2050,6 +2114,58 @@ class EegOptimizerPanel extends HTMLElement {
             ${manualStatusHtml}
           `}
         </div>
+
+        <!-- Simulation Card -->
+        ${this._config?.setup_complete ? `
+        <div class="card">
+          <h3 style="margin-top:0">
+            <ha-icon icon="mdi:flask-outline" style="--mdc-icon-size:20px;vertical-align:middle"></ha-icon>
+            Simulation
+          </h3>
+          <p style="color:var(--secondary-text-color);font-size:14px">
+            Verbrauchswerte skalieren und SOC ueberschreiben, um Optimizer-Entscheidungen zu testen.
+          </p>
+          <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:12px 0">
+            <label style="font-size:14px;display:flex;align-items:center;gap:6px">
+              Verbrauchsfaktor:
+              <input type="number" data-field="sim_factor" min="0.1" max="3.0" step="0.1"
+                value="${this._simFactor}"
+                style="width:70px;border-radius:8px;border:1px solid var(--divider-color);
+                  padding:8px;background:var(--card-background-color);
+                  color:var(--primary-text-color);font-size:14px">x
+            </label>
+            <label style="font-size:14px;display:flex;align-items:center;gap:6px">
+              <input type="checkbox" data-field="sim_soc_enabled"
+                ${this._simSocEnabled ? "checked" : ""}>
+              SOC Override:
+              <input type="number" data-field="sim_soc" min="0" max="100" step="1"
+                value="${this._simSocOverride ?? 50}"
+                ${!this._simSocEnabled ? "disabled" : ""}
+                style="width:70px;border-radius:8px;border:1px solid var(--divider-color);
+                  padding:8px;background:var(--card-background-color);
+                  color:var(--primary-text-color);font-size:14px">%
+            </label>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button class="btn-manual btn-manual-discharge" data-action="sim-apply"
+              style="flex:1">
+              <ha-icon icon="mdi:play"></ha-icon>
+              <span>Anwenden</span>
+            </button>
+            <button class="btn-manual btn-manual-normal" data-action="sim-reset"
+              style="flex:1" ${!this._simActive ? "disabled" : ""}>
+              <ha-icon icon="mdi:restore"></ha-icon>
+              <span>Zuruecksetzen</span>
+            </button>
+          </div>
+          ${this._simActive ? `
+            <div class="help-text" style="margin-top:12px;color:var(--warning-color, #ff9800)">
+              <ha-icon icon="mdi:alert-outline" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
+              Override aktiv. Werte werden im naechsten Optimizer-Zyklus (60s) angewendet.
+            </div>
+          ` : ""}
+        </div>
+        ` : ""}
 
       </div>`;
   }

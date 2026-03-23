@@ -89,6 +89,21 @@ def _get_inverter(hass: HomeAssistant, connection: websocket_api.ActiveConnectio
     return inverter
 
 
+def _get_entry_data(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Look up the config entry and its hass.data dict.
+
+    Returns (entry, data) or (None, None) with error already sent.
+    """
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if not entries:
+        connection.send_error(msg["id"], "not_configured", "No config entry found")
+        return None, None
+
+    entry = entries[0]
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    return entry, data
+
+
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
     """Register WebSocket commands for the EEG Optimizer panel."""
     websocket_api.async_register_command(hass, ws_get_config)
@@ -99,6 +114,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_manual_stop)
     websocket_api.async_register_command(hass, ws_manual_discharge)
     websocket_api.async_register_command(hass, ws_manual_block_charge)
+    websocket_api.async_register_command(hass, ws_set_test_overrides)
+    websocket_api.async_register_command(hass, ws_get_test_overrides)
+    websocket_api.async_register_command(hass, ws_clear_test_overrides)
 
 
 @websocket_api.websocket_command(
@@ -363,3 +381,72 @@ async def ws_manual_block_charge(
             "success": False,
             "error": f"Fehler bei der Kommunikation: {exc}",
         })
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/set_test_overrides",
+        vol.Required("consumption_factor"): vol.All(
+            vol.Coerce(float), vol.Range(min=0.1, max=3.0)
+        ),
+        vol.Optional("soc_override"): vol.All(
+            vol.Coerce(float), vol.Range(min=0, max=100)
+        ),
+    }
+)
+@websocket_api.async_response
+async def ws_set_test_overrides(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Set test overrides for optimizer simulation."""
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+
+    overrides: dict = {"consumption_factor": msg["consumption_factor"]}
+    if "soc_override" in msg:
+        overrides["soc_override"] = msg["soc_override"]
+
+    data["test_overrides"] = overrides
+    connection.send_result(msg["id"], {"success": True, "overrides": overrides})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/get_test_overrides",
+    }
+)
+@websocket_api.async_response
+async def ws_get_test_overrides(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Return current test overrides (or null if none active)."""
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+
+    connection.send_result(msg["id"], {"overrides": data.get("test_overrides")})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/clear_test_overrides",
+    }
+)
+@websocket_api.async_response
+async def ws_clear_test_overrides(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Clear all test overrides."""
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+
+    data.pop("test_overrides", None)
+    connection.send_result(msg["id"], {"success": True})
