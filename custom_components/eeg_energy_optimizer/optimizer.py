@@ -100,6 +100,25 @@ class Decision:
     ausfuehrung: bool = False
     block_reasons: list[str] = field(default_factory=list)
 
+    # Morning delay status card fields
+    morning_status: str = "deaktiviert"
+    morning_reason: str = ""
+    morning_in_window: bool = False
+    morning_pv_today_kwh: float = 0.0
+    morning_threshold_kwh: float = 0.0
+    morning_end_time: str = ""
+    morning_sunrise_tomorrow: str = ""
+
+    # Discharge status card fields
+    discharge_status: str = "deaktiviert"
+    discharge_reasons: list[str] = field(default_factory=list)
+    discharge_soc: float = 0.0
+    discharge_min_soc: float = 0.0
+    discharge_pv_tomorrow_kwh: float = 0.0
+    discharge_demand_tomorrow_kwh: float = 0.0
+    discharge_power_kw: float = 0.0
+    discharge_start_time: str = ""
+
 
 class EEGOptimizer:
     """EEG-optimized battery management decision engine."""
@@ -274,6 +293,120 @@ class EEGOptimizer:
     # Decision logic
     # ------------------------------------------------------------------
 
+    def _morning_delay_status(self, snap: Snapshot, bedarf: float) -> dict:
+        """Compute detailed morning delay status for the status card.
+
+        Returns a dict with: status, reason, in_window, pv_today_kwh,
+        threshold_kwh, end_time, sunrise_tomorrow.
+        """
+        end_time_str = f"{self._morning_end_hour:02d}:{self._morning_end_min:02d}"
+        result: dict = {
+            "status": "deaktiviert",
+            "reason": "",
+            "in_window": False,
+            "pv_today_kwh": 0.0,
+            "threshold_kwh": 0.0,
+            "end_time": end_time_str,
+            "sunrise_tomorrow": "",
+        }
+
+        if not self._enable_morning_delay:
+            return result
+
+        threshold = bedarf * (1 + self._safety_buffer_pct / 100)
+        pv_today = snap.pv_remaining_today_kwh if snap.pv_remaining_today_kwh is not None else 0.0
+        result["pv_today_kwh"] = pv_today
+        result["threshold_kwh"] = threshold
+
+        # Check if in morning window
+        in_window = False
+        if snap.sunrise is not None:
+            window_start = snap.sunrise - timedelta(hours=1)
+            morning_end = snap.now.replace(
+                hour=self._morning_end_hour,
+                minute=self._morning_end_min,
+                second=0,
+                microsecond=0,
+            )
+            in_window = window_start <= snap.now <= morning_end
+        result["in_window"] = in_window
+
+        # Sunrise display for tomorrow
+        if snap.sunrise is not None:
+            result["sunrise_tomorrow"] = f"~{snap.sunrise.strftime('%H:%M')}"
+
+        if in_window:
+            if pv_today > threshold:
+                result["status"] = "aktiv"
+                result["reason"] = f"Ladung blockiert bis {end_time_str}"
+            else:
+                result["status"] = "nicht_aktiv"
+                result["reason"] = "PV reicht nicht fuer Bedarf + Puffer"
+        else:
+            # Outside window: check if tomorrow's conditions would trigger
+            pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
+            # Estimate tomorrow's demand: consumption + missing battery energy
+            missing_battery_est = 0.0
+            if snap.battery_capacity_kwh > 0:
+                missing_battery_est = (100 - self._min_soc) / 100 * snap.battery_capacity_kwh
+            tomorrow_demand = snap.consumption_tomorrow_kwh + missing_battery_est
+            tomorrow_threshold = tomorrow_demand * (1 + self._safety_buffer_pct / 100)
+
+            if pv_tomorrow > tomorrow_threshold:
+                sunrise_str = result["sunrise_tomorrow"] or "Sonnenaufgang"
+                result["status"] = "morgen_erwartet"
+                result["reason"] = f"Morgen ab {sunrise_str}"
+            else:
+                result["status"] = "morgen_nicht_erwartet"
+                result["reason"] = "PV Prognose zu gering"
+
+        return result
+
+    def _discharge_detail_status(
+        self, snap: Snapshot, should_discharge: bool, min_soc: float, discharge_reasons: list[str]
+    ) -> dict:
+        """Compute detailed discharge status for the status card.
+
+        Returns a dict with: status, reasons, soc, min_soc, pv_tomorrow_kwh,
+        demand_tomorrow_kwh, power_kw, start_time.
+        """
+        start_time_str = f"{self._discharge_start_h:02d}:{self._discharge_start_m:02d}"
+        pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
+        battery_charge_needed = (100 - self._min_soc) / 100 * snap.battery_capacity_kwh
+        tomorrow_demand = snap.consumption_tomorrow_kwh + battery_charge_needed
+
+        result: dict = {
+            "status": "deaktiviert",
+            "reasons": [],
+            "soc": snap.battery_soc,
+            "min_soc": min_soc,
+            "pv_tomorrow_kwh": pv_tomorrow,
+            "demand_tomorrow_kwh": tomorrow_demand,
+            "power_kw": self._discharge_power_kw,
+            "start_time": start_time_str,
+        }
+
+        if not self._enable_night_discharge:
+            return result
+
+        if should_discharge:
+            result["status"] = "aktiv"
+            return result
+
+        # Not discharging: separate time-reason from condition-reasons
+        time_reasons = [r for r in discharge_reasons if "Startzeit" in r]
+        condition_reasons = [r for r in discharge_reasons if "Startzeit" not in r]
+
+        if not condition_reasons and time_reasons:
+            # Only time is blocking -> planned
+            result["status"] = "geplant"
+        else:
+            # Condition failures -> not planned
+            result["status"] = "nicht_geplant"
+            result["reasons"] = condition_reasons
+
+        return result
+
     def _calc_energiebedarf(self, snap: Snapshot) -> float:
         """Calculate total energy demand: consumption to sunset + missing battery energy.
 
@@ -418,6 +551,12 @@ class EEGOptimizer:
         else:
             naechste_aktion = "Normalbetrieb"
 
+        # Compute detailed status for both features
+        morning_info = self._morning_delay_status(snap, bedarf)
+        discharge_info = self._discharge_detail_status(
+            snap, should_discharge, min_soc, discharge_reasons
+        )
+
         decision = Decision(
             timestamp=snap.now.isoformat(),
             zustand=zustand,
@@ -430,6 +569,23 @@ class EEGOptimizer:
             # Explicit: ausfuehrung=True only for MODE_EIN, False for MODE_TEST/MODE_AUS
             ausfuehrung=(mode == MODE_EIN),
             block_reasons=discharge_reasons if zustand != STATE_ABEND_ENTLADUNG else [],
+            # Morning delay status card fields
+            morning_status=morning_info["status"],
+            morning_reason=morning_info["reason"],
+            morning_in_window=morning_info["in_window"],
+            morning_pv_today_kwh=round(morning_info["pv_today_kwh"], 1),
+            morning_threshold_kwh=round(morning_info["threshold_kwh"], 1),
+            morning_end_time=morning_info["end_time"],
+            morning_sunrise_tomorrow=morning_info["sunrise_tomorrow"],
+            # Discharge status card fields
+            discharge_status=discharge_info["status"],
+            discharge_reasons=discharge_info["reasons"],
+            discharge_soc=round(snap.battery_soc, 0),
+            discharge_min_soc=round(min_soc, 1),
+            discharge_pv_tomorrow_kwh=round(discharge_info["pv_tomorrow_kwh"], 1),
+            discharge_demand_tomorrow_kwh=round(discharge_info["demand_tomorrow_kwh"], 1),
+            discharge_power_kw=self._discharge_power_kw,
+            discharge_start_time=discharge_info["start_time"],
         )
 
         decision.markdown = self._build_markdown(snap, decision)
