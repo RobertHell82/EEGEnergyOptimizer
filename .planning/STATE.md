@@ -110,9 +110,10 @@ None yet.
 | 260322-v34 | Hausverbrauch-Sensor: grid_power_sensor Config + berechneter Sensor mit state_class measurement | 2026-03-22 | 16b10e0 | [260322-v34-hausverbrauch-sensor-grid-power-sensor-c](./quick/260322-v34-hausverbrauch-sensor-grid-power-sensor-c/) |
 | 260322-v8z | Hausverbrauch-Formel korrigiert: PV - Batterie - Netz (3-Term) + Migration v7 | 2026-03-22 | 686e918 | [260322-v8z-fix-hausverbrauch-formel-pv-eingang-minu](./quick/260322-v8z-fix-hausverbrauch-formel-pv-eingang-minu/) |
 | 260323-cs1 | Default Consumption Sensor auf eigenen Hausverbrauch umgestellt + Migration v8 | 2026-03-23 | 450c302 | [260323-cs1-verbrauchsprognose-auf-eigenen-hausverbr](./quick/260323-cs1-verbrauchsprognose-auf-eigenen-hausverbr/) |
+| 260323-czf | consumption_sensor Config entfernt, hardcoded auf Hausverbrauch + Wizard 8->7 Steps + Migration v9 | 2026-03-23 | 39b389f | [260323-czf-consumption-sensor-config-entfernen-fest](./quick/260323-czf-consumption-sensor-config-entfernen-fest/) |
 
 ## Session Continuity
 
-Last session: 2026-03-23T08:16:16Z
-Stopped at: Completed quick-260323-cs1
+Last session: 2026-03-23T08:32:33Z
+Stopped at: Completed quick-260323-czf
 Resume file: None
