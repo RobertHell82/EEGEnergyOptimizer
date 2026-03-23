@@ -1974,15 +1974,22 @@ class EegOptimizerPanel extends HTMLElement {
     const narrowClass = this._narrow ? " narrow" : "";
 
     // --- Live values for header card ---
-    const pvW = this._readFloat(this._config?.pv_power_sensor || "sensor.inverter_eingangsleistung") || 0;
-    const batW = this._readFloat(this._config?.battery_power_sensor || "sensor.batteries_lade_entladeleistung") || 0;
-    const gridW = this._readFloat(this._config?.grid_power_sensor || "sensor.power_meter_wirkleistung") || 0;
-    const hausKw = this._readFloat("sensor.eeg_energy_optimizer_hausverbrauch");
-    const hausW = hausKw != null ? hausKw * 1000 : Math.max(0, pvW - batW - gridW);
-    const batLabel = batW >= 0 ? "Ladung" : "Entladung";
+    // Read power sensors and normalize to kW
+    const _toKw = (entityId) => {
+      const val = this._readFloat(entityId);
+      if (val == null) return 0;
+      const state = this._readState(entityId);
+      const unit = state?.attributes?.unit_of_measurement || "";
+      return unit === "W" ? val / 1000 : val;
+    };
+    const pvKw = _toKw(this._config?.pv_power_sensor || "sensor.inverter_eingangsleistung");
+    const batKw = _toKw(this._config?.battery_power_sensor || "sensor.batteries_lade_entladeleistung");
+    const gridKw = _toKw(this._config?.grid_power_sensor || "sensor.power_meter_wirkleistung");
+    const hausKw = this._readFloat("sensor.eeg_energy_optimizer_hausverbrauch") || Math.max(0, pvKw - batKw - gridKw);
+    const batLabel = batKw >= 0 ? "Ladung" : "Entladung";
     const batColor = "val-orange";
-    const gridLabel = gridW >= 0 ? "Bezug" : "Einspeisung";
-    const gridColor = gridW >= 0 ? "val-red" : "val-green";
+    const gridLabel = gridKw >= 0 ? "Bezug" : "Einspeisung";
+    const gridColor = gridKw >= 0 ? "val-red" : "val-green";
     const socColor = socVal == null ? "" : socVal > 50 ? "val-green" : socVal >= 25 ? "val-orange" : "val-red";
 
     const fmtTime = (isoStr) => {
@@ -2010,11 +2017,11 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="card header-card">
           <div class="header-top">
             <div class="header-live-values">
-              <div class="hlv"><span class="hlv-label">PV</span><span class="hlv-val val-green">${(pvW/1000).toFixed(1)} kW</span></div>
-              <div class="hlv"><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${(Math.abs(batW)/1000).toFixed(1)} kW <small>(${batLabel})</small></span></div>
+              <div class="hlv"><span class="hlv-label">PV</span><span class="hlv-val val-green">${pvKw.toFixed(1)} kW</span></div>
+              <div class="hlv"><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${Math.abs(batKw).toFixed(1)} kW <small>(${batLabel})</small></span></div>
               <div class="hlv"><span class="hlv-label">SOC</span><span class="hlv-val ${socColor}">${socText}%</span></div>
-              <div class="hlv"><span class="hlv-label">Netz</span><span class="hlv-val ${gridColor}">${(Math.abs(gridW)/1000).toFixed(1)} kW <small>(${gridLabel})</small></span></div>
-              <div class="hlv"><span class="hlv-label">Haus</span><span class="hlv-val val-blue">${(hausW/1000).toFixed(1)} kW</span></div>
+              <div class="hlv"><span class="hlv-label">Netz</span><span class="hlv-val ${gridColor}">${Math.abs(gridKw).toFixed(1)} kW <small>(${gridLabel})</small></span></div>
+              <div class="hlv"><span class="hlv-label">Haus</span><span class="hlv-val val-blue">${hausKw.toFixed(1)} kW</span></div>
             </div>
             <div class="header-toggle">
               <div class="mode-toggle ${modeToggleClass}" data-action="toggle-mode">
