@@ -58,6 +58,37 @@ def _find_huawei_battery_device(hass: HomeAssistant) -> str | None:
     return None
 
 
+def _get_inverter(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Look up the inverter instance from hass.data, sending errors on failure.
+
+    Returns the inverter or None (with error already sent to the client).
+    """
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if not entries:
+        connection.send_error(msg["id"], "not_configured", "No config entry found")
+        return None
+
+    entry = entries[0]
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    inverter = data.get("inverter")
+
+    if inverter is None:
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": "Kein Wechselrichter konfiguriert. Bitte zuerst die Einrichtung abschließen.",
+        })
+        return None
+
+    if not inverter.is_available:
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": "Wechselrichter-Integration ist nicht geladen oder nicht erreichbar.",
+        })
+        return None
+
+    return inverter
+
+
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
     """Register WebSocket commands for the EEG Optimizer panel."""
     websocket_api.async_register_command(hass, ws_get_config)
@@ -65,6 +96,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_check_prerequisites)
     websocket_api.async_register_command(hass, ws_detect_sensors)
     websocket_api.async_register_command(hass, ws_test_inverter)
+    websocket_api.async_register_command(hass, ws_manual_stop)
+    websocket_api.async_register_command(hass, ws_manual_discharge)
+    websocket_api.async_register_command(hass, ws_manual_block_charge)
 
 
 @websocket_api.websocket_command(
@@ -194,27 +228,8 @@ async def ws_test_inverter(
 
     Returns success/failure and the inverter type.
     """
-    entries = hass.config_entries.async_entries(DOMAIN)
-    if not entries:
-        connection.send_error(msg["id"], "not_configured", "No config entry found")
-        return
-
-    entry = entries[0]
-    data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-    inverter = data.get("inverter")
-
+    inverter = _get_inverter(hass, connection, msg)
     if inverter is None:
-        connection.send_result(msg["id"], {
-            "success": False,
-            "error": "Kein Wechselrichter konfiguriert. Bitte zuerst die Einrichtung abschließen.",
-        })
-        return
-
-    if not inverter.is_available:
-        connection.send_result(msg["id"], {
-            "success": False,
-            "error": "Wechselrichter-Integration ist nicht geladen oder nicht erreichbar.",
-        })
         return
 
     try:
@@ -231,6 +246,119 @@ async def ws_test_inverter(
             })
     except Exception as exc:
         _LOGGER.exception("Inverter test failed")
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": f"Fehler bei der Kommunikation: {exc}",
+        })
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/manual_stop",
+    }
+)
+@websocket_api.async_response
+async def ws_manual_stop(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Return inverter to automatic/normal operation."""
+    inverter = _get_inverter(hass, connection, msg)
+    if inverter is None:
+        return
+
+    try:
+        ok = await inverter.async_stop_forcible()
+        if ok:
+            connection.send_result(msg["id"], {
+                "success": True,
+                "message": "Normalbetrieb aktiviert.",
+            })
+        else:
+            connection.send_result(msg["id"], {
+                "success": False,
+                "error": "Wechselrichter hat nicht wie erwartet reagiert.",
+            })
+    except Exception as exc:
+        _LOGGER.exception("Manual stop failed")
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": f"Fehler bei der Kommunikation: {exc}",
+        })
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/manual_discharge",
+        vol.Required("power_kw"): vol.Coerce(float),
+        vol.Optional("target_soc", default=10): vol.Coerce(float),
+    }
+)
+@websocket_api.async_response
+async def ws_manual_discharge(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Start manual battery discharge at given power and target SOC."""
+    inverter = _get_inverter(hass, connection, msg)
+    if inverter is None:
+        return
+
+    power_kw = msg["power_kw"]
+    target_soc = msg["target_soc"]
+
+    try:
+        ok = await inverter.async_set_discharge(power_kw, target_soc)
+        if ok:
+            connection.send_result(msg["id"], {
+                "success": True,
+                "message": f"Entladung gestartet: {power_kw} kW, Ziel-SOC: {target_soc}%.",
+            })
+        else:
+            connection.send_result(msg["id"], {
+                "success": False,
+                "error": "Wechselrichter hat nicht wie erwartet reagiert.",
+            })
+    except Exception as exc:
+        _LOGGER.exception("Manual discharge failed")
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": f"Fehler bei der Kommunikation: {exc}",
+        })
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/manual_block_charge",
+    }
+)
+@websocket_api.async_response
+async def ws_manual_block_charge(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Block battery charging by setting charge limit to 0."""
+    inverter = _get_inverter(hass, connection, msg)
+    if inverter is None:
+        return
+
+    try:
+        ok = await inverter.async_set_charge_limit(0)
+        if ok:
+            connection.send_result(msg["id"], {
+                "success": True,
+                "message": "Batterieladung blockiert.",
+            })
+        else:
+            connection.send_result(msg["id"], {
+                "success": False,
+                "error": "Wechselrichter hat nicht wie erwartet reagiert.",
+            })
+    except Exception as exc:
+        _LOGGER.exception("Manual block charge failed")
         connection.send_result(msg["id"], {
             "success": False,
             "error": f"Fehler bei der Kommunikation: {exc}",
