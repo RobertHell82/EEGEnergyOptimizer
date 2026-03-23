@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import logging
 
-from .const import DOMAIN, MODE_AUS
+from .const import (
+    DOMAIN,
+    MODE_AUS,
+    CONF_PV_POWER_SENSOR,
+    CONF_BATTERY_POWER_SENSOR,
+    CONF_GRID_POWER_SENSOR,
+    CONF_LOOKBACK_WEEKS,
+    CONSUMPTION_SENSOR,
+    DEFAULT_BATTERY_POWER_SENSOR,
+    DEFAULT_GRID_POWER_SENSOR,
+    DEFAULT_LOOKBACK_WEEKS,
+)
 from .inverter import create_inverter
 from .optimizer import EEGOptimizer
 from .websocket_api import async_register_websocket_commands
@@ -25,6 +36,160 @@ except ImportError:
     async_track_time_interval = None  # type: ignore[assignment]
 
 PLATFORMS: list[str] = ["sensor", "select"]
+
+_BACKFILL_SKIP_THRESHOLD = 168  # 1 week of hourly entries
+
+
+async def async_backfill_hausverbrauch_stats(
+    hass: HomeAssistant, config: dict
+) -> None:
+    """One-time backfill of Hausverbrauch statistics from source sensors.
+
+    Calculates historical Hausverbrauch = max(PV - Battery - Grid, 0) per hour
+    from the 3 source sensors and imports them into the HA recorder so that the
+    ConsumptionCoordinator can build a consumption profile immediately.
+
+    Silently returns on any error to never block integration startup.
+    """
+    try:
+        from datetime import timezone
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.statistics import (
+            statistics_during_period,
+            async_import_statistics,
+        )
+        from homeassistant.components.recorder.models import (
+            StatisticMetaData,
+            StatisticData,
+        )
+
+        # --- Check if backfill is needed ---
+        now = datetime.now(tz=timezone.utc)
+        two_weeks_ago = now - timedelta(weeks=2)
+        recorder_instance = get_instance(hass)
+
+        existing = await recorder_instance.async_add_executor_job(
+            statistics_during_period,
+            hass,
+            two_weeks_ago,
+            now,
+            {CONSUMPTION_SENSOR},
+            "hour",
+            None,
+            {"mean"},
+        )
+        existing_entries = existing.get(CONSUMPTION_SENSOR, [])
+        if len(existing_entries) > _BACKFILL_SKIP_THRESHOLD:
+            _LOGGER.info(
+                "Hausverbrauch backfill skipped — sufficient data (%d entries)",
+                len(existing_entries),
+            )
+            return
+
+        # --- Read source sensor IDs from config ---
+        pv_id = config.get(CONF_PV_POWER_SENSOR, "")
+        if not pv_id:
+            _LOGGER.info("Hausverbrauch backfill skipped — no PV sensor configured")
+            return
+        battery_id = config.get(CONF_BATTERY_POWER_SENSOR, DEFAULT_BATTERY_POWER_SENSOR)
+        grid_id = config.get(CONF_GRID_POWER_SENSOR, DEFAULT_GRID_POWER_SENSOR)
+
+        lookback_weeks = config.get(CONF_LOOKBACK_WEEKS, DEFAULT_LOOKBACK_WEEKS)
+        start_time = now - timedelta(weeks=lookback_weeks)
+
+        # --- Load mean statistics for all 3 source sensors ---
+        result = await recorder_instance.async_add_executor_job(
+            statistics_during_period,
+            hass,
+            start_time,
+            now,
+            {pv_id, battery_id, grid_id},
+            "hour",
+            None,
+            {"mean"},
+        )
+
+        pv_entries = result.get(pv_id, [])
+        battery_entries = result.get(battery_id, [])
+        grid_entries = result.get(grid_id, [])
+
+        if not pv_entries or not battery_entries or not grid_entries:
+            _LOGGER.warning(
+                "Hausverbrauch backfill skipped — missing source data "
+                "(PV=%d, Battery=%d, Grid=%d entries)",
+                len(pv_entries),
+                len(battery_entries),
+                len(grid_entries),
+            )
+            return
+
+        # --- Index entries by start timestamp ---
+        def _index_by_start(entries: list[dict]) -> dict[float, float]:
+            indexed: dict[float, float] = {}
+            for e in entries:
+                ts = e.get("start") or e.get("start_ts")
+                mean = e.get("mean")
+                if ts is None or mean is None:
+                    continue
+                # Normalize to float timestamp
+                if isinstance(ts, str):
+                    ts_float = datetime.fromisoformat(ts).timestamp()
+                else:
+                    ts_float = float(ts)
+                indexed[ts_float] = mean
+            return indexed
+
+        pv_by_ts = _index_by_start(pv_entries)
+        battery_by_ts = _index_by_start(battery_entries)
+        grid_by_ts = _index_by_start(grid_entries)
+
+        # --- Calculate Hausverbrauch for each hour where all 3 have data ---
+        common_timestamps = sorted(
+            set(pv_by_ts.keys()) & set(battery_by_ts.keys()) & set(grid_by_ts.keys())
+        )
+
+        if not common_timestamps:
+            _LOGGER.warning("Hausverbrauch backfill skipped — no overlapping timestamps")
+            return
+
+        statistics: list[StatisticData] = []
+        for ts in common_timestamps:
+            hausverbrauch = max(
+                pv_by_ts[ts] - battery_by_ts[ts] - grid_by_ts[ts], 0.0
+            )
+            value = round(hausverbrauch, 3)
+            hour_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+            statistics.append(
+                StatisticData(start=hour_dt, mean=value, state=value)
+            )
+
+        # --- Import statistics ---
+        metadata = StatisticMetaData(
+            has_mean=True,
+            has_sum=False,
+            name="EEG Energy Optimizer Hausverbrauch",
+            source="recorder",
+            statistic_id=CONSUMPTION_SENSOR,
+            unit_of_measurement="kW",
+        )
+
+        async_import_statistics(hass, metadata, statistics)
+
+        start_date = datetime.fromtimestamp(
+            common_timestamps[0], tz=timezone.utc
+        ).strftime("%Y-%m-%d")
+        end_date = datetime.fromtimestamp(
+            common_timestamps[-1], tz=timezone.utc
+        ).strftime("%Y-%m-%d")
+        _LOGGER.info(
+            "Backfilled %d hourly statistics for Hausverbrauch from %s to %s",
+            len(statistics),
+            start_date,
+            end_date,
+        )
+
+    except Exception:
+        _LOGGER.exception("Hausverbrauch backfill failed (non-critical)")
 
 PANEL_FRONTEND_URL = "/eeg_optimizer_panel"
 PANEL_ICON = "mdi:battery-charging-high"
@@ -156,6 +321,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     provider = data.get("provider")
 
     if coordinator and provider:
+        # One-time backfill of Hausverbrauch statistics from source sensors
+        await async_backfill_hausverbrauch_stats(hass, config)
+
         optimizer = EEGOptimizer(hass, config, inverter, coordinator, provider)
         data["optimizer"] = optimizer
 
