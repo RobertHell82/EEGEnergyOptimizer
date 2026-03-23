@@ -155,6 +155,10 @@ class EegOptimizerPanel extends HTMLElement {
     this._capacityModeUserSet = false;
     this._inverterTestResult = null;
     this._inverterTesting = false;
+    this._manualAction = null;
+    this._manualResult = null;
+    this._manualDischargeKw = null;
+    this._manualDischargeSoc = 10;
 
     // Event delegation on shadow root
     this._shadow.addEventListener("click", (e) => {
@@ -185,6 +189,14 @@ class EegOptimizerPanel extends HTMLElement {
       const target = e.target.closest("[data-field]");
       if (target) {
         const field = target.dataset.field;
+        if (field === "manual_discharge_kw") {
+          this._manualDischargeKw = parseFloat(target.value) || 3.0;
+          return;
+        }
+        if (field === "manual_discharge_soc") {
+          this._manualDischargeSoc = parseFloat(target.value) || 10;
+          return;
+        }
         const type = target.type;
         if (type === "number") {
           this._wizardData[field] = parseFloat(target.value) || 0;
@@ -245,6 +257,19 @@ class EegOptimizerPanel extends HTMLElement {
         break;
       case "test-inverter":
         this._testInverter();
+        break;
+      case "manual-stop":
+        this._executeManualAction("stop", { type: "eeg_optimizer/manual_stop" });
+        break;
+      case "manual-discharge":
+        this._executeManualAction("discharge", {
+          type: "eeg_optimizer/manual_discharge",
+          power_kw: this._manualDischargeKw || this._config?.discharge_power_kw || 3.0,
+          target_soc: this._manualDischargeSoc,
+        });
+        break;
+      case "manual-block-charge":
+        this._executeManualAction("block", { type: "eeg_optimizer/manual_block_charge" });
         break;
       case "select-forecast": {
         const value = dataset?.value;
@@ -583,6 +608,24 @@ class EegOptimizerPanel extends HTMLElement {
       };
     }
     this._inverterTesting = false;
+    this._render();
+  }
+
+  async _executeManualAction(actionName, wsPayload) {
+    this._manualAction = actionName;
+    this._manualResult = null;
+    this._render();
+    try {
+      const result = await this._hass.callWS(wsPayload);
+      this._manualResult = result;
+    } catch (err) {
+      console.error("Manual action failed:", err);
+      this._manualResult = {
+        success: false,
+        error: "Kommunikationsfehler: " + (err.message || err),
+      };
+    }
+    this._manualAction = null;
     this._render();
   }
 
@@ -1674,6 +1717,28 @@ class EegOptimizerPanel extends HTMLElement {
     });
     const highlightIdx = weekdayDatasets.findIndex(ds => ds.key === dayKey);
 
+    // --- Manual control status ---
+    const manualAction = this._manualAction;
+    const manualResult = this._manualResult;
+    let manualStatusHtml = "";
+    if (manualAction) {
+      const actionLabels = { stop: "Normalbetrieb", discharge: "Entladung", block: "Ladung blockieren" };
+      manualStatusHtml = `<div class="help-text" style="margin-top:12px">
+        <ha-icon icon="mdi:loading" style="--mdc-icon-size:16px;vertical-align:middle;animation:spin 1s linear infinite"></ha-icon>
+        ${actionLabels[manualAction] || "Befehl"} wird ausgeführt...
+      </div>`;
+    } else if (manualResult) {
+      if (manualResult.success) {
+        manualStatusHtml = `<div class="inverter-test-result success" style="margin-top:12px">
+          <ha-icon icon="mdi:check-circle"></ha-icon> ${manualResult.message}
+        </div>`;
+      } else {
+        manualStatusHtml = `<div class="inverter-test-result error" style="margin-top:12px">
+          <ha-icon icon="mdi:alert-circle"></ha-icon> ${manualResult.error}
+        </div>`;
+      }
+    }
+
     // --- Inverter test (keep existing) ---
     const testResult = this._inverterTestResult;
     const testing = this._inverterTesting;
@@ -1768,6 +1833,67 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
         `}
 
+        <!-- Manual Control Card -->
+        <div class="card">
+          <h3 style="margin-top:0">Manuelle Steuerung</h3>
+          <p style="color:var(--secondary-text-color);font-size:14px">
+            Wechselrichter direkt steuern. Achtung: Der Optimizer &uuml;berschreibt manuelle Befehle im n&auml;chsten Zyklus.
+          </p>
+          ${!this._config?.setup_complete ? `
+            <div class="btn-manual-grid">
+              <button class="btn-manual btn-manual-normal" disabled>
+                <ha-icon icon="mdi:flash-auto"></ha-icon>
+                <span>Normalbetrieb</span>
+              </button>
+              <button class="btn-manual btn-manual-discharge" disabled>
+                <ha-icon icon="mdi:battery-arrow-down"></ha-icon>
+                <span>Entladung starten</span>
+              </button>
+              <button class="btn-manual btn-manual-block" disabled>
+                <ha-icon icon="mdi:battery-off"></ha-icon>
+                <span>Ladung blockieren</span>
+              </button>
+            </div>
+            <div class="help-text" style="margin-top:12px">
+              <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
+              Die manuelle Steuerung ist erst nach Abschluss der Einrichtung verf&uuml;gbar. Bitte zuerst den Wizard abschlie&szlig;en.
+            </div>
+          ` : `
+            <div class="btn-manual-grid">
+              <button class="btn-manual btn-manual-normal" data-action="manual-stop"
+                ${manualAction ? "disabled" : ""}>
+                <ha-icon icon="mdi:flash-auto"></ha-icon>
+                <span>Normalbetrieb</span>
+              </button>
+              <button class="btn-manual btn-manual-discharge" data-action="manual-discharge"
+                ${manualAction ? "disabled" : ""}>
+                <ha-icon icon="mdi:battery-arrow-down"></ha-icon>
+                <span>Entladung starten</span>
+              </button>
+              <button class="btn-manual btn-manual-block" data-action="manual-block-charge"
+                ${manualAction ? "disabled" : ""}>
+                <ha-icon icon="mdi:battery-off"></ha-icon>
+                <span>Ladung blockieren</span>
+              </button>
+            </div>
+            <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:12px 0">
+              <label style="font-size:14px;display:flex;align-items:center;gap:6px">
+                Leistung:
+                <input type="number" data-field="manual_discharge_kw" min="0.5" max="12" step="0.5"
+                  value="${this._manualDischargeKw || this._config?.discharge_power_kw || 3.0}"
+                  style="width:70px;border-radius:8px;border:1px solid var(--divider-color);padding:8px;background:var(--card-background-color);color:var(--primary-text-color);font-size:14px"> kW
+              </label>
+              <label style="font-size:14px;display:flex;align-items:center;gap:6px">
+                Ziel-SOC:
+                <input type="number" data-field="manual_discharge_soc" min="5" max="100" step="5"
+                  value="${this._manualDischargeSoc}"
+                  style="width:70px;border-radius:8px;border:1px solid var(--divider-color);padding:8px;background:var(--card-background-color);color:var(--primary-text-color);font-size:14px"> %
+              </label>
+            </div>
+            ${manualStatusHtml}
+          `}
+        </div>
+
         <!-- Inverter Test Card -->
         <div class="card">
           <h3 style="margin-top:0">Wechselrichter-Verbindung</h3>
@@ -1778,7 +1904,7 @@ class EegOptimizerPanel extends HTMLElement {
             <button class="btn-primary" disabled>Verbindung testen</button>
             <div class="help-text" style="margin-top:12px">
               <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
-              Der Verbindungstest ist erst nach Abschluss der Einrichtung verfügbar. Bitte zuerst den Wizard abschließen.
+              Der Verbindungstest ist erst nach Abschluss der Einrichtung verf&uuml;gbar. Bitte zuerst den Wizard abschlie&szlig;en.
             </div>
           ` : `
             <button class="btn-primary" data-action="test-inverter" ${testing ? "disabled" : ""}>
@@ -2057,6 +2183,27 @@ class EegOptimizerPanel extends HTMLElement {
         .soc-red { color: var(--error-color, #f44336); }
         .dashboard-grid.narrow .metrics-row { flex-direction: column; }
         .dashboard-grid.narrow .metric-card { min-width: unset; }
+        .btn-manual-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+        .btn-manual {
+          display: flex; flex-direction: column; align-items: center; gap: 8px;
+          padding: 16px 20px; border-radius: 12px; border: 1px solid var(--divider-color);
+          background: var(--card-background-color); cursor: pointer;
+          font-size: 14px; font-weight: 500; color: var(--primary-text-color);
+          min-width: 120px; transition: all 0.2s;
+        }
+        .btn-manual:hover:not([disabled]) { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .btn-manual[disabled] { opacity: 0.5; cursor: not-allowed; }
+        .btn-manual ha-icon { --mdc-icon-size: 28px; }
+        .btn-manual-normal { border-color: #4caf50; }
+        .btn-manual-normal ha-icon { color: #4caf50; }
+        .btn-manual-normal:hover:not([disabled]) { background: rgba(76,175,80,0.1); }
+        .btn-manual-discharge { border-color: #ff9800; }
+        .btn-manual-discharge ha-icon { color: #ff9800; }
+        .btn-manual-discharge:hover:not([disabled]) { background: rgba(255,152,0,0.1); }
+        .btn-manual-block { border-color: #2196f3; }
+        .btn-manual-block ha-icon { color: #2196f3; }
+        .btn-manual-block:hover:not([disabled]) { background: rgba(33,150,243,0.1); }
+        @keyframes spin { to { transform: rotate(360deg); } }
       </style>
       <div class="toolbar">
         <h1>EEG Optimizer</h1>
