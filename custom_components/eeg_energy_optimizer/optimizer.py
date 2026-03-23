@@ -131,12 +131,14 @@ class EEGOptimizer:
     def __init__(
         self,
         hass: Any,
+        entry_id: str,
         config: dict,
         inverter: Any,
         coordinator: Any,
         provider: Any,
     ) -> None:
         self._hass = hass
+        self._entry_id = entry_id
         self._config = config
         self._inverter = inverter
         self._coordinator = coordinator
@@ -271,7 +273,7 @@ class EEGOptimizer:
                 tomorrow_sunrise, tomorrow_sunset
             ).get("verbrauch_kwh", 0.0)
 
-        return Snapshot(
+        snap = Snapshot(
             now=now,
             battery_soc=battery_soc,
             battery_capacity_kwh=capacity_kwh,
@@ -286,6 +288,28 @@ class EEGOptimizer:
             sunrise=sunrise,
             sunset=sunset,
         )
+
+        # Apply test overrides if active
+        overrides = self._hass.data.get("eeg_energy_optimizer", {}).get(
+            self._entry_id, {}
+        ).get("test_overrides")
+        if overrides:
+            factor = overrides.get("consumption_factor", 1.0)
+            soc_override = overrides.get("soc_override")
+            if factor != 1.0:
+                snap.consumption_today_kwh *= factor
+                snap.consumption_to_sunset_kwh *= factor
+                snap.consumption_tomorrow_kwh *= factor
+                snap.consumption_overnight_kwh *= factor
+                snap.consumption_today_daylight_kwh *= factor
+                snap.consumption_tomorrow_daylight_kwh *= factor
+            if soc_override is not None:
+                snap.battery_soc = soc_override
+            _LOGGER.debug(
+                "Test overrides active: factor=%.1f, soc=%s", factor, soc_override
+            )
+
+        return snap
 
     def _resolve_capacity(self) -> float:
         """Resolve battery capacity: sensor -> manual fallback."""

@@ -320,7 +320,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     provider = data.get("provider")
 
     if coordinator and provider:
-        optimizer = EEGOptimizer(hass, config, inverter, coordinator, provider)
+        optimizer = EEGOptimizer(hass, entry.entry_id, config, inverter, coordinator, provider)
         data["optimizer"] = optimizer
 
         async def _optimizer_cycle(_now=None):
