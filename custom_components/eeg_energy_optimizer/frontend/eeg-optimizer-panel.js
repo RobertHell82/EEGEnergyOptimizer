@@ -159,6 +159,25 @@ class EegOptimizerPanel extends HTMLElement {
     this._manualDischargeSoc = 25;
 
     // Event delegation on shadow root
+    // Legend hover: highlight matching weekday line
+    this._shadow.addEventListener("mouseover", (e) => {
+      const legendItem = e.target.closest(".wl-legend");
+      if (!legendItem) return;
+      const idx = legendItem.dataset.idx;
+      const svg = legendItem.closest("svg");
+      if (!svg) return;
+      svg.querySelectorAll(".wl").forEach(g => g.classList.remove("wl-legend-hover"));
+      const target = svg.querySelector(`.wl[data-idx="${idx}"]`);
+      if (target) target.classList.add("wl-legend-hover");
+    });
+    this._shadow.addEventListener("mouseout", (e) => {
+      const legendItem = e.target.closest(".wl-legend");
+      if (!legendItem) return;
+      const svg = legendItem.closest("svg");
+      if (!svg) return;
+      svg.querySelectorAll(".wl").forEach(g => g.classList.remove("wl-legend-hover"));
+    });
+
     this._shadow.addEventListener("click", (e) => {
       // Close dialog when clicking overlay background (not the card itself)
       if (e.target.classList.contains("dialog-overlay")) {
@@ -1704,7 +1723,7 @@ class EegOptimizerPanel extends HTMLElement {
       allLines += `</g>`;
     });
 
-    // Legend (compact horizontal, below x-axis)
+    // Legend (compact horizontal, below x-axis) — each item is a hoverable group linked to its line
     let legend = "";
     const legendY = height - 8;
     const legendStartX = padding.left;
@@ -1716,17 +1735,23 @@ class EegOptimizerPanel extends HTMLElement {
       const fw = isHighlight ? "bold" : "normal";
       const opacity = isHighlight ? "1" : "0.5";
       const sw = isHighlight ? "2.5" : "1.5";
+      legend += `<g class="wl-legend" data-idx="${idx}" style="cursor:pointer">`;
+      // Invisible wider hit area for easier hover
+      legend += `<rect x="${lx - 4}" y="${legendY - 12}" width="${legendSpacing}" height="20" fill="transparent"/>`;
       legend += `<line x1="${lx}" y1="${legendY - 4}" x2="${lx + 14}" y2="${legendY - 4}" stroke="${color}" stroke-width="${sw}" opacity="${opacity}"/>`;
       legend += `<text x="${lx + 18}" y="${legendY}" font-size="10" font-weight="${fw}" fill="var(--primary-text-color)" opacity="${opacity}">${ds.label}</text>`;
+      legend += `</g>`;
     });
 
     return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">
       <style>
         .wl { cursor: pointer; }
-        .wl:hover .wl-line { stroke-width: 2.5 !important; opacity: 1 !important; }
-        .wl:hover .wl-area { opacity: 0.12 !important; }
+        .wl:hover .wl-line, .wl.wl-legend-hover .wl-line { stroke-width: 2.5 !important; opacity: 1 !important; }
+        .wl:hover .wl-area, .wl.wl-legend-hover .wl-area { opacity: 0.12 !important; }
         svg:has(.wl:hover) .wl:not(:hover):not(.wl-today) .wl-line { opacity: 0.12 !important; }
         svg:has(.wl:hover) .wl-today:not(:hover) .wl-line { opacity: 0.4 !important; }
+        svg:has(.wl-legend-hover) .wl:not(.wl-legend-hover):not(.wl-today) .wl-line { opacity: 0.12 !important; }
+        svg:has(.wl-legend-hover) .wl-today:not(.wl-legend-hover) .wl-line { opacity: 0.4 !important; }
       </style>
       ${yLines}
       ${allLines}
