@@ -153,8 +153,6 @@ class EegOptimizerPanel extends HTMLElement {
     this._showAdvanced = {};
     this._capacityMode = null;
     this._capacityModeUserSet = false;
-    this._inverterTestResult = null;
-    this._inverterTesting = false;
     this._manualAction = null;
     this._manualResult = null;
     this._manualDischargeKw = null;
@@ -254,9 +252,6 @@ class EegOptimizerPanel extends HTMLElement {
         break;
       case "recheck-prerequisites":
         this._checkPrerequisites();
-        break;
-      case "test-inverter":
-        this._testInverter();
         break;
       case "manual-stop":
         this._executeManualAction("stop", { type: "eeg_optimizer/manual_stop" });
@@ -588,26 +583,6 @@ class EegOptimizerPanel extends HTMLElement {
     }
 
     this._wizardLoading = false;
-    this._render();
-  }
-
-  async _testInverter() {
-    this._inverterTestResult = null;
-    this._inverterTesting = true;
-    this._render();
-    try {
-      const result = await this._hass.callWS({
-        type: "eeg_optimizer/test_inverter",
-      });
-      this._inverterTestResult = result;
-    } catch (err) {
-      console.error("Inverter test failed:", err);
-      this._inverterTestResult = {
-        success: false,
-        error: "Kommunikationsfehler: " + (err.message || err),
-      };
-    }
-    this._inverterTesting = false;
     this._render();
   }
 
@@ -1893,24 +1868,6 @@ class EegOptimizerPanel extends HTMLElement {
       }
     }
 
-    // --- Inverter test (keep existing) ---
-    const testResult = this._inverterTestResult;
-    const testing = this._inverterTesting;
-    let testStatusHtml = "";
-    if (testing) {
-      testStatusHtml = `<div class="help-text" style="margin-top:12px">Teste Verbindung...</div>`;
-    } else if (testResult) {
-      if (testResult.success) {
-        testStatusHtml = `<div class="inverter-test-result success" style="margin-top:12px">
-          <ha-icon icon="mdi:check-circle"></ha-icon> ${testResult.message}
-        </div>`;
-      } else {
-        testStatusHtml = `<div class="inverter-test-result error" style="margin-top:12px">
-          <ha-icon icon="mdi:alert-circle"></ha-icon> ${testResult.error}
-        </div>`;
-      }
-    }
-
     const narrowClass = this._narrow ? " narrow" : "";
 
     return `
@@ -2027,25 +1984,6 @@ class EegOptimizerPanel extends HTMLElement {
           `}
         </div>
 
-        <!-- Inverter Test Card -->
-        <div class="card">
-          <h3 style="margin-top:0">Wechselrichter-Verbindung</h3>
-          <p style="color:var(--secondary-text-color);font-size:14px">
-            Teste die Kommunikation mit deinem Wechselrichter.
-          </p>
-          ${!this._config?.setup_complete ? `
-            <button class="btn-primary" disabled>Verbindung testen</button>
-            <div class="help-text" style="margin-top:12px">
-              <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
-              Der Verbindungstest ist erst nach Abschluss der Einrichtung verf&uuml;gbar. Bitte zuerst den Wizard abschlie&szlig;en.
-            </div>
-          ` : `
-            <button class="btn-primary" data-action="test-inverter" ${testing ? "disabled" : ""}>
-              ${testing ? "Teste..." : "Verbindung testen"}
-            </button>
-          `}
-          ${testStatusHtml}
-        </div>
       </div>`;
   }
 
