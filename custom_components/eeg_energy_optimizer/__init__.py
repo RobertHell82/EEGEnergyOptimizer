@@ -339,12 +339,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
             entry.async_on_unload(unsub)
 
-            # Run initial cycle after short delay so sensors are ready
-            async def _initial_cycle(_now=None):
-                await _optimizer_cycle()
-
-            if async_call_later is not None:
-                entry.async_on_unload(async_call_later(hass, 10, _initial_cycle))
+            # Run initial cycle immediately — sensors are already populated
+            # by the synchronous slow+fast update in async_setup_entry
+            await _optimizer_cycle()
     else:
         missing = []
         if not coordinator:
