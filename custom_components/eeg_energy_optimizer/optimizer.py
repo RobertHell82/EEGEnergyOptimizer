@@ -436,8 +436,7 @@ class EEGOptimizer:
         """
         start_time_str = f"{self._discharge_start_h:02d}:{self._discharge_start_m:02d}"
         pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
-        battery_charge_needed = (100 - self._min_soc) / 100 * snap.battery_capacity_kwh
-        tomorrow_demand = snap.consumption_tomorrow_kwh + battery_charge_needed
+        tomorrow_demand_daylight = snap.consumption_tomorrow_daylight_kwh
 
         result: dict = {
             "status": "deaktiviert",
@@ -445,7 +444,7 @@ class EEGOptimizer:
             "soc": snap.battery_soc,
             "min_soc": min_soc,
             "pv_tomorrow_kwh": pv_tomorrow,
-            "demand_tomorrow_kwh": tomorrow_demand,
+            "demand_tomorrow_kwh": tomorrow_demand_daylight,
             "power_kw": self._discharge_power_kw,
             "start_time": start_time_str,
         }

@@ -1531,15 +1531,25 @@ class EegOptimizerPanel extends HTMLElement {
       const socOk = Number(ma.discharge_soc || 0) > Number(ma.discharge_min_soc || 0);
       const pvOk = Number(ma.discharge_pv_tomorrow_kwh || 0) >= Number(ma.discharge_demand_tomorrow_kwh || 0);
 
+      const infoTooltip = "Der Ziel-SOC ergibt sich aus: Eingestellter Mindest-SOC + geschätzter Nachtverbrauch (Entladestart bis Sonnenaufgang) + Sicherheitspuffer. So bleibt genug Energie für die Nacht.";
+
       dConditionsHtml = `
         <hr class="status-divider">
         <div class="condition-row">
-          <span>SOC ${soc}% &gt; Min ${minSoc}%</span>
-          <span class="${socOk ? "check" : "cross"}">${socOk ? "\u2713" : "\u2717"}</span>
+          <span>Aktueller SOC</span>
+          <span>${soc}% <span class="${socOk ? "check" : "cross"}">${socOk ? "\u2713" : "\u2717"}</span></span>
         </div>
         <div class="condition-row">
-          <span>PV morgen ${pvTom} kWh</span>
-          <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}${!pvOk ? " (" + demandTom + " kWh Bedarf)" : ""}</span>
+          <span>Entlade-Ziel SOC <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:16px;color:var(--secondary-text-color);cursor:help;vertical-align:middle" title="${infoTooltip}"></ha-icon></span>
+          <span>${minSoc}%</span>
+        </div>
+        <div class="condition-row">
+          <span>Tagesbedarf morgen (SA\u2192SU)</span>
+          <span>${demandTom} kWh</span>
+        </div>
+        <div class="condition-row">
+          <span>PV Prognose morgen</span>
+          <span>${pvTom} kWh <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}</span></span>
         </div>`;
       if (dStatus === "aktiv") {
         const pw = ma.discharge_power_kw != null ? Number(ma.discharge_power_kw).toFixed(1) : "---";
