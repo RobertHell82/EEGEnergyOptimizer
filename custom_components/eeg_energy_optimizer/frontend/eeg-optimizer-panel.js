@@ -44,7 +44,6 @@ const WIZARD_STEPS = [
   "Wechselrichter",
   "Prognose",
   "Batterie",
-  "Verbrauch",
   "Ladung & Einspeisung",
   "Erweiterte Einstellungen",
   "Zusammenfassung",
@@ -60,7 +59,6 @@ const WIZARD_DEFAULTS = {
   forecast_source: "solcast_solar",
   forecast_remaining_entity: "",
   forecast_tomorrow_entity: "",
-  consumption_sensor: "sensor.eeg_energy_optimizer_hausverbrauch",
   lookback_weeks: 8,
   update_interval_fast_min: 1,
   update_interval_slow_min: 15,
@@ -360,9 +358,9 @@ class EegOptimizerPanel extends HTMLElement {
       return;
     }
     // Load entity picker for sensor steps
-    if (step === 3 || step === 4) {
+    if (step === 3) {
       await this._ensureEntityPicker();
-      if (step === 3 && !this._detectedSensors) {
+      if (!this._detectedSensors) {
         await this._detectSensors();
         return; // _detectSensors calls _render
       }
@@ -440,12 +438,6 @@ class EegOptimizerPanel extends HTMLElement {
           return false;
         }
         return true;
-      case 4: // Verbrauch
-        if (!this._wizardData.consumption_sensor) {
-          this._showValidationError("Verbrauchssensor ist erforderlich.");
-          return false;
-        }
-        return true;
       default:
         return true;
     }
@@ -466,9 +458,11 @@ class EegOptimizerPanel extends HTMLElement {
 
     try {
       this._wizardData.setup_complete = true;
+      const saveData = { ...this._wizardData };
+      delete saveData.consumption_sensor;
       await this._hass.callWS({
         type: "eeg_optimizer/save_config",
-        config: { ...this._wizardData },
+        config: saveData,
       });
       this._clearWizardProgress();
       this._setupComplete = true;
@@ -883,9 +877,6 @@ class EegOptimizerPanel extends HTMLElement {
       case 6:
         stepContent = this._renderStep6();
         break;
-      case 7:
-        stepContent = this._renderStep7();
-        break;
     }
 
     const backBtn =
@@ -1141,22 +1132,9 @@ class EegOptimizerPanel extends HTMLElement {
       ${capManualHtml}`;
   }
 
-  /* ── Step 4: Verbrauch ──────────────────────── */
+  /* ── Step 4: Ladung & Einspeisung ────────────── */
 
   _renderStep4() {
-    return `
-      ${this._entityPickerHtml(
-        "consumption_sensor",
-        this._wizardData.consumption_sensor,
-        "Sensor für Gesamtverbrauch *",
-        "Sensor der den Gesamt-Stromverbrauch in kWh misst (total_increasing).",
-        "sensor"
-      )}`;
-  }
-
-  /* ── Step 5: Ladung & Einspeisung ────────────── */
-
-  _renderStep5() {
     const mDelay = this._wizardData.enable_morning_delay;
     const nDischarge = this._wizardData.enable_night_discharge;
 
@@ -1238,9 +1216,9 @@ class EegOptimizerPanel extends HTMLElement {
       </div>`;
   }
 
-  /* ── Step 6: Erweiterte Einstellungen ────────── */
+  /* ── Step 5: Erweiterte Einstellungen ────────── */
 
-  _renderStep6() {
+  _renderStep5() {
     return `
       <div class="field-group">
         <label>Anzahl der Wochen für den Verbrauchsdurchschnitt</label>
@@ -1265,9 +1243,9 @@ class EegOptimizerPanel extends HTMLElement {
       </div>`;
   }
 
-  /* ── Step 7: Zusammenfassung ──────────────────── */
+  /* ── Step 6: Zusammenfassung ──────────────────── */
 
-  _renderStep7() {
+  _renderStep6() {
     const d = this._wizardData;
     const forecastName =
       d.forecast_source === "solcast_solar" ? "Solcast Solar" : "Forecast.Solar";
@@ -1302,11 +1280,6 @@ class EegOptimizerPanel extends HTMLElement {
         ${row("Quelle", forecastName)}
         ${row("Verbleibend heute", d.forecast_remaining_entity || "—")}
         ${row("Morgen", d.forecast_tomorrow_entity || "—")}
-      </div>
-
-      <div class="summary-section">
-        <h3>Verbrauch</h3>
-        ${row("Sensor", d.consumption_sensor || "—")}
       </div>
 
       <div class="summary-section">
