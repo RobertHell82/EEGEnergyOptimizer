@@ -671,7 +671,11 @@ async def async_setup_entry(
         entry.async_on_unload(unsub_slow)
         entry.async_on_unload(unsub_fast)
 
-        # Immediate initial sensor update — coordinator already loaded above
-        for sensor in slow_sensors + fast_sensors:
-            await sensor.async_update()
-            sensor.async_write_ha_state()
+        # Initial sensor update in background — don't block setup
+        # Optimizer timer will keep them current every 30s anyway
+        async def _initial_sensor_update():
+            for sensor in slow_sensors + fast_sensors:
+                await sensor.async_update()
+                sensor.async_write_ha_state()
+
+        hass.async_create_task(_initial_sensor_update())

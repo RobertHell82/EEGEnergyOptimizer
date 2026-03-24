@@ -1704,8 +1704,9 @@ class EegOptimizerPanel extends HTMLElement {
       const reasons = ma.discharge_reasons || [];
       let reasonParts = [];
       reasons.forEach(r => {
-        if (r.includes("SOC")) reasonParts.push("SOC zu niedrig");
-        if (r.includes("PV")) reasonParts.push("PV morgen nicht ausreichend");
+        if (r.includes("Nachtverbrauch")) reasonParts.push("Nachtverbrauch zu hoch");
+        else if (r.includes("SOC")) reasonParts.push("SOC zu niedrig");
+        else if (r.includes("PV")) reasonParts.push("PV morgen nicht ausreichend");
       });
       const reasonText = reasonParts.length > 0 ? reasonParts.join(", ") : "Bedingungen nicht erfuellt";
       dIndicator = `\u2715 Nicht geplant \u2014 ${reasonText}`;
