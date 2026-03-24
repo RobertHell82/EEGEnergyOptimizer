@@ -1810,13 +1810,13 @@ class EegOptimizerPanel extends HTMLElement {
       const icon = zustandIcon(e.zustand);
       const color = zustandColor(e.zustand);
       const reason = e.reason === "Heartbeat" ? `<span style="opacity:0.5">${e.zustand}</span>` : `<strong>${e.zustand}</strong>`;
-      const badge = e.reason === "Heartbeat" ? "" : `<span class="activity-badge" style="background:${color}">Wechsel</span>`;
+      const badge = e.reason === "Heartbeat" ? "" : `<span class="activity-badge" style="background:${color}">\u00C4nderung</span>`;
       return `<div class="activity-entry">
         <div class="activity-time">${dateStr}<br>${timeStr}</div>
         <div class="activity-dot" style="background:${color}">${icon}</div>
         <div class="activity-content">
           <div class="activity-header">${reason} ${badge}</div>
-          <div class="activity-details">SOC ${e.soc}% &middot; PV ${e.pv_today} kWh &middot; Bedarf ${e.bedarf} kWh${e.ausfuehrung ? " &middot; Ausf\u00fchrung" : ""}</div>
+          <div class="activity-details">SOC ${e.soc}%${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${e.min_soc}%` : ""} &middot; PV ${e.pv_today} kWh &middot; Bedarf ${e.bedarf} kWh${e.ausfuehrung ? " &middot; Ausf\u00fchrung" : ""}</div>
         </div>
       </div>`;
     }).join("");
