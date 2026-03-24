@@ -61,6 +61,12 @@ const WIZARD_DEFAULTS = {
   forecast_source: "solcast_solar",
   forecast_remaining_entity: "",
   forecast_tomorrow_entity: "",
+  forecast_today_entity: "",
+  forecast_day3_entity: "",
+  forecast_day4_entity: "",
+  forecast_day5_entity: "",
+  forecast_day6_entity: "",
+  forecast_day7_entity: "",
   lookback_weeks: 4,
   update_interval_fast_min: 1,
   update_interval_slow_min: 15,
@@ -1366,8 +1372,57 @@ class EegOptimizerPanel extends HTMLElement {
           <button class="btn-secondary" data-action="show-dialog" data-dialog="forecast_solar">Anleitung</button>
         </div>
       </div>
-      <button class="btn-secondary" data-action="recheck-prerequisites">Erneut prüfen</button>
-      ${sensorFields}`;
+      <button class="btn-secondary" data-action="recheck-prerequisites">Erneut pr\u00fcfen</button>
+      ${sensorFields}
+      ${selected && this._wizardData.expert_mode && solcastSelected ? `
+      <div style="margin-top:16px">
+        <h3 style="margin:0 0 12px;font-size:15px">Weitere Prognose-Sensoren (optional)</h3>
+        <p style="font-size:13px;color:var(--secondary-text-color);margin-bottom:12px">
+          Diese Sensoren werden automatisch erkannt. Nur \u00e4ndern wenn die Auto-Erkennung nicht funktioniert.
+        </p>
+        ${this._entityPickerHtml(
+          "forecast_today_entity",
+          this._wizardData.forecast_today_entity,
+          "PV Prognose heute (gesamt)",
+          "Gesamte PV-Produktion f\u00fcr heute in kWh, z.B. sensor.solcast_pv_forecast_prognose_heute.",
+          "sensor"
+        )}
+        ${this._entityPickerHtml(
+          "forecast_day3_entity",
+          this._wizardData.forecast_day3_entity,
+          "PV Prognose Tag 3",
+          "z.B. sensor.solcast_pv_forecast_prognose_tag_3",
+          "sensor"
+        )}
+        ${this._entityPickerHtml(
+          "forecast_day4_entity",
+          this._wizardData.forecast_day4_entity,
+          "PV Prognose Tag 4",
+          "z.B. sensor.solcast_pv_forecast_prognose_tag_4",
+          "sensor"
+        )}
+        ${this._entityPickerHtml(
+          "forecast_day5_entity",
+          this._wizardData.forecast_day5_entity,
+          "PV Prognose Tag 5",
+          "z.B. sensor.solcast_pv_forecast_prognose_tag_5",
+          "sensor"
+        )}
+        ${this._entityPickerHtml(
+          "forecast_day6_entity",
+          this._wizardData.forecast_day6_entity,
+          "PV Prognose Tag 6",
+          "z.B. sensor.solcast_pv_forecast_prognose_tag_6",
+          "sensor"
+        )}
+        ${this._entityPickerHtml(
+          "forecast_day7_entity",
+          this._wizardData.forecast_day7_entity,
+          "PV Prognose Tag 7",
+          "z.B. sensor.solcast_pv_forecast_prognose_tag_7",
+          "sensor"
+        )}
+      </div>` : ""}`;
   }
 
   /* ── Step 3: Batteriesensoren ───────────── */
@@ -2101,21 +2156,30 @@ class EegOptimizerPanel extends HTMLElement {
     const forecastRemainingId = this._config?.forecast_remaining_entity || "";
 
     // Derive prefix from configured sensors
-    // Solcast: "sensor.solcast_pv_forecast_prognose_morgen" → prefix "sensor.solcast_pv_forecast_prognose_"
+    // Solcast new: "sensor.solcast_pv_forecast_prognose_morgen" → prefix "sensor.solcast_pv_forecast_prognose_"
+    // Solcast old: "sensor.solcast_pv_forecast_prognose_fuer_morgen" → prefix "sensor.solcast_pv_forecast_prognose_fuer_"
     // Forecast.Solar: "sensor.energy_production_tomorrow" → prefix "sensor.energy_production_"
     let solcastPrefix = "";
     let forecastSolarPrefix = "";
     if (forecastTomorrowId.includes("solcast")) {
       solcastPrefix = forecastTomorrowId.replace(/morgen$/, "");
+      // If old "fuer_" prefix doesn't find tag sensors, try without "fuer_"
+      const states = this._hass?.states || {};
+      if (solcastPrefix.endsWith("fuer_") && !states[solcastPrefix + "tag_3"]) {
+        solcastPrefix = solcastPrefix.replace(/fuer_$/, "");
+      }
     } else if (forecastTomorrowId.includes("energy_production")) {
       forecastSolarPrefix = forecastTomorrowId.replace(/tomorrow$/, "");
     }
 
-    // PV total today
+    // PV total today — prefer configured sensor, then auto-detect
     let pvHeute = null;
-    if (solcastPrefix) {
+    if (this._config?.forecast_today_entity) {
+      pvHeute = this._readFloat(this._config.forecast_today_entity);
+    }
+    if (pvHeute == null && solcastPrefix) {
       pvHeute = this._readFloat(solcastPrefix + "heute");
-    } else if (forecastSolarPrefix) {
+    } else if (pvHeute == null && forecastSolarPrefix) {
       pvHeute = this._readFloat(forecastSolarPrefix + "today");
     }
     if (pvHeute == null) {
@@ -2135,15 +2199,17 @@ class EegOptimizerPanel extends HTMLElement {
     }
     const pvMorgenText = pvMorgen != null ? `${pvMorgen.toFixed(1)}` : "---";
 
-    // 7-day PV forecast array (Solcast provides day 3-7, Forecast.Solar only today+tomorrow)
+    // 7-day PV forecast array — prefer configured sensors, then auto-detect from prefix
+    const _pvDay = (dayNum) => {
+      const cfgKey = `forecast_day${dayNum}_entity`;
+      if (this._config?.[cfgKey]) return this._readFloat(this._config[cfgKey]) || 0;
+      if (solcastPrefix) return this._readFloat(solcastPrefix + `tag_${dayNum}`) || 0;
+      return 0;
+    };
     const pvWeek = [
       pvHeute || 0,
       pvMorgen || 0,
-      solcastPrefix ? (this._readFloat(solcastPrefix + "tag_3") || 0) : 0,
-      solcastPrefix ? (this._readFloat(solcastPrefix + "tag_4") || 0) : 0,
-      solcastPrefix ? (this._readFloat(solcastPrefix + "tag_5") || 0) : 0,
-      solcastPrefix ? (this._readFloat(solcastPrefix + "tag_6") || 0) : 0,
-      solcastPrefix ? (this._readFloat(solcastPrefix + "tag_7") || 0) : 0,
+      _pvDay(3), _pvDay(4), _pvDay(5), _pvDay(6), _pvDay(7),
     ];
 
     // --- 7-day forecast chart ---
