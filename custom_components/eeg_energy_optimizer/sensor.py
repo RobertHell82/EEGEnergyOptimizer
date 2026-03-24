@@ -595,15 +595,15 @@ async def async_setup_entry(
     # Start backfill in background — don't block startup
     from .__init__ import async_backfill_hausverbrauch_stats
 
+    lookback_weeks = config.get(CONF_LOOKBACK_WEEKS, DEFAULT_LOOKBACK_WEEKS)
+    coordinator = ConsumptionCoordinator(hass, CONSUMPTION_SENSOR, lookback_weeks)
+    # Single initial load — backfill runs in background and refreshes after
+    await coordinator.async_update()
+
     async def _backfill_then_refresh():
         await async_backfill_hausverbrauch_stats(hass, config)
         await coordinator.async_update()
 
-    lookback_weeks = config.get(CONF_LOOKBACK_WEEKS, DEFAULT_LOOKBACK_WEEKS)
-    coordinator = ConsumptionCoordinator(hass, CONSUMPTION_SENSOR, lookback_weeks)
-    # Quick initial load (may be empty on first run, backfill fills it)
-    await coordinator.async_update()
-    # Schedule backfill + refresh in background
     hass.async_create_task(_backfill_then_refresh())
 
     # Create forecast provider
@@ -644,7 +644,7 @@ async def async_setup_entry(
         + [sunrise_sensor, battery_sensor, pv_today_sensor, pv_tomorrow_sensor, hausverbrauch_sensor]
     )
 
-    async_add_entities(slow_sensors + fast_sensors + [decision_sensor], True)
+    async_add_entities(slow_sensors + fast_sensors + [decision_sensor], False)
 
     # Dual update timers
     slow_interval = config.get(CONF_UPDATE_INTERVAL_SLOW, DEFAULT_UPDATE_INTERVAL_SLOW)
@@ -671,6 +671,7 @@ async def async_setup_entry(
         entry.async_on_unload(unsub_slow)
         entry.async_on_unload(unsub_fast)
 
-        # Immediate initial update so dashboard has data right away
-        await _slow_update()
-        await _fast_update()
+        # Immediate initial sensor update — coordinator already loaded above
+        for sensor in slow_sensors + fast_sensors:
+            await sensor.async_update()
+            sensor.async_write_ha_state()
