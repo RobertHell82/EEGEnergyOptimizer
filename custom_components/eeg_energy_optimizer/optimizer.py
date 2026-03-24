@@ -595,6 +595,11 @@ class EEGOptimizer:
         min_soc = self._calc_min_soc(snap)
         reasons: list[str] = []
 
+        # Special case: min_soc >= 100% means overnight consumption requires
+        # the entire battery — discharge is fundamentally impossible
+        if min_soc >= 100.0:
+            return (False, min_soc, ["Nachtverbrauch zu hoch"])
+
         # Check time
         discharge_start = snap.now.replace(
             hour=self._discharge_start_h,
