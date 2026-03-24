@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import collections
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -323,6 +324,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         optimizer = EEGOptimizer(hass, entry.entry_id, config, inverter, coordinator, provider)
         data["optimizer"] = optimizer
 
+        # Activity log: ring buffer (last 200 entries ≈ 50h at 15min interval)
+        activity_log = collections.deque(maxlen=200)
+        data["activity_log"] = activity_log
+        prev_zustand = [None]  # mutable container for closure
+        log_cycle_count = [0]  # track cycles for 15min heartbeat
+
+        def _log_activity(decision, reason):
+            """Append an activity entry and fire a HA event."""
+            entry_data = {
+                "timestamp": decision.timestamp,
+                "zustand": decision.zustand,
+                "reason": reason,
+                "soc": round(decision.discharge_soc, 0),
+                "min_soc": round(decision.min_soc_berechnet, 1),
+                "pv_today": round(decision.morning_pv_today_kwh, 1),
+                "pv_tomorrow": round(decision.discharge_pv_tomorrow_kwh, 1),
+                "bedarf": round(decision.energiebedarf_kwh, 1),
+                "ausfuehrung": decision.ausfuehrung,
+            }
+            activity_log.append(entry_data)
+            hass.bus.async_fire("eeg_optimizer_activity", entry_data)
+
         async def _optimizer_cycle(_now=None):
             select = data.get("select")
             mode = select._attr_current_option if select else MODE_AUS
@@ -332,6 +355,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             decision_sensor = data.get("decision_sensor")
             if decision_sensor and decision:
                 decision_sensor.update_from_decision(decision)
+
+            # Activity logging: on state change + every 15 cycles (15min)
+            if decision:
+                log_cycle_count[0] += 1
+                if decision.zustand != prev_zustand[0]:
+                    _log_activity(decision, decision.zustand)
+                    prev_zustand[0] = decision.zustand
+                    log_cycle_count[0] = 0
+                elif log_cycle_count[0] >= 15:
+                    _log_activity(decision, "Heartbeat")
+                    log_cycle_count[0] = 0
 
         if async_track_time_interval is not None:
             unsub = async_track_time_interval(

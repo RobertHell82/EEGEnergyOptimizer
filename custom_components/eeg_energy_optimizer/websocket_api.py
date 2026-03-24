@@ -117,6 +117,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_test_overrides)
     websocket_api.async_register_command(hass, ws_get_test_overrides)
     websocket_api.async_register_command(hass, ws_clear_test_overrides)
+    websocket_api.async_register_command(hass, ws_get_activity_log)
 
 
 @websocket_api.websocket_command(
@@ -472,3 +473,23 @@ async def ws_clear_test_overrides(
             decision_sensor.update_from_decision(decision)
 
     connection.send_result(msg["id"], {"success": True})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/get_activity_log",
+    }
+)
+@websocket_api.async_response
+async def ws_get_activity_log(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Return the activity log ring buffer."""
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+
+    log = data.get("activity_log")
+    connection.send_result(msg["id"], {"entries": list(log) if log else []})

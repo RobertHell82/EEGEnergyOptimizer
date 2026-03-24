@@ -163,6 +163,9 @@ class EegOptimizerPanel extends HTMLElement {
     this._simActive = false;
     this._simLoading = false;
     this._simSocEnabled = false;
+    this._activityLog = [];
+    this._activityLogLoaded = false;
+    this._activityUnsub = null;
 
     // Event delegation on shadow root
     // Legend hover: highlight matching weekday line
@@ -307,6 +310,9 @@ class EegOptimizerPanel extends HTMLElement {
         break;
       case "toggle-sidebar":
         this._toggleHaSidebar();
+        break;
+      case "refresh-activity-log":
+        this._loadActivityLog();
         break;
       case "toggle-mode": {
         const modeState = this._readState(this._entityIds?.select || "select.eeg_energy_optimizer_optimizer");
@@ -647,6 +653,32 @@ class EegOptimizerPanel extends HTMLElement {
     this.dispatchEvent(ev);
   }
 
+  async _loadActivityLog() {
+    if (!this._hass) return;
+    try {
+      const result = await this._hass.callWS({ type: "eeg_optimizer/get_activity_log" });
+      this._activityLog = result?.entries || [];
+      this._activityLogLoaded = true;
+      this._render();
+    } catch (e) {
+      // Silently ignore — log may not be available yet
+    }
+  }
+
+  _subscribeActivityEvents() {
+    if (this._activityUnsub || !this._hass?.connection) return;
+    this._hass.connection.subscribeEvents((ev) => {
+      if (ev.data) {
+        this._activityLog.push(ev.data);
+        // Keep max 200 entries client-side
+        if (this._activityLog.length > 200) this._activityLog.shift();
+        this._render();
+      }
+    }, "eeg_optimizer_activity").then(unsub => {
+      this._activityUnsub = unsub;
+    }).catch(() => {});
+  }
+
   /* ── Async data loading ───────────────────────── */
 
   async _checkPrerequisites() {
@@ -835,6 +867,12 @@ class EegOptimizerPanel extends HTMLElement {
 
     this._initialized = true;
     this._render();
+
+    // Load activity log and subscribe to live events
+    if (this._setupComplete && !this._activityLogLoaded) {
+      this._loadActivityLog();
+      this._subscribeActivityEvents();
+    }
   }
 
   _resolveEntityIds() {
@@ -1720,6 +1758,46 @@ class EegOptimizerPanel extends HTMLElement {
       </div>`;
   }
 
+  _renderActivityTimeline() {
+    if (!this._activityLog || this._activityLog.length === 0) {
+      return `<p style="color:var(--secondary-text-color);font-size:14px;text-align:center;margin:16px 0">
+        Noch keine Eintr\u00e4ge. Das Protokoll f\u00fcllt sich automatisch w\u00e4hrend der Optimizer l\u00e4uft.
+      </p>`;
+    }
+
+    const zustandIcon = (z) => {
+      if (z === "Morgen-Einspeisung") return "\u2600\uFE0F";
+      if (z === "Abend-Entladung") return "\uD83C\uDF19";
+      return "\u26A1";
+    };
+    const zustandColor = (z) => {
+      if (z === "Morgen-Einspeisung") return "var(--info-color, #2196F3)";
+      if (z === "Abend-Entladung") return "#FF9800";
+      return "var(--success-color, #4CAF50)";
+    };
+
+    // Show newest first, max 50 in view
+    const entries = [...this._activityLog].reverse().slice(0, 50);
+    const rows = entries.map(e => {
+      const ts = e.timestamp ? new Date(e.timestamp) : null;
+      const timeStr = ts ? `${String(ts.getHours()).padStart(2,"0")}:${String(ts.getMinutes()).padStart(2,"0")}` : "---";
+      const icon = zustandIcon(e.zustand);
+      const color = zustandColor(e.zustand);
+      const reason = e.reason === "Heartbeat" ? `<span style="opacity:0.5">${e.zustand}</span>` : `<strong>${e.zustand}</strong>`;
+      const badge = e.reason === "Heartbeat" ? "" : `<span class="activity-badge" style="background:${color}">Wechsel</span>`;
+      return `<div class="activity-entry">
+        <div class="activity-time">${timeStr}</div>
+        <div class="activity-dot" style="background:${color}">${icon}</div>
+        <div class="activity-content">
+          <div class="activity-header">${reason} ${badge}</div>
+          <div class="activity-details">SOC ${e.soc}% &middot; PV ${e.pv_today} kWh &middot; Bedarf ${e.bedarf} kWh${e.ausfuehrung ? " &middot; Ausf\u00fchrung" : ""}</div>
+        </div>
+      </div>`;
+    }).join("");
+
+    return `<div class="activity-timeline">${rows}</div>`;
+  }
+
   _renderBarChart(data, pvData = null) {
     if (!data || data.length === 0) return "<p>Keine Daten verfügbar</p>";
     const width = 700, height = 300, padding = {top: 30, right: 20, bottom: 40, left: 50};
@@ -2141,6 +2219,17 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
         `}
 
+        <!-- Activity Timeline -->
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <h3 style="margin:0">Aktivit&auml;tsprotokoll</h3>
+            <button class="btn-link" data-action="refresh-activity-log" style="font-size:12px">
+              <ha-icon icon="mdi:refresh" style="--mdc-icon-size:14px;vertical-align:middle"></ha-icon> Aktualisieren
+            </button>
+          </div>
+          ${this._renderActivityTimeline()}
+        </div>
+
         ${this._config?.expert_mode ? `
         <!-- Manual Control Card -->
         <div class="card">
@@ -2535,6 +2624,15 @@ class EegOptimizerPanel extends HTMLElement {
         .next-action { font-size: 14px; color: var(--primary-text-color); padding: 8px 0; border-top: 1px solid var(--divider-color); margin-top: 8px; }
         .chart-card { padding: 16px; }
         .chart-card h3 { font-size: 16px; margin: 0 0 12px; color: var(--primary-text-color); }
+        .activity-timeline { max-height: 400px; overflow-y: auto; }
+        .activity-entry { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--divider-color); }
+        .activity-entry:last-child { border-bottom: none; }
+        .activity-time { font-size: 13px; font-weight: 500; color: var(--secondary-text-color); min-width: 40px; padding-top: 2px; }
+        .activity-dot { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+        .activity-content { flex: 1; min-width: 0; }
+        .activity-header { font-size: 14px; color: var(--primary-text-color); }
+        .activity-details { font-size: 12px; color: var(--secondary-text-color); margin-top: 2px; }
+        .activity-badge { font-size: 10px; color: white; padding: 1px 6px; border-radius: 8px; margin-left: 6px; vertical-align: middle; }
         .soc-green { color: var(--success-color, #4caf50); }
         .soc-yellow { color: var(--warning-color, #ff9800); }
         .soc-red { color: var(--error-color, #f44336); }
@@ -2626,6 +2724,13 @@ class EegOptimizerPanel extends HTMLElement {
     // After innerHTML, populate entity datalists
     if (this._view === "wizard" && this._hass) {
       requestAnimationFrame(() => this._bindEntityPickers());
+    }
+  }
+
+  disconnectedCallback() {
+    if (this._activityUnsub) {
+      this._activityUnsub();
+      this._activityUnsub = null;
     }
   }
 }
