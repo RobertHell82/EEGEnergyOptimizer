@@ -2052,17 +2052,15 @@ class EegOptimizerPanel extends HTMLElement {
     return `
       <div class="dashboard-grid${narrowClass}">
         ${simBanner}
-        <!-- Header Card: Toggle + Live Values + Timestamps -->
+        <!-- Header Card: Live Values Grid + Toggle + Timestamps -->
         <div class="card header-card">
-          <div class="header-top">
-            <div class="header-live-values">
-              <div class="hlv"><span class="hlv-label">PV</span><span class="hlv-val val-green">${pvKw.toFixed(2)} kW</span></div>
-              <div class="hlv"><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${Math.abs(batKw).toFixed(2)} kW <small>(${batLabel})</small></span></div>
-              <div class="hlv"><span class="hlv-label">SOC</span><span class="hlv-val ${socColor}">${socText}%</span></div>
-              <div class="hlv"><span class="hlv-label">Netz</span><span class="hlv-val ${gridColor}">${Math.abs(gridKw).toFixed(2)} kW <small>(${gridLabel})</small></span></div>
-              <div class="hlv"><span class="hlv-label">Haus</span><span class="hlv-val val-blue">${hausKw.toFixed(2)} kW</span></div>
-            </div>
-            <div class="header-toggle">
+          <div class="header-grid">
+            <div class="hlv"><span class="hlv-label">PV</span><span class="hlv-val val-green">${pvKw.toFixed(2)} kW</span></div>
+            <div class="hlv"><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${Math.abs(batKw).toFixed(2)} kW <small>(${batLabel})</small></span></div>
+            <div class="hlv"><span class="hlv-label">SOC</span><span class="hlv-val ${socColor}">${socText}%</span></div>
+            <div class="hlv"><span class="hlv-label">Netz</span><span class="hlv-val ${gridColor}">${Math.abs(gridKw).toFixed(2)} kW <small>(${gridLabel})</small></span></div>
+            <div class="hlv"><span class="hlv-label">Haus</span><span class="hlv-val val-blue">${hausKw.toFixed(2)} kW</span></div>
+            <div class="hlv header-toggle-cell">
               <div class="mode-toggle ${modeToggleClass}" data-action="toggle-mode">
                 <div class="toggle-knob"></div>
               </div>
@@ -2508,9 +2506,8 @@ class EegOptimizerPanel extends HTMLElement {
         .status-divider { border: none; border-top: 1px solid var(--divider-color, #e0e0e0); margin: 8px 0; }
         .timestamps-row { display: flex; justify-content: space-between; padding: 4px 8px; font-size: 12px; color: var(--secondary-text-color, #999); }
         .header-card { padding: 16px; }
-        .header-top { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-        .header-live-values { display: flex; flex-wrap: wrap; gap: 12px 20px; flex: 1; }
-        .hlv { display: flex; flex-direction: column; gap: 2px; min-width: 70px; }
+        .header-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .hlv { display: flex; flex-direction: column; gap: 2px; }
         .hlv-label { font-size: 11px; color: var(--secondary-text-color, #999); text-transform: uppercase; letter-spacing: 0.5px; }
         .hlv-val { font-size: 15px; font-weight: 600; }
         .hlv-val small { font-weight: 400; font-size: 12px; opacity: 0.7; }
@@ -2518,10 +2515,8 @@ class EegOptimizerPanel extends HTMLElement {
         .val-orange { color: #ff9800; }
         .val-red { color: #f44336; }
         .val-blue { color: #2196f3; }
-        .header-toggle { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .header-toggle-cell { display: flex; flex-direction: row; align-items: center; gap: 8px; justify-content: flex-end; }
         .header-timestamps { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--divider-color, #e0e0e0); font-size: 11px; color: var(--secondary-text-color, #999); }
-        .dashboard-grid.narrow .header-top { flex-direction: column; }
-        .dashboard-grid.narrow .header-toggle { flex-direction: row; }
         .status-card-title { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 16px; }
         .dashboard-grid.narrow .status-cards-row { flex-direction: column; }
         .btn-manual-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
