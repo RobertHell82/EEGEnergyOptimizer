@@ -295,6 +295,12 @@ class EegOptimizerPanel extends HTMLElement {
       case "recheck-prerequisites":
         this._checkPrerequisites();
         break;
+      case "toggle-sidebar":
+        this._hass.callWS({ type: "frontend/toggle_sidebar" }).catch(() => {
+          // Fallback: navigate to HA root
+          window.history.back();
+        });
+        break;
       case "toggle-mode": {
         const modeState = this._readState(this._entityIds?.select || "select.eeg_energy_optimizer_optimizer");
         const currentMode = modeState ? modeState.state : "Test";
@@ -2292,7 +2298,8 @@ class EegOptimizerPanel extends HTMLElement {
           background: var(--app-header-background-color, var(--primary-color));
           color: var(--app-header-text-color, var(--text-primary-color));
         }
-        .toolbar h1 { font-size: 20px; font-weight: 400; margin: 0; }
+        .toolbar h1 { font-size: 20px; font-weight: 400; margin: 0; flex: 1; }
+        .toolbar .menu-btn { margin-right: 8px; }
         .toolbar button {
           background: none; border: none; color: inherit;
           cursor: pointer; padding: 8px; border-radius: 50%;
@@ -2567,6 +2574,9 @@ class EegOptimizerPanel extends HTMLElement {
         .val-blue { color: #2196F3; }
       </style>
       <div class="toolbar">
+        <button class="menu-btn" data-action="toggle-sidebar" title="Men\u00fc">
+          <ha-icon icon="mdi:menu"></ha-icon>
+        </button>
         <h1>EEG Optimizer</h1>
         <div class="toolbar-actions">${headerRight}</div>
       </div>
