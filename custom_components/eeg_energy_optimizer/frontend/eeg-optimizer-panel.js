@@ -759,22 +759,15 @@ class EegOptimizerPanel extends HTMLElement {
         forecast_solar: false,
       };
     }
-    // Auto-select forecast source based on what's installed
+    // Auto-select forecast source — always prefer Solcast when installed
     const p = this._prerequisites;
     if (p) {
-      const currentSource = this._wizardData.forecast_source;
-      const currentInstalled =
-        (currentSource === "solcast_solar" && p.solcast_solar) ||
-        (currentSource === "forecast_solar" && p.forecast_solar);
-      if (!currentInstalled) {
-        // Current selection not installed — pick best available
-        if (p.solcast_solar) {
-          this._wizardData.forecast_source = "solcast_solar";
-          this._applyForecastDefaults("solcast_solar");
-        } else if (p.forecast_solar) {
-          this._wizardData.forecast_source = "forecast_solar";
-          this._applyForecastDefaults("forecast_solar");
-        }
+      if (p.solcast_solar) {
+        this._wizardData.forecast_source = "solcast_solar";
+        this._applyForecastDefaults("solcast_solar");
+      } else if (p.forecast_solar) {
+        this._wizardData.forecast_source = "forecast_solar";
+        this._applyForecastDefaults("forecast_solar");
       }
     }
 
