@@ -2332,7 +2332,7 @@ class EegOptimizerPanel extends HTMLElement {
         .field-group label { display: block; font-weight: 500; margin-bottom: 4px; color: var(--primary-text-color); }
         .field-group label.checkbox-label { display: flex !important; align-items: center; gap: 8px; cursor: pointer; }
         .field-group .help-text { font-size: 12px; color: var(--secondary-text-color); margin-top: 4px; }
-        .field-group input, .field-group select {
+        .field-group input:not([type="checkbox"]), .field-group select {
           width: 100%; padding: 8px 12px; border: 1px solid var(--divider-color);
           border-radius: 4px; background: var(--card-background-color); color: var(--primary-text-color);
           font-size: 14px; box-sizing: border-box;
