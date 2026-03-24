@@ -74,9 +74,16 @@ const WIZARD_DEFAULTS = {
   expert_mode: false,
 };
 
-const SOLCAST_DEFAULTS = {
-  forecast_remaining_entity: "sensor.solcast_pv_forecast_prognose_fuer_heute",
-  forecast_tomorrow_entity: "sensor.solcast_pv_forecast_prognose_fuer_morgen",
+// Solcast sensor names changed across versions — support both conventions
+const SOLCAST_DEFAULTS_CANDIDATES = {
+  forecast_remaining_entity: [
+    "sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute",
+    "sensor.solcast_pv_forecast_prognose_fuer_heute",
+  ],
+  forecast_tomorrow_entity: [
+    "sensor.solcast_pv_forecast_prognose_morgen",
+    "sensor.solcast_pv_forecast_prognose_fuer_morgen",
+  ],
 };
 
 const FORECAST_SOLAR_DEFAULTS = {
@@ -824,12 +831,20 @@ class EegOptimizerPanel extends HTMLElement {
   }
 
   _applyForecastDefaults(source) {
-    const defaults =
-      source === "solcast_solar" ? SOLCAST_DEFAULTS : FORECAST_SOLAR_DEFAULTS;
-    this._wizardData.forecast_remaining_entity =
-      defaults.forecast_remaining_entity;
-    this._wizardData.forecast_tomorrow_entity =
-      defaults.forecast_tomorrow_entity;
+    if (source === "solcast_solar") {
+      // Auto-detect which Solcast naming convention exists
+      const states = this._hass?.states || {};
+      const pick = (candidates) => candidates.find(id => states[id]) || candidates[0];
+      this._wizardData.forecast_remaining_entity =
+        pick(SOLCAST_DEFAULTS_CANDIDATES.forecast_remaining_entity);
+      this._wizardData.forecast_tomorrow_entity =
+        pick(SOLCAST_DEFAULTS_CANDIDATES.forecast_tomorrow_entity);
+    } else {
+      this._wizardData.forecast_remaining_entity =
+        FORECAST_SOLAR_DEFAULTS.forecast_remaining_entity;
+      this._wizardData.forecast_tomorrow_entity =
+        FORECAST_SOLAR_DEFAULTS.forecast_tomorrow_entity;
+    }
   }
 
   /* ── Hass / panel setters ─────────────────────── */
@@ -1287,33 +1302,43 @@ class EegOptimizerPanel extends HTMLElement {
     const forecastSelected = selected === "forecast_solar";
 
     // Auto-suggest sensor defaults when source is selected
-    if (
-      selected &&
-      (!this._wizardData.forecast_remaining_entity ||
-        this._wizardData.forecast_remaining_entity === SOLCAST_DEFAULTS.forecast_remaining_entity ||
-        this._wizardData.forecast_remaining_entity === FORECAST_SOLAR_DEFAULTS.forecast_remaining_entity)
-    ) {
+    const allSolcastCandidates = [
+      ...SOLCAST_DEFAULTS_CANDIDATES.forecast_remaining_entity,
+      ...SOLCAST_DEFAULTS_CANDIDATES.forecast_tomorrow_entity,
+    ];
+    const isDefaultOrEmpty = !this._wizardData.forecast_remaining_entity
+      || allSolcastCandidates.includes(this._wizardData.forecast_remaining_entity)
+      || this._wizardData.forecast_remaining_entity === FORECAST_SOLAR_DEFAULTS.forecast_remaining_entity;
+    if (selected && isDefaultOrEmpty) {
       this._applyForecastDefaults(selected);
     }
 
     // Sensor fields shown below cards when a source is selected
+    const solcastRemainingHint = "Verbleibende PV-Produktion f\u00fcr den heutigen Tag in kWh. "
+      + "Solcast-Sensornamen variieren je nach Version, z.B.: "
+      + "sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute oder "
+      + "sensor.solcast_pv_forecast_prognose_fuer_heute.";
+    const solcastTomorrowHint = "Prognostizierte PV-Produktion f\u00fcr morgen in kWh. "
+      + "Solcast-Sensornamen variieren je nach Version, z.B.: "
+      + "sensor.solcast_pv_forecast_prognose_morgen oder "
+      + "sensor.solcast_pv_forecast_prognose_fuer_morgen.";
     const sensorFields = selected ? `
       <div style="margin-top:16px">
         ${this._entityPickerHtml(
           "forecast_remaining_entity",
           this._wizardData.forecast_remaining_entity,
-          "Sensor für PV Prognose verbleibend heute *",
+          "Sensor f\u00fcr PV Prognose verbleibend heute *",
           solcastSelected
-            ? "Verbleibende PV-Produktion f\u00fcr den heutigen Tag in kWh (Solcast: sensor.solcast_pv_forecast_prognose_fuer_heute)."
+            ? solcastRemainingHint
             : "Verbleibende PV-Produktion f\u00fcr den heutigen Tag in kWh (Forecast.Solar: sensor.energy_production_today_remaining).",
           "sensor"
         )}
         ${this._entityPickerHtml(
           "forecast_tomorrow_entity",
           this._wizardData.forecast_tomorrow_entity,
-          "Sensor für PV Prognose morgen *",
+          "Sensor f\u00fcr PV Prognose morgen *",
           solcastSelected
-            ? "Prognostizierte PV-Produktion f\u00fcr morgen in kWh (Solcast: sensor.solcast_pv_forecast_prognose_fuer_morgen)."
+            ? solcastTomorrowHint
             : "Prognostizierte PV-Produktion f\u00fcr morgen in kWh (Forecast.Solar: sensor.energy_production_tomorrow).",
           "sensor"
         )}
