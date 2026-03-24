@@ -124,9 +124,10 @@ None yet.
 | 260323-u1p | Simulation: Verbrauchsfaktor + SOC Override fuer Optimizer-Testing | 2026-03-23 | 0a2b305 | [260323-u1p-testing-bereich-verbrauchswerte-berschre](./quick/260323-u1p-testing-bereich-verbrauchswerte-berschre/) |
 | 260324-hy6 | Expertenmodus-Schalter im Wizard: Toggle oben im Progress-Bar | 2026-03-24 | b86231d | [260324-hy6-expertenmodus-schalter-im-wizard-toggle-](./quick/260324-hy6-expertenmodus-schalter-im-wizard-toggle-/) |
 | 260324-ip7 | Optimizer-Aktivitaetsprotokoll: HA Events + Dashboard Timeline | 2026-03-24 | e64fef4 | [260324-ip7-optimizer-aktivitaetsprotokoll-ha-logboo](./quick/260324-ip7-optimizer-aktivitaetsprotokoll-ha-logboo/) |
+| 260324-ji1 | Optimizer Startup beschleunigen: Backfill async, Timer 30s | 2026-03-24 | db23c89 | [260324-ji1-optimizer-startup-beschleunigen-backfill](./quick/260324-ji1-optimizer-startup-beschleunigen-backfill/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-24 - Completed quick task 260324-ip7: Optimizer-Aktivitaetsprotokoll
+Last activity: 2026-03-24 - Completed quick task 260324-ji1: Optimizer Startup beschleunigen
 Stopped at: Completed quick-260323-u1p
 Resume file: None
