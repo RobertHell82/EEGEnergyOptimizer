@@ -1287,23 +1287,23 @@ class EegOptimizerPanel extends HTMLElement {
     return `
       <p style="margin-bottom:12px;color:var(--secondary-text-color)">Wähle deine PV-Prognose-Quelle:</p>
       <div class="prereq-cards" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="card forecast-option ${solcastSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center" data-action="select-forecast" data-value="solcast_solar">
+          <div style="height:60px;display:flex;align-items:center;justify-content:center;margin-bottom:8px">
+            <img src="https://brands.home-assistant.io/solcast_solar/logo.png" alt="Solcast" style="max-width:100px;max-height:60px;height:auto" onerror="this.style.display='none'">
+          </div>
+          <h3 style="margin:0 0 8px">Solcast Solar (empfohlen)</h3>
+          ${solcastBadge}
+          <p style="font-size:13px;color:var(--secondary-text-color);margin:8px 0">Genauere Prognosen, kostenloser API-Key erforderlich.</p>
+          <button class="btn-secondary" data-action="show-dialog" data-dialog="solcast">Anleitung</button>
+        </div>
         <div class="card forecast-option ${forecastSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center" data-action="select-forecast" data-value="forecast_solar">
           <div style="height:60px;display:flex;align-items:center;justify-content:center;margin-bottom:8px">
             <img src="https://brands.home-assistant.io/forecast_solar/logo.png" alt="Forecast.Solar" style="max-width:100px;max-height:60px;height:auto" onerror="this.style.display='none'">
           </div>
           <h3 style="margin:0 0 8px">Forecast.Solar</h3>
           ${forecastBadge}
-          <p style="font-size:13px;color:var(--secondary-text-color);margin:8px 0">Einfachere Einrichtung, keine Registrierung nötig.</p>
+          <p style="font-size:13px;color:var(--secondary-text-color);margin:8px 0">Einfachere Einrichtung, keine Registrierung n\u00f6tig.</p>
           <button class="btn-secondary" data-action="show-dialog" data-dialog="forecast_solar">Anleitung</button>
-        </div>
-        <div class="card forecast-option ${solcastSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center" data-action="select-forecast" data-value="solcast_solar">
-          <div style="height:60px;display:flex;align-items:center;justify-content:center;margin-bottom:8px">
-            <img src="https://brands.home-assistant.io/solcast_solar/logo.png" alt="Solcast" style="max-width:100px;max-height:60px;height:auto" onerror="this.style.display='none'">
-          </div>
-          <h3 style="margin:0 0 8px">Solcast Solar</h3>
-          ${solcastBadge}
-          <p style="font-size:13px;color:var(--secondary-text-color);margin:8px 0">Genauere Prognosen, kostenloser API-Key erforderlich.</p>
-          <button class="btn-secondary" data-action="show-dialog" data-dialog="solcast">Anleitung</button>
         </div>
       </div>
       <button class="btn-secondary" data-action="recheck-prerequisites">Erneut prüfen</button>
