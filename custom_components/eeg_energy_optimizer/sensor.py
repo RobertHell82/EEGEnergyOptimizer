@@ -249,11 +249,12 @@ class DailyForecastSensor(SensorEntity):
 
     async def async_update(self) -> None:
         now = _now()
+        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
         if self._day_offset == 0:
             # Today: remaining from now to end of day
             start = now
-            end = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+            end = midnight + timedelta(days=1)
         else:
             # Future days: full 24h
             target_date = now.date() + timedelta(days=self._day_offset)
@@ -267,9 +268,14 @@ class DailyForecastSensor(SensorEntity):
 
         result = self._coordinator.calculate_period(start, end)
         self._attr_native_value = round(result["verbrauch_kwh"], 2)
-        self._attr_extra_state_attributes = {
-            "stunden": round(result["stunden"], 1),
-        }
+        attrs = {"stunden": round(result["stunden"], 1)}
+
+        if self._day_offset == 0:
+            # Full day total (midnight to midnight) for dashboard chart
+            full_day = self._coordinator.calculate_period(midnight, midnight + timedelta(days=1))
+            attrs["tagesverbrauch_gesamt_kwh"] = round(full_day["verbrauch_kwh"], 2)
+
+        self._attr_extra_state_attributes = attrs
 
 
 # ---------------------------------------------------------------------------

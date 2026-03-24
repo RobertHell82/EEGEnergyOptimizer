@@ -2235,7 +2235,15 @@ class EegOptimizerPanel extends HTMLElement {
     ];
     const today = new Date();
     const forecastData = forecastSensors.map((eid, i) => {
-      const val = this._readFloat(eid);
+      let val;
+      if (i === 0) {
+        // Today: use full-day total from attribute instead of remaining
+        const s = this._readState(eid);
+        val = s?.attributes?.tagesverbrauch_gesamt_kwh != null
+          ? Number(s.attributes.tagesverbrauch_gesamt_kwh) : this._readFloat(eid);
+      } else {
+        val = this._readFloat(eid);
+      }
       let label;
       if (i === 0) label = "Heute";
       else if (i === 1) label = "Morgen";
