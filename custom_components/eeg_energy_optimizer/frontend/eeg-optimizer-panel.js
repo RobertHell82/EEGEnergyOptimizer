@@ -166,6 +166,8 @@ class EegOptimizerPanel extends HTMLElement {
     this._activityLog = [];
     this._activityLogLoaded = false;
     this._activityUnsub = null;
+    this._activityPageSize = 25;
+    this._activityShowCount = 25;
 
     // Event delegation on shadow root
     // Legend hover: highlight matching weekday line
@@ -312,7 +314,12 @@ class EegOptimizerPanel extends HTMLElement {
         this._toggleHaSidebar();
         break;
       case "refresh-activity-log":
+        this._activityShowCount = this._activityPageSize;
         this._loadActivityLog();
+        break;
+      case "show-more-activity":
+        this._activityShowCount += this._activityPageSize;
+        this._render();
         break;
       case "toggle-mode": {
         const modeState = this._readState(this._entityIds?.select || "select.eeg_energy_optimizer_optimizer");
@@ -1792,17 +1799,20 @@ class EegOptimizerPanel extends HTMLElement {
       return "var(--success-color, #4CAF50)";
     };
 
-    // Show newest first, max 50 in view
-    const entries = [...this._activityLog].reverse().slice(0, 50);
+    // Show newest first, paged
+    const allEntries = [...this._activityLog].reverse();
+    const entries = allEntries.slice(0, this._activityShowCount);
+    const hasMore = allEntries.length > this._activityShowCount;
     const rows = entries.map(e => {
       const ts = e.timestamp ? new Date(e.timestamp) : null;
       const timeStr = ts ? `${String(ts.getHours()).padStart(2,"0")}:${String(ts.getMinutes()).padStart(2,"0")}` : "---";
+      const dateStr = ts ? `${String(ts.getDate()).padStart(2,"0")}.${String(ts.getMonth()+1).padStart(2,"0")}` : "";
       const icon = zustandIcon(e.zustand);
       const color = zustandColor(e.zustand);
       const reason = e.reason === "Heartbeat" ? `<span style="opacity:0.5">${e.zustand}</span>` : `<strong>${e.zustand}</strong>`;
       const badge = e.reason === "Heartbeat" ? "" : `<span class="activity-badge" style="background:${color}">Wechsel</span>`;
       return `<div class="activity-entry">
-        <div class="activity-time">${timeStr}</div>
+        <div class="activity-time">${dateStr}<br>${timeStr}</div>
         <div class="activity-dot" style="background:${color}">${icon}</div>
         <div class="activity-content">
           <div class="activity-header">${reason} ${badge}</div>
@@ -1811,7 +1821,13 @@ class EegOptimizerPanel extends HTMLElement {
       </div>`;
     }).join("");
 
-    return `<div class="activity-timeline">${rows}</div>`;
+    const moreBtn = hasMore ? `<div style="text-align:center;padding:8px">
+      <button class="btn-secondary" data-action="show-more-activity" style="font-size:13px">
+        Mehr anzeigen (${allEntries.length - this._activityShowCount} weitere)
+      </button>
+    </div>` : "";
+
+    return `<div class="activity-timeline">${rows}</div>${moreBtn}`;
   }
 
   _renderBarChart(data, pvData = null) {

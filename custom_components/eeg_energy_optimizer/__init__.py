@@ -324,9 +324,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         optimizer = EEGOptimizer(hass, entry.entry_id, config, inverter, coordinator, provider)
         data["optimizer"] = optimizer
 
-        # Activity log: ring buffer (last 200 entries ≈ 50h at 15min interval)
-        activity_log = collections.deque(maxlen=200)
+        # Activity log: persistent ring buffer (last 500 entries)
+        from homeassistant.helpers.storage import Store
+        ACTIVITY_STORE_KEY = f"{DOMAIN}_{entry.entry_id}_activity"
+        activity_store = Store(hass, 1, ACTIVITY_STORE_KEY)
+        activity_log = collections.deque(maxlen=500)
         data["activity_log"] = activity_log
+        save_pending = [False]
+
+        # Load persisted entries
+        try:
+            stored = await activity_store.async_load()
+            if stored and isinstance(stored, list):
+                activity_log.extend(stored)
+        except Exception:
+            _LOGGER.debug("No persisted activity log found")
+
+        async def _save_activity_log():
+            """Debounced save — writes at most once per cycle."""
+            if save_pending[0]:
+                return
+            save_pending[0] = True
+
+            async def _do_save():
+                save_pending[0] = False
+                await activity_store.async_save(list(activity_log))
+
+            # Save after a short delay to batch rapid entries
+            if async_call_later is not None:
+                async_call_later(hass, 5, lambda _: hass.async_create_task(_do_save()))
+            else:
+                await _do_save()
+
         prev_zustand = [None]  # mutable container for closure
         log_cycle_count = [0]  # track cycles for 15min heartbeat
 
@@ -345,6 +374,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             }
             activity_log.append(entry_data)
             hass.bus.async_fire("eeg_optimizer_activity", entry_data)
+            hass.async_create_task(_save_activity_log())
 
         async def _optimizer_cycle(_now=None):
             select = data.get("select")
