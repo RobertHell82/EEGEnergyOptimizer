@@ -248,6 +248,12 @@ class EegOptimizerPanel extends HTMLElement {
         }
         if (field === "expert_mode") {
           this._wizardData[field] = target.checked;
+          // Skip step 5 if leaving expert mode while on it
+          if (!target.checked && this._wizardStep === 5) {
+            this._wizardStep = 6;
+          }
+          this._saveWizardProgress();
+          this._render();
           return;
         }
         if (target.tagName === "SELECT") {
@@ -278,6 +284,10 @@ class EegOptimizerPanel extends HTMLElement {
         break;
       case "prev-step":
         this._wizardStep = Math.max(0, this._wizardStep - 1);
+        // Skip "Erweiterte Einstellungen" (step 5) in non-expert mode
+        if (this._wizardStep === 5 && !this._wizardData.expert_mode) {
+          this._wizardStep = 4;
+        }
         this._saveWizardProgress();
         this._refreshStepData();
         break;
@@ -484,6 +494,10 @@ class EegOptimizerPanel extends HTMLElement {
       if (!valid) return;
 
       this._wizardStep = Math.min(WIZARD_STEPS.length - 1, this._wizardStep + 1);
+      // Skip "Erweiterte Einstellungen" (step 5) in non-expert mode
+      if (this._wizardStep === 5 && !this._wizardData.expert_mode) {
+        this._wizardStep = 6;
+      }
       this._saveWizardProgress();
       await this._refreshStepData();
     } finally {
@@ -987,8 +1001,11 @@ class EegOptimizerPanel extends HTMLElement {
 
   _renderWizard() {
     const step = this._wizardStep;
-    const total = WIZARD_STEPS.length;
-    const progress = ((step + 1) / total) * 100;
+    const isExpert = this._wizardData.expert_mode;
+    const total = isExpert ? WIZARD_STEPS.length : WIZARD_STEPS.length - 1;
+    // In non-expert mode, step 6 (Zusammenfassung) becomes display-step 5
+    const displayStep = (!isExpert && step > 5) ? step - 1 : step;
+    const progress = ((displayStep + 1) / total) * 100;
 
     let stepContent = "";
     switch (step) {
@@ -1031,7 +1048,14 @@ class EegOptimizerPanel extends HTMLElement {
     }
 
     return `
-      <div class="step-indicator">Schritt ${step + 1} von ${total} — ${WIZARD_STEPS[step]}</div>
+      <div class="step-indicator">
+        <span>Schritt ${displayStep + 1} von ${total} — ${WIZARD_STEPS[step]}</span>
+        <label class="expert-toggle">
+          <input type="checkbox" data-field="expert_mode"
+                 ${this._wizardData.expert_mode ? "checked" : ""}>
+          <span>Experte</span>
+        </label>
+      </div>
       <div class="progress-bar">
         <div class="progress-bar-fill" style="width:${progress}%"></div>
       </div>
@@ -1304,7 +1328,8 @@ class EegOptimizerPanel extends HTMLElement {
     const mDelay = this._wizardData.enable_morning_delay;
     const nDischarge = this._wizardData.enable_night_discharge;
 
-    const morningFields = mDelay ? `
+    const isExpert = this._wizardData.expert_mode;
+    const morningFields = mDelay && isExpert ? `
       <div class="feature-params">
         <div class="field-group">
           <label>Batterieladung blockiert bis maximal</label>
@@ -1314,7 +1339,7 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
       </div>` : "";
 
-    const dischargeFields = nDischarge ? `
+    const dischargeFields = nDischarge && isExpert ? `
       <div class="feature-params">
         <div class="field-group">
           <label>Startzeit der Entladung</label>
@@ -1370,7 +1395,7 @@ class EegOptimizerPanel extends HTMLElement {
         ${dischargeFields}
       </div>
 
-      <div style="margin-top:24px">
+      ${isExpert ? `<div style="margin-top:24px">
         <h3 style="margin:0 0 12px;font-size:16px">Allgemeine Einstellungen</h3>
         <div class="field-group">
           <label>Sicherheitspuffer (%)</label>
@@ -1379,7 +1404,7 @@ class EegOptimizerPanel extends HTMLElement {
                  min="0" max="100" step="5">
           <div class="help-text">Aufschlag auf den berechneten Energiebedarf. Gilt für beide Optimierungen — sorgt dafür, dass immer eine Reserve eingeplant wird.</div>
         </div>
-      </div>`;
+      </div>` : ""}`;
   }
 
   /* ── Step 5: Erweiterte Einstellungen ────────── */
@@ -1407,13 +1432,9 @@ class EegOptimizerPanel extends HTMLElement {
                min="5" max="120">
         <div class="help-text">Update-Intervall für das Verbrauchsprofil.</div>
       </div>
-      <div class="field-group">
-        <label class="checkbox-label">
-          <input type="checkbox" data-field="expert_mode"
-                 ${this._wizardData.expert_mode ? "checked" : ""}>
-          <span>Expertenmodus aktivieren</span>
-        </label>
-        <div class="help-text">Zeigt manuelle Wechselrichter-Steuerung und Simulations-Werkzeuge auf dem Dashboard.</div>
+      <div class="help-text" style="margin-top:8px">
+        <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
+        Der Expertenmodus kann jederzeit oben im Wizard-Fortschritt ein- und ausgeschaltet werden.
       </div>`;
   }
 
@@ -1461,13 +1482,13 @@ class EegOptimizerPanel extends HTMLElement {
       <div class="summary-section">
         <h3>Verzögerte Batterieladung</h3>
         ${row("Status", d.enable_morning_delay ? "Aktiv" : "Deaktiviert")}
-        ${d.enable_morning_delay ? row("Blockiert bis", d.morning_end_time) : ""}
+        ${d.enable_morning_delay && d.expert_mode ? row("Blockiert bis", d.morning_end_time) : ""}
       </div>
 
       <div class="summary-section">
         <h3>Nachteinspeisung</h3>
         ${row("Status", d.enable_night_discharge ? "Aktiv" : "Deaktiviert")}
-        ${d.enable_night_discharge ? `
+        ${d.enable_night_discharge && d.expert_mode ? `
           ${row("Startzeit", d.discharge_start_time)}
           ${row("Leistung", d.discharge_power_kw + " kW")}
           ${row("Min SOC", d.min_soc + " %")}
@@ -1476,8 +1497,8 @@ class EegOptimizerPanel extends HTMLElement {
 
       <div class="summary-section">
         <h3>Allgemein</h3>
-        ${row("Sicherheitspuffer", d.safety_buffer_pct + " %")}
-        ${row("Verbrauchsdurchschnitt", d.lookback_weeks + " Wochen")}
+        ${d.expert_mode ? row("Sicherheitspuffer", d.safety_buffer_pct + " %") : ""}
+        ${d.expert_mode ? row("Verbrauchsdurchschnitt", d.lookback_weeks + " Wochen") : ""}
         ${row("Expertenmodus", d.expert_mode ? "Aktiviert" : "Deaktiviert")}
       </div>`;
   }
@@ -2351,7 +2372,10 @@ class EegOptimizerPanel extends HTMLElement {
         .btn-primary:hover { opacity: 0.9; }
         /* Wizard styles */
         .wizard-nav { display: flex; justify-content: space-between; margin-top: 24px; }
-        .step-indicator { text-align: center; margin-bottom: 16px; color: var(--secondary-text-color); font-size: 14px; }
+        .step-indicator { display: flex; justify-content: center; align-items: center; gap: 12px; margin-bottom: 16px; color: var(--secondary-text-color); font-size: 14px; }
+        .expert-toggle { display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; opacity: 0.7; transition: opacity 0.2s; white-space: nowrap; }
+        .expert-toggle:hover { opacity: 1; }
+        .expert-toggle input { margin: 0; cursor: pointer; }
         .progress-bar { height: 4px; background: var(--divider-color); border-radius: 2px; margin-bottom: 24px; }
         .progress-bar-fill { height: 100%; background: var(--primary-color); border-radius: 2px; transition: width 0.3s; }
         .field-group { margin-bottom: 16px; }
