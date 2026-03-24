@@ -97,13 +97,41 @@ const DIALOG_CONTENT = {
       </ol>`,
   },
   solcast: {
-    title: "Solcast Solar installieren",
+    title: "Solcast Solar einrichten",
     content: `
+      <style>.guide-img { max-width:100%; border-radius:8px; margin:8px 0 12px; border:1px solid var(--divider-color); cursor:pointer; } .guide-img:hover { opacity:0.9; }</style>
+      <h3 style="margin:16px 0 8px">1. Registrierung bei Solcast</h3>
       <ol style="padding-left:20px;line-height:1.8">
-        <li>Gehe zu <strong>HACS &rarr; Integrationen &rarr; Suche &lsquo;Solcast PV Forecast&rsquo;</strong></li>
-        <li>Installiere die Integration und starte HA neu</li>
-        <li>Unter <strong>Einstellungen &rarr; Ger&auml;te &amp; Dienste &rarr; Solcast Solar</strong> hinzuf&uuml;gen</li>
-        <li>Trage deinen Solcast API-Key ein (kostenlos auf <a href="https://solcast.com" target="_blank">solcast.com</a>)</li>
+        <li>Gehe auf <a href="https://toolkit.solcast.com.au/" target="_blank">toolkit.solcast.com.au</a> um Dich zu registrieren.</li>
+        <li>W&auml;hle dort den Accounttyp <strong>Home User</strong>.
+          <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/01_Home_User.png" alt="Home User w&auml;hlen">
+        </li>
+        <li>W&auml;hle <strong>Hobbyist</strong>, gib Deine Daten ein und klicke auf <strong>Submit</strong>.
+          <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/02_Registration.png" alt="Registrierung">
+        </li>
+        <li>W&auml;hle ein Passwort und klicke auf <strong>Submit</strong>.</li>
+        <li>Du erh&auml;ltst eine E-Mail zur Best&auml;tigung &mdash; &ouml;ffne den Link darin.</li>
+        <li>Melde Dich mit dem neuen Benutzer an.</li>
+        <li>Klicke auf <strong>&ldquo;Add your first Home PV System to get started&rdquo;</strong>.
+          <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/03_Add_PV_System.png" alt="PV System hinzuf&uuml;gen">
+        </li>
+        <li>Daten der PV-Anlage erfassen und auf <strong>Submit</strong> klicken.
+          <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/04_Save_PV_System.png" alt="PV System speichern">
+        </li>
+        <li>&Ouml;ffne oben rechts das Men&uuml; neben dem Benutzernamen und klicke auf <strong>Your API Key</strong>.</li>
+        <li>Kopiere den angezeigten Key f&uuml;r sp&auml;ter.
+          <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/05_API_Key.png" alt="API Key kopieren">
+        </li>
+      </ol>
+      <h3 style="margin:16px 0 8px">2. Installation der Integration</h3>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Gehe zu <strong>HACS &rarr; Integrationen &rarr; Suche &ldquo;Solcast PV Forecast&rdquo;</strong></li>
+        <li>Installiere die Integration und starte Home Assistant neu.</li>
+        <li>Unter <strong>Einstellungen &rarr; Ger&auml;te &amp; Dienste &rarr; Solcast Solar</strong> hinzuf&uuml;gen.</li>
+        <li>Gib den zuvor kopierten API-Key ein, lasse die restlichen Einstellungen wie vorausgew&auml;hlt und klicke auf <strong>OK</strong>.</li>
+        <li>Aktiviere die deaktivierten Prognose-Sensoren f&uuml;r die Tage 3 bis 7: Klicke den Sensor an, dann auf das Zahnrad und stelle ihn auf <strong>Aktiviert</strong>.
+          <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/06_Prognosesensoren.png" alt="Sensoren aktivieren">
+        </li>
       </ol>`,
   },
   forecast_solar: {
@@ -2530,7 +2558,7 @@ class EegOptimizerPanel extends HTMLElement {
         }
         .dialog-card {
           background: var(--card-background-color); border-radius: 12px;
-          padding: 24px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;
+          padding: 24px; max-width: 700px; width: 92%; max-height: 85vh; overflow-y: auto;
         }
         .summary-section { margin-bottom: 16px; }
         .summary-section h3 { font-size: 16px; color: var(--primary-color); margin-bottom: 8px; }
