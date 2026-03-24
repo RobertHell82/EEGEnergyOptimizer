@@ -1398,10 +1398,10 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="help-text">Update-Intervall für das Verbrauchsprofil.</div>
       </div>
       <div class="field-group">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <label class="checkbox-label">
           <input type="checkbox" data-field="expert_mode"
                  ${this._wizardData.expert_mode ? "checked" : ""}>
-          Expertenmodus aktivieren
+          <span>Expertenmodus aktivieren</span>
         </label>
         <div class="help-text">Zeigt manuelle Wechselrichter-Steuerung und Simulations-Werkzeuge auf dem Dashboard.</div>
       </div>`;
@@ -2314,6 +2314,7 @@ class EegOptimizerPanel extends HTMLElement {
         .progress-bar-fill { height: 100%; background: var(--primary-color); border-radius: 2px; transition: width 0.3s; }
         .field-group { margin-bottom: 16px; }
         .field-group label { display: block; font-weight: 500; margin-bottom: 4px; color: var(--primary-text-color); }
+        .field-group label.checkbox-label { display: flex !important; align-items: center; gap: 8px; cursor: pointer; }
         .field-group .help-text { font-size: 12px; color: var(--secondary-text-color); margin-top: 4px; }
         .field-group input, .field-group select {
           width: 100%; padding: 8px 12px; border: 1px solid var(--divider-color);
@@ -2353,7 +2354,8 @@ class EegOptimizerPanel extends HTMLElement {
         .summary-row .value { color: var(--primary-text-color); font-weight: 500; max-width: 60%; text-align: right; word-break: break-all; }
         .btn-secondary {
           background: transparent; border: 1px solid var(--primary-color);
-          color: var(--primary-color); border-radius: 4px; padding: 8px 16px; cursor: pointer;
+          color: var(--primary-color); border-radius: 4px; padding: 12px 32px;
+          cursor: pointer; font-size: 16px; font-weight: 500;
         }
         .btn-secondary:hover { background: var(--primary-color); color: var(--text-primary-color); }
         .btn-disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
