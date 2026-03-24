@@ -123,9 +123,10 @@ None yet.
 | 260323-tg9 | Dashboard: SVG Energy Flow Diagramm + Live Values Card | 2026-03-23 | 96ee638 | [260323-tg9-dashboard-svg-energy-flow-diagramm-live-](./quick/260323-tg9-dashboard-svg-energy-flow-diagramm-live-/) |
 | 260323-u1p | Simulation: Verbrauchsfaktor + SOC Override fuer Optimizer-Testing | 2026-03-23 | 0a2b305 | [260323-u1p-testing-bereich-verbrauchswerte-berschre](./quick/260323-u1p-testing-bereich-verbrauchswerte-berschre/) |
 | 260324-hy6 | Expertenmodus-Schalter im Wizard: Toggle oben im Progress-Bar | 2026-03-24 | b86231d | [260324-hy6-expertenmodus-schalter-im-wizard-toggle-](./quick/260324-hy6-expertenmodus-schalter-im-wizard-toggle-/) |
+| 260324-ip7 | Optimizer-Aktivitaetsprotokoll: HA Events + Dashboard Timeline | 2026-03-24 | e64fef4 | [260324-ip7-optimizer-aktivitaetsprotokoll-ha-logboo](./quick/260324-ip7-optimizer-aktivitaetsprotokoll-ha-logboo/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-24 - Completed quick task 260324-hy6: Expertenmodus-Schalter im Wizard
+Last activity: 2026-03-24 - Completed quick task 260324-ip7: Optimizer-Aktivitaetsprotokoll
 Stopped at: Completed quick-260323-u1p
 Resume file: None
