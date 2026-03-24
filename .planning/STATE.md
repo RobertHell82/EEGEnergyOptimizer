@@ -122,9 +122,10 @@ None yet.
 | 260323-rzw | Dashboard: Ein/Test Toggle + Metrics Row entfernt + Mode Badge entfernt | 2026-03-23 | 32bb793 | [260323-rzw-dashboard-ein-test-toggle-metrics-row-we](./quick/260323-rzw-dashboard-ein-test-toggle-metrics-row-we/) |
 | 260323-tg9 | Dashboard: SVG Energy Flow Diagramm + Live Values Card | 2026-03-23 | 96ee638 | [260323-tg9-dashboard-svg-energy-flow-diagramm-live-](./quick/260323-tg9-dashboard-svg-energy-flow-diagramm-live-/) |
 | 260323-u1p | Simulation: Verbrauchsfaktor + SOC Override fuer Optimizer-Testing | 2026-03-23 | 0a2b305 | [260323-u1p-testing-bereich-verbrauchswerte-berschre](./quick/260323-u1p-testing-bereich-verbrauchswerte-berschre/) |
+| 260324-hy6 | Expertenmodus-Schalter im Wizard: Toggle oben im Progress-Bar | 2026-03-24 | b86231d | [260324-hy6-expertenmodus-schalter-im-wizard-toggle-](./quick/260324-hy6-expertenmodus-schalter-im-wizard-toggle-/) |
 
 ## Session Continuity
 
-Last session: 2026-03-23T20:50:00Z
+Last activity: 2026-03-24 - Completed quick task 260324-hy6: Expertenmodus-Schalter im Wizard
 Stopped at: Completed quick-260323-u1p
 Resume file: None
