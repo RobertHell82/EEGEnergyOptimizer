@@ -1701,7 +1701,7 @@ class EegOptimizerPanel extends HTMLElement {
 
   _renderBarChart(data, pvData = null) {
     if (!data || data.length === 0) return "<p>Keine Daten verfügbar</p>";
-    const width = 700, height = 340, padding = {top: 40, right: 20, bottom: 50, left: 55};
+    const width = 700, height = 300, padding = {top: 30, right: 20, bottom: 40, left: 50};
     const chartW = width - padding.left - padding.right;
     const chartH = height - padding.top - padding.bottom;
     const maxVal = Math.max(...data.map(d => d.value), ...(pvData || []).map(d => d.value || 0), 1) * 1.1;
@@ -1719,7 +1719,7 @@ class EegOptimizerPanel extends HTMLElement {
         const barH1 = (d.value / maxVal) * chartH;
         const y1 = padding.top + chartH - barH1;
         bars += `<rect x="${x1}" y="${y1}" width="${barW}" height="${barH1}" fill="var(--primary-color)" rx="3"/>`;
-        bars += `<text x="${x1 + barW/2}" y="${y1 - 6}" text-anchor="middle" font-size="15" font-weight="500" fill="var(--primary-text-color)">${d.value.toFixed(1)}</text>`;
+        bars += `<text class="bc-val" x="${x1 + barW/2}" y="${y1 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${d.value.toFixed(1)}</text>`;
 
         // PV bar (right)
         const pvVal = pvData[i]?.value || 0;
@@ -1728,19 +1728,19 @@ class EegOptimizerPanel extends HTMLElement {
           const barH2 = (pvVal / maxVal) * chartH;
           const y2 = padding.top + chartH - barH2;
           bars += `<rect x="${x2}" y="${y2}" width="${barW}" height="${barH2}" fill="#FF9800" rx="3"/>`;
-          bars += `<text x="${x2 + barW/2}" y="${y2 - 6}" text-anchor="middle" font-size="15" font-weight="500" fill="var(--primary-text-color)">${pvVal.toFixed(1)}</text>`;
+          bars += `<text class="bc-val" x="${x2 + barW/2}" y="${y2 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${pvVal.toFixed(1)}</text>`;
         }
 
         // Day label centered under group
-        bars += `<text x="${slotX + slotW/2}" y="${height - 12}" text-anchor="middle" font-size="15" font-weight="500" fill="var(--secondary-text-color)">${d.label}</text>`;
+        bars += `<text class="bc-day" x="${slotX + slotW/2}" y="${height - 10}" text-anchor="middle" font-size="11" fill="var(--secondary-text-color)">${d.label}</text>`;
       } else {
         // Original single-bar rendering
         const x = slotX + (slotW - barW) / 2;
         const barH = (d.value / maxVal) * chartH;
         const y = padding.top + chartH - barH;
         bars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="var(--primary-color)" rx="3"/>`;
-        bars += `<text x="${x + barW/2}" y="${y - 6}" text-anchor="middle" font-size="15" font-weight="500" fill="var(--primary-text-color)">${d.value.toFixed(1)}</text>`;
-        bars += `<text x="${x + barW/2}" y="${height - 12}" text-anchor="middle" font-size="15" font-weight="500" fill="var(--secondary-text-color)">${d.label}</text>`;
+        bars += `<text class="bc-val" x="${x + barW/2}" y="${y - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${d.value.toFixed(1)}</text>`;
+        bars += `<text class="bc-day" x="${x + barW/2}" y="${height - 10}" text-anchor="middle" font-size="11" fill="var(--secondary-text-color)">${d.label}</text>`;
       }
     });
 
@@ -1749,21 +1749,30 @@ class EegOptimizerPanel extends HTMLElement {
       const y = padding.top + (chartH / 4) * i;
       const val = (maxVal * (4 - i) / 4).toFixed(0);
       yLines += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--divider-color)" stroke-dasharray="4"/>`;
-      yLines += `<text x="${padding.left - 5}" y="${y + 5}" text-anchor="end" font-size="13" fill="var(--secondary-text-color)">${val}</text>`;
+      yLines += `<text class="bc-axis" x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
     }
 
     // Legend for grouped bars
     let legend = "";
     if (grouped) {
-      const lx = width - padding.right - 240;
-      const ly = 18;
-      legend += `<rect x="${lx}" y="${ly - 10}" width="12" height="12" fill="var(--primary-color)" rx="2"/>`;
-      legend += `<text x="${lx + 16}" y="${ly}" font-size="14" fill="var(--primary-text-color)">Verbrauch</text>`;
-      legend += `<rect x="${lx + 115}" y="${ly - 10}" width="12" height="12" fill="#FF9800" rx="2"/>`;
-      legend += `<text x="${lx + 131}" y="${ly}" font-size="14" fill="var(--primary-text-color)">PV Erzeugung</text>`;
+      const lx = width - padding.right - 200;
+      const ly = 14;
+      legend += `<rect x="${lx}" y="${ly - 8}" width="10" height="10" fill="var(--primary-color)" rx="2"/>`;
+      legend += `<text class="bc-legend" x="${lx + 14}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Verbrauch</text>`;
+      legend += `<rect x="${lx + 100}" y="${ly - 8}" width="10" height="10" fill="#FF9800" rx="2"/>`;
+      legend += `<text class="bc-legend" x="${lx + 114}" y="${ly}" font-size="11" fill="var(--primary-text-color)">PV Erzeugung</text>`;
     }
 
-    return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${yLines}${bars}${legend}</svg>`;
+    const mobileStyle = `<style>
+      @media (max-width: 600px) {
+        .bc-val { font-size: 15px; font-weight: 500; }
+        .bc-day { font-size: 15px; font-weight: 500; }
+        .bc-axis { font-size: 13px; }
+        .bc-legend { font-size: 14px; }
+      }
+    </style>`;
+
+    return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${mobileStyle}${yLines}${bars}${legend}</svg>`;
   }
 
   _renderLineChart(datasets, highlightIndex = 0) {
@@ -1780,14 +1789,14 @@ class EegOptimizerPanel extends HTMLElement {
       const y = padding.top + (chartH / 4) * i;
       const val = (maxVal * (4 - i) / 4).toFixed(1);
       yLines += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--divider-color)" stroke-dasharray="4"/>`;
-      yLines += `<text x="${padding.left - 5}" y="${y + 5}" text-anchor="end" font-size="13" fill="var(--secondary-text-color)">${val}</text>`;
+      yLines += `<text class="lc-axis" x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
     }
 
     // X-axis labels — every 3h
     let xLabels = "";
     for (let h = 0; h < 24; h += 3) {
       const x = padding.left + (h / 23) * chartW;
-      xLabels += `<text x="${x}" y="${padding.top + chartH + 18}" text-anchor="middle" font-size="13" fill="var(--secondary-text-color)">${h}:00</text>`;
+      xLabels += `<text class="lc-axis" x="${x}" y="${padding.top + chartH + 15}" text-anchor="middle" font-size="10" fill="var(--secondary-text-color)">${h}:00</text>`;
     }
 
     // Weekday colors (7 distinct colors)
@@ -1840,7 +1849,7 @@ class EegOptimizerPanel extends HTMLElement {
       // Invisible wider hit area for easier hover/touch
       legend += `<rect x="${lx - 4}" y="${ly - 14}" width="${legendItemW}" height="22" fill="transparent"/>`;
       legend += `<line x1="${lx}" y1="${ly - 4}" x2="${lx + 16}" y2="${ly - 4}" stroke="${color}" stroke-width="${sw}" opacity="${opacity}"/>`;
-      legend += `<text x="${lx + 20}" y="${ly}" font-size="13" font-weight="${fw}" fill="var(--primary-text-color)" opacity="${opacity}">${ds.label}</text>`;
+      legend += `<text class="lc-legend" x="${lx + 20}" y="${ly}" font-size="10" font-weight="${fw}" fill="var(--primary-text-color)" opacity="${opacity}">${ds.label}</text>`;
       legend += `</g>`;
     });
 
@@ -1853,6 +1862,10 @@ class EegOptimizerPanel extends HTMLElement {
         svg:has(.wl:hover) .wl-today:not(:hover) .wl-line { opacity: 0.4 !important; }
         svg:has(.wl-legend-hover) .wl:not(.wl-legend-hover):not(.wl-today) .wl-line { opacity: 0.12 !important; }
         svg:has(.wl-legend-hover) .wl-today:not(.wl-legend-hover) .wl-line { opacity: 0.4 !important; }
+        @media (max-width: 600px) {
+          .lc-axis { font-size: 13px; }
+          .lc-legend { font-size: 13px; }
+        }
       </style>
       ${yLines}
       ${allLines}
