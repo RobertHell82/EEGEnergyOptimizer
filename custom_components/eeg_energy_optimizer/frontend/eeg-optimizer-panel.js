@@ -838,11 +838,29 @@ class EegOptimizerPanel extends HTMLElement {
         pick(SOLCAST_DEFAULTS_CANDIDATES.forecast_remaining_entity);
       this._wizardData.forecast_tomorrow_entity =
         pick(SOLCAST_DEFAULTS_CANDIDATES.forecast_tomorrow_entity);
+      // Auto-detect additional Solcast sensors (today + day 3-7)
+      const prefix = this._wizardData.forecast_tomorrow_entity.replace(/morgen$/, "");
+      // Handle old "fuer_" prefix — tag sensors don't have "fuer_"
+      const tagPrefix = prefix.endsWith("fuer_") && !states[prefix + "tag_3"]
+        ? prefix.replace(/fuer_$/, "") : prefix;
+      const tryFind = (id) => states[id] ? id : "";
+      this._wizardData.forecast_today_entity = tryFind(tagPrefix + "heute");
+      this._wizardData.forecast_day3_entity = tryFind(tagPrefix + "tag_3");
+      this._wizardData.forecast_day4_entity = tryFind(tagPrefix + "tag_4");
+      this._wizardData.forecast_day5_entity = tryFind(tagPrefix + "tag_5");
+      this._wizardData.forecast_day6_entity = tryFind(tagPrefix + "tag_6");
+      this._wizardData.forecast_day7_entity = tryFind(tagPrefix + "tag_7");
     } else {
       this._wizardData.forecast_remaining_entity =
         FORECAST_SOLAR_DEFAULTS.forecast_remaining_entity;
       this._wizardData.forecast_tomorrow_entity =
         FORECAST_SOLAR_DEFAULTS.forecast_tomorrow_entity;
+      this._wizardData.forecast_today_entity = "";
+      this._wizardData.forecast_day3_entity = "";
+      this._wizardData.forecast_day4_entity = "";
+      this._wizardData.forecast_day5_entity = "";
+      this._wizardData.forecast_day6_entity = "";
+      this._wizardData.forecast_day7_entity = "";
     }
   }
 
