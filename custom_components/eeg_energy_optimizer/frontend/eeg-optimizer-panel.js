@@ -576,11 +576,11 @@ class EegOptimizerPanel extends HTMLElement {
       this._wizardLoading = false;
       this._render();
 
-      // Integration reloads after config save — reload panel after a short delay
-      // so the new config (with setup_complete=true) is picked up
+      // Integration reloads after config save — reload panel after delay
+      // to allow full reload + initial optimizer cycle to complete
       setTimeout(() => {
         this._loadConfig();
-      }, 2000);
+      }, 6000);
     } catch (err) {
       console.error("Failed to save config:", err);
       this._wizardData.setup_complete = false;
@@ -1520,6 +1520,22 @@ class EegOptimizerPanel extends HTMLElement {
 
   _renderStatusCards(decisionState) {
     const ma = decisionState?.attributes || {};
+
+    // If optimizer hasn't run yet, show loading state
+    if (!ma.letzte_aktualisierung) {
+      return `
+        <div class="status-cards-row">
+          <div class="card" style="text-align:center;padding:24px">
+            <div class="manual-spinner" style="margin:0 auto 12px"></div>
+            <p style="color:var(--secondary-text-color);margin:0">Wird berechnet\u2026</p>
+          </div>
+          <div class="card" style="text-align:center;padding:24px">
+            <div class="manual-spinner" style="margin:0 auto 12px"></div>
+            <p style="color:var(--secondary-text-color);margin:0">Wird berechnet\u2026</p>
+          </div>
+        </div>`;
+    }
+
     const mStatus = ma.morning_status || "deaktiviert";
     const dStatus = ma.discharge_status || "deaktiviert";
 
