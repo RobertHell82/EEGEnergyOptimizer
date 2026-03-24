@@ -1091,7 +1091,7 @@ class EegOptimizerPanel extends HTMLElement {
         <label class="expert-toggle">
           <input type="checkbox" data-field="expert_mode"
                  ${this._wizardData.expert_mode ? "checked" : ""}>
-          <span>Experte</span>
+          <span>Expertenmodus</span>
         </label>
       </div>
       <div class="progress-bar">
@@ -1377,9 +1377,9 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
       </div>` : "";
 
-    const dischargeFields = nDischarge && isExpert ? `
+    const dischargeFields = nDischarge ? `
       <div class="feature-params">
-        <div class="field-group">
+        ${isExpert ? `<div class="field-group">
           <label>Startzeit der Entladung</label>
           <input type="time" data-field="discharge_start_time"
                  value="${this._wizardData.discharge_start_time}">
@@ -1391,13 +1391,13 @@ class EegOptimizerPanel extends HTMLElement {
                  value="${this._wizardData.discharge_power_kw}"
                  min="0.5" max="10.0" step="0.5">
           <div class="help-text">Leistung der Batterieentladung ins Netz.</div>
-        </div>
+        </div>` : ""}
         <div class="field-group">
           <label>Minimaler Ladezustand (%)</label>
           <input type="number" data-field="min_soc"
                  value="${this._wizardData.min_soc}"
                  min="5" max="50">
-          <div class="help-text">Die Einspeisung erfolgt nicht bis zu diesem Ladestand, sondern sorgt dafür, dass dieser Ladestand + der durchschnittliche Verbrauch in der Nacht + Sicherheitspuffer in der Batterie bleibt.</div>
+          <div class="help-text">Die Einspeisung erfolgt nicht bis zu diesem Ladestand, sondern sorgt daf\u00fcr, dass dieser Ladestand + der durchschnittliche Verbrauch in der Nacht + Sicherheitspuffer in der Batterie bleibt.</div>
         </div>
       </div>` : "";
 
@@ -1526,9 +1526,9 @@ class EegOptimizerPanel extends HTMLElement {
       <div class="summary-section">
         <h3>Nachteinspeisung</h3>
         ${row("Status", d.enable_night_discharge ? "Aktiv" : "Deaktiviert")}
-        ${d.enable_night_discharge && d.expert_mode ? `
-          ${row("Startzeit", d.discharge_start_time)}
-          ${row("Leistung", d.discharge_power_kw + " kW")}
+        ${d.enable_night_discharge ? `
+          ${d.expert_mode ? row("Startzeit", d.discharge_start_time) : ""}
+          ${d.expert_mode ? row("Leistung", d.discharge_power_kw + " kW") : ""}
           ${row("Min SOC", d.min_soc + " %")}
         ` : ""}
       </div>
@@ -2461,7 +2461,7 @@ class EegOptimizerPanel extends HTMLElement {
         .btn-primary:hover { opacity: 0.9; }
         /* Wizard styles */
         .wizard-nav { display: flex; justify-content: space-between; margin-top: 24px; }
-        .step-indicator { display: flex; justify-content: center; align-items: center; gap: 12px; margin-bottom: 16px; color: var(--secondary-text-color); font-size: 14px; }
+        .step-indicator { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; color: var(--secondary-text-color); font-size: 14px; }
         .expert-toggle { display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; opacity: 0.7; transition: opacity 0.2s; white-space: nowrap; }
         .expert-toggle:hover { opacity: 1; }
         .expert-toggle input { margin: 0; cursor: pointer; }
