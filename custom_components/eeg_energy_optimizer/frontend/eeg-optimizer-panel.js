@@ -599,11 +599,8 @@ class EegOptimizerPanel extends HTMLElement {
       this._wizardLoading = false;
       this._render();
 
-      // Integration reloads after config save — reload panel after delay
-      // to allow full reload + initial optimizer cycle to complete
-      setTimeout(() => {
-        this._loadConfig();
-      }, 6000);
+      // Integration reloads after config save — poll until optimizer is ready
+      this._waitForOptimizer();
     } catch (err) {
       console.error("Failed to save config:", err);
       this._wizardData.setup_complete = false;
@@ -651,6 +648,24 @@ class EegOptimizerPanel extends HTMLElement {
     // This works on both desktop (toggle sidebar) and mobile (open drawer).
     const ev = new Event("hass-toggle-menu", { bubbles: true, composed: true });
     this.dispatchEvent(ev);
+  }
+
+  async _waitForOptimizer(attempt = 0) {
+    // Poll config every 2s until setup_complete is reflected (max 15 attempts = 30s)
+    if (attempt >= 15) {
+      this._loadConfig();
+      return;
+    }
+    try {
+      const res = await this._hass.callWS({ type: "eeg_optimizer/get_config" });
+      if (res?.config?.setup_complete) {
+        await this._loadConfig();
+        this._loadActivityLog();
+        this._subscribeActivityEvents();
+        return;
+      }
+    } catch (_) { /* integration still reloading */ }
+    setTimeout(() => this._waitForOptimizer(attempt + 1), 2000);
   }
 
   async _loadActivityLog() {

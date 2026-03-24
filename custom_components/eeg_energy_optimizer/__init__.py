@@ -363,13 +363,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _log_activity(decision, decision.zustand)
                     prev_zustand[0] = decision.zustand
                     log_cycle_count[0] = 0
-                elif log_cycle_count[0] >= 15:
+                elif log_cycle_count[0] >= 30:
                     _log_activity(decision, "Heartbeat")
                     log_cycle_count[0] = 0
 
         if async_track_time_interval is not None:
             unsub = async_track_time_interval(
-                hass, _optimizer_cycle, timedelta(seconds=60)
+                hass, _optimizer_cycle, timedelta(seconds=30)
             )
             entry.async_on_unload(unsub)
 

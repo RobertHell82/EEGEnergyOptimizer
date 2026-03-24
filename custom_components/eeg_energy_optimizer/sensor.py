@@ -592,13 +592,19 @@ async def async_setup_entry(
     config = data["config"]
 
     # Backfill Hausverbrauch statistics before first coordinator load
+    # Start backfill in background — don't block startup
     from .__init__ import async_backfill_hausverbrauch_stats
-    await async_backfill_hausverbrauch_stats(hass, config)
 
-    # Create coordinator (now finds backfilled data immediately)
+    async def _backfill_then_refresh():
+        await async_backfill_hausverbrauch_stats(hass, config)
+        await coordinator.async_update()
+
     lookback_weeks = config.get(CONF_LOOKBACK_WEEKS, DEFAULT_LOOKBACK_WEEKS)
     coordinator = ConsumptionCoordinator(hass, CONSUMPTION_SENSOR, lookback_weeks)
+    # Quick initial load (may be empty on first run, backfill fills it)
     await coordinator.async_update()
+    # Schedule backfill + refresh in background
+    hass.async_create_task(_backfill_then_refresh())
 
     # Create forecast provider
     source = config.get(CONF_FORECAST_SOURCE, FORECAST_SOURCE_SOLCAST)
