@@ -296,10 +296,7 @@ class EegOptimizerPanel extends HTMLElement {
         this._checkPrerequisites();
         break;
       case "toggle-sidebar":
-        this._hass.callWS({ type: "frontend/toggle_sidebar" }).catch(() => {
-          // Fallback: navigate to HA root
-          window.history.back();
-        });
+        this._toggleHaSidebar();
         break;
       case "toggle-mode": {
         const modeState = this._readState(this._entityIds?.select || "select.eeg_energy_optimizer_optimizer");
@@ -627,6 +624,13 @@ class EegOptimizerPanel extends HTMLElement {
 
   _clearWizardProgress() {
     localStorage.removeItem(WIZARD_KEY);
+  }
+
+  _toggleHaSidebar() {
+    // Fire the hass-toggle-menu event that HA's shell listens for.
+    // This works on both desktop (toggle sidebar) and mobile (open drawer).
+    const ev = new Event("hass-toggle-menu", { bubbles: true, composed: true });
+    this.dispatchEvent(ev);
   }
 
   /* ── Async data loading ───────────────────────── */
