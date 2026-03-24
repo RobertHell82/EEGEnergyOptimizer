@@ -84,6 +84,8 @@ class Snapshot:
     consumption_tomorrow_daylight_kwh: float = 0.0  # SA -> SU tomorrow
     sunrise: datetime | None = None
     sunset: datetime | None = None
+    sunrise_today: datetime | None = None
+    sunset_today: datetime | None = None
 
 
 @dataclass
@@ -273,6 +275,13 @@ class EEGOptimizer:
                 tomorrow_sunrise, tomorrow_sunset
             ).get("verbrauch_kwh", 0.0)
 
+        # Resolve today's actual sunrise/sunset (next_rising/next_setting may be tomorrow)
+        resolved_sunrise_today = None
+        resolved_sunset_today = None
+        if sunrise is not None and sunset is not None:
+            resolved_sunrise_today = today_sunrise
+            resolved_sunset_today = today_sunset
+
         snap = Snapshot(
             now=now,
             battery_soc=battery_soc,
@@ -287,6 +296,8 @@ class EEGOptimizer:
             consumption_tomorrow_daylight_kwh=consumption_tomorrow_daylight,
             sunrise=sunrise,
             sunset=sunset,
+            sunrise_today=resolved_sunrise_today,
+            sunset_today=resolved_sunset_today,
         )
 
         # Apply test overrides if active
@@ -397,10 +408,10 @@ class EEGOptimizer:
         result["buffer_kwh"] = buffer_today
         result["battery_kwh"] = battery_today
 
-        # Check if in morning window
+        # Check if in morning window (use today's actual sunrise, not next_rising)
         in_window = False
-        if snap.sunrise is not None:
-            window_start = snap.sunrise - timedelta(hours=1)
+        if snap.sunrise_today is not None:
+            window_start = snap.sunrise_today - timedelta(hours=1)
             morning_end = snap.now.replace(
                 hour=self._morning_end_hour,
                 minute=self._morning_end_min,
@@ -410,9 +421,15 @@ class EEGOptimizer:
             in_window = window_start <= snap.now <= morning_end
         result["in_window"] = in_window
 
-        # Sunrise display for tomorrow
+        # Sunrise display for tomorrow (next_rising is always the next upcoming sunrise)
         if snap.sunrise is not None:
-            result["sunrise_tomorrow"] = f"~{snap.sunrise.strftime('%H:%M')}"
+            # If next_rising is today (before sunrise), tomorrow = next_rising + 1 day
+            # If next_rising is tomorrow (after sunrise), use it directly
+            if snap.sunrise.date() == snap.now.date():
+                tomorrow_sunrise = snap.sunrise + timedelta(days=1)
+            else:
+                tomorrow_sunrise = snap.sunrise
+            result["sunrise_tomorrow"] = f"~{tomorrow_sunrise.strftime('%H:%M')}"
 
         if in_window:
             if pv_today > bedarf:
@@ -524,10 +541,10 @@ class EEGOptimizer:
         """
         if not self._enable_morning_delay:
             return False
-        if snap.sunrise is None:
+        if snap.sunrise_today is None:
             return False
 
-        window_start = snap.sunrise - timedelta(hours=1)
+        window_start = snap.sunrise_today - timedelta(hours=1)
         morning_end = snap.now.replace(
             hour=self._morning_end_hour,
             minute=self._morning_end_min,

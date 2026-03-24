@@ -1697,7 +1697,7 @@ class EegOptimizerPanel extends HTMLElement {
 
   _renderBarChart(data, pvData = null) {
     if (!data || data.length === 0) return "<p>Keine Daten verfügbar</p>";
-    const width = 700, height = 300, padding = {top: 30, right: 20, bottom: 40, left: 50};
+    const width = 700, height = 340, padding = {top: 40, right: 20, bottom: 50, left: 55};
     const chartW = width - padding.left - padding.right;
     const chartH = height - padding.top - padding.bottom;
     const maxVal = Math.max(...data.map(d => d.value), ...(pvData || []).map(d => d.value || 0), 1) * 1.1;
@@ -1715,7 +1715,7 @@ class EegOptimizerPanel extends HTMLElement {
         const barH1 = (d.value / maxVal) * chartH;
         const y1 = padding.top + chartH - barH1;
         bars += `<rect x="${x1}" y="${y1}" width="${barW}" height="${barH1}" fill="var(--primary-color)" rx="3"/>`;
-        bars += `<text x="${x1 + barW/2}" y="${y1 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${d.value.toFixed(1)}</text>`;
+        bars += `<text x="${x1 + barW/2}" y="${y1 - 6}" text-anchor="middle" font-size="15" font-weight="500" fill="var(--primary-text-color)">${d.value.toFixed(1)}</text>`;
 
         // PV bar (right)
         const pvVal = pvData[i]?.value || 0;
@@ -1724,19 +1724,19 @@ class EegOptimizerPanel extends HTMLElement {
           const barH2 = (pvVal / maxVal) * chartH;
           const y2 = padding.top + chartH - barH2;
           bars += `<rect x="${x2}" y="${y2}" width="${barW}" height="${barH2}" fill="#FF9800" rx="3"/>`;
-          bars += `<text x="${x2 + barW/2}" y="${y2 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${pvVal.toFixed(1)}</text>`;
+          bars += `<text x="${x2 + barW/2}" y="${y2 - 6}" text-anchor="middle" font-size="15" font-weight="500" fill="var(--primary-text-color)">${pvVal.toFixed(1)}</text>`;
         }
 
         // Day label centered under group
-        bars += `<text x="${slotX + slotW/2}" y="${height - 10}" text-anchor="middle" font-size="11" fill="var(--secondary-text-color)">${d.label}</text>`;
+        bars += `<text x="${slotX + slotW/2}" y="${height - 12}" text-anchor="middle" font-size="15" font-weight="500" fill="var(--secondary-text-color)">${d.label}</text>`;
       } else {
         // Original single-bar rendering
         const x = slotX + (slotW - barW) / 2;
         const barH = (d.value / maxVal) * chartH;
         const y = padding.top + chartH - barH;
         bars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="var(--primary-color)" rx="3"/>`;
-        bars += `<text x="${x + barW/2}" y="${y - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${d.value.toFixed(1)}</text>`;
-        bars += `<text x="${x + barW/2}" y="${height - 10}" text-anchor="middle" font-size="11" fill="var(--secondary-text-color)">${d.label}</text>`;
+        bars += `<text x="${x + barW/2}" y="${y - 6}" text-anchor="middle" font-size="15" font-weight="500" fill="var(--primary-text-color)">${d.value.toFixed(1)}</text>`;
+        bars += `<text x="${x + barW/2}" y="${height - 12}" text-anchor="middle" font-size="15" font-weight="500" fill="var(--secondary-text-color)">${d.label}</text>`;
       }
     });
 
@@ -1745,18 +1745,18 @@ class EegOptimizerPanel extends HTMLElement {
       const y = padding.top + (chartH / 4) * i;
       const val = (maxVal * (4 - i) / 4).toFixed(0);
       yLines += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--divider-color)" stroke-dasharray="4"/>`;
-      yLines += `<text x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
+      yLines += `<text x="${padding.left - 5}" y="${y + 5}" text-anchor="end" font-size="13" fill="var(--secondary-text-color)">${val}</text>`;
     }
 
     // Legend for grouped bars
     let legend = "";
     if (grouped) {
-      const lx = width - padding.right - 200;
-      const ly = 14;
-      legend += `<rect x="${lx}" y="${ly - 8}" width="10" height="10" fill="var(--primary-color)" rx="2"/>`;
-      legend += `<text x="${lx + 14}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Verbrauch</text>`;
-      legend += `<rect x="${lx + 100}" y="${ly - 8}" width="10" height="10" fill="#FF9800" rx="2"/>`;
-      legend += `<text x="${lx + 114}" y="${ly}" font-size="11" fill="var(--primary-text-color)">PV Erzeugung</text>`;
+      const lx = width - padding.right - 240;
+      const ly = 18;
+      legend += `<rect x="${lx}" y="${ly - 10}" width="12" height="12" fill="var(--primary-color)" rx="2"/>`;
+      legend += `<text x="${lx + 16}" y="${ly}" font-size="14" fill="var(--primary-text-color)">Verbrauch</text>`;
+      legend += `<rect x="${lx + 115}" y="${ly - 10}" width="12" height="12" fill="#FF9800" rx="2"/>`;
+      legend += `<text x="${lx + 131}" y="${ly}" font-size="14" fill="var(--primary-text-color)">PV Erzeugung</text>`;
     }
 
     return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${yLines}${bars}${legend}</svg>`;
@@ -1764,7 +1764,7 @@ class EegOptimizerPanel extends HTMLElement {
 
   _renderLineChart(datasets, highlightIndex = 0) {
     if (!datasets || datasets.length === 0) return "<p>Keine Daten verfügbar</p>";
-    const width = 700, height = 280, padding = {top: 20, right: 20, bottom: 55, left: 50};
+    const width = 700, height = 330, padding = {top: 20, right: 20, bottom: 80, left: 55};
     const chartW = width - padding.left - padding.right;
     const chartH = height - padding.top - padding.bottom;
     const allVals = datasets.flatMap(ds => ds.data);
@@ -1776,14 +1776,14 @@ class EegOptimizerPanel extends HTMLElement {
       const y = padding.top + (chartH / 4) * i;
       const val = (maxVal * (4 - i) / 4).toFixed(1);
       yLines += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--divider-color)" stroke-dasharray="4"/>`;
-      yLines += `<text x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
+      yLines += `<text x="${padding.left - 5}" y="${y + 5}" text-anchor="end" font-size="13" fill="var(--secondary-text-color)">${val}</text>`;
     }
 
-    // X-axis labels
+    // X-axis labels — every 3h
     let xLabels = "";
     for (let h = 0; h < 24; h += 3) {
       const x = padding.left + (h / 23) * chartW;
-      xLabels += `<text x="${x}" y="${padding.top + chartH + 15}" text-anchor="middle" font-size="10" fill="var(--secondary-text-color)">${h}:00</text>`;
+      xLabels += `<text x="${x}" y="${padding.top + chartH + 18}" text-anchor="middle" font-size="13" fill="var(--secondary-text-color)">${h}:00</text>`;
     }
 
     // Weekday colors (7 distinct colors)
@@ -1807,8 +1807,8 @@ class EegOptimizerPanel extends HTMLElement {
       const baseOpacity = isHighlight ? "1" : "0.3";
       const baseSw = isHighlight ? "2.5" : "1";
       allLines += `<g class="wl${isHighlight ? " wl-today" : ""}" data-idx="${idx}">`;
-      // Invisible wide hit area for easier hover
-      allLines += `<polyline points="${pts}" fill="none" stroke="transparent" stroke-width="12" style="pointer-events:stroke"/>`;
+      // Invisible wide hit area for easier hover/touch
+      allLines += `<polyline points="${pts}" fill="none" stroke="transparent" stroke-width="16" style="pointer-events:stroke"/>`;
       // Area fill (visible on highlight or hover)
       allLines += `<polygon class="wl-area" points="${areaPts}" fill="${color}" opacity="${isHighlight ? '0.12' : '0'}"/>`;
       // Visible line
@@ -1816,23 +1816,27 @@ class EegOptimizerPanel extends HTMLElement {
       allLines += `</g>`;
     });
 
-    // Legend (compact horizontal, below x-axis) — each item is a hoverable group linked to its line
+    // Legend — 2 rows of 4+3 for better mobile readability
     let legend = "";
-    const legendY = height - 8;
-    const legendStartX = padding.left;
-    const legendSpacing = (width - padding.left - padding.right) / datasets.length;
+    const legendRow1Y = padding.top + chartH + 40;
+    const legendRow2Y = legendRow1Y + 22;
+    const itemsPerRow = 4;
+    const legendItemW = chartW / itemsPerRow;
     datasets.forEach((ds, idx) => {
-      const lx = legendStartX + idx * legendSpacing;
+      const row = Math.floor(idx / itemsPerRow);
+      const col = idx % itemsPerRow;
+      const lx = padding.left + col * legendItemW;
+      const ly = row === 0 ? legendRow1Y : legendRow2Y;
       const isHighlight = idx === highlightIndex;
       const color = weekdayColors[idx % weekdayColors.length];
       const fw = isHighlight ? "bold" : "normal";
-      const opacity = isHighlight ? "1" : "0.5";
+      const opacity = isHighlight ? "1" : "0.6";
       const sw = isHighlight ? "2.5" : "1.5";
       legend += `<g class="wl-legend" data-idx="${idx}" style="cursor:pointer">`;
-      // Invisible wider hit area for easier hover
-      legend += `<rect x="${lx - 4}" y="${legendY - 12}" width="${legendSpacing}" height="20" fill="transparent"/>`;
-      legend += `<line x1="${lx}" y1="${legendY - 4}" x2="${lx + 14}" y2="${legendY - 4}" stroke="${color}" stroke-width="${sw}" opacity="${opacity}"/>`;
-      legend += `<text x="${lx + 18}" y="${legendY}" font-size="10" font-weight="${fw}" fill="var(--primary-text-color)" opacity="${opacity}">${ds.label}</text>`;
+      // Invisible wider hit area for easier hover/touch
+      legend += `<rect x="${lx - 4}" y="${ly - 14}" width="${legendItemW}" height="22" fill="transparent"/>`;
+      legend += `<line x1="${lx}" y1="${ly - 4}" x2="${lx + 16}" y2="${ly - 4}" stroke="${color}" stroke-width="${sw}" opacity="${opacity}"/>`;
+      legend += `<text x="${lx + 20}" y="${ly}" font-size="13" font-weight="${fw}" fill="var(--primary-text-color)" opacity="${opacity}">${ds.label}</text>`;
       legend += `</g>`;
     });
 
