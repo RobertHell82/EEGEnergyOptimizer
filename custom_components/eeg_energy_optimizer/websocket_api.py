@@ -29,12 +29,28 @@ _LOGGER = logging.getLogger(__name__)
 
 # Known default entity IDs per inverter type.
 # If these entities exist, they are pre-selected during auto-detection.
-HUAWEI_DEFAULTS = {
-    CONF_BATTERY_SOC_SENSOR: "sensor.batteries_batterieladung",
-    CONF_BATTERY_CAPACITY_SENSOR: "sensor.batterien_akkukapazitat",
-    CONF_PV_POWER_SENSOR: "sensor.inverter_eingangsleistung",
-    CONF_GRID_POWER_SENSOR: "sensor.power_meter_wirkleistung",
-    CONF_BATTERY_POWER_SENSOR: "sensor.batteries_lade_entladeleistung",
+# Each key maps to a list of candidates — first match wins.
+HUAWEI_DEFAULTS: dict[str, list[str]] = {
+    CONF_BATTERY_SOC_SENSOR: [
+        "sensor.batteries_batterieladung",
+        "sensor.batterien_batterieladung",
+    ],
+    CONF_BATTERY_CAPACITY_SENSOR: [
+        "sensor.batterien_akkukapazitat",
+        "sensor.batteries_akkukapazitat",
+    ],
+    CONF_PV_POWER_SENSOR: [
+        "sensor.inverter_eingangsleistung",
+        "sensor.wechselrichter_eingangsleistung",
+    ],
+    CONF_GRID_POWER_SENSOR: [
+        "sensor.power_meter_wirkleistung",
+        "sensor.stromzahler_wirkleistung",
+    ],
+    CONF_BATTERY_POWER_SENSOR: [
+        "sensor.batteries_lade_entladeleistung",
+        "sensor.batterien_lade_entladeleistung",
+    ],
 }
 
 
@@ -211,12 +227,14 @@ async def ws_detect_sensors(
         connection.send_result(msg["id"], {"detected": False, "sensors": {}})
         return
 
-    # Detect sensors by checking state availability
+    # Detect sensors by checking state availability (first match wins)
     sensors: dict[str, str] = {}
-    for conf_key, entity_id in HUAWEI_DEFAULTS.items():
-        state = hass.states.get(entity_id)
-        if state is not None:
-            sensors[conf_key] = entity_id
+    for conf_key, candidates in HUAWEI_DEFAULTS.items():
+        for entity_id in candidates:
+            state = hass.states.get(entity_id)
+            if state is not None:
+                sensors[conf_key] = entity_id
+                break
 
     # Detect battery device
     device_id = _find_huawei_battery_device(hass)
