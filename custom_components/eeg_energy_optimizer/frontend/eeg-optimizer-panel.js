@@ -212,6 +212,8 @@ class EegOptimizerPanel extends HTMLElement {
     this._activityLoadingMore = false;
     this._loadConfigPending = false;
     this._connectionLostSeen = false;
+    this._manualControlOpen = false;
+    this._simulationOpen = false;
 
     // Event delegation on shadow root
     // Legend hover: highlight matching weekday line
@@ -448,6 +450,7 @@ class EegOptimizerPanel extends HTMLElement {
         this._render();
         break;
       case "sim-apply": {
+        if (!confirm("Willst du wirklich in den Simulationsmodus wechseln?\n\nHinweis: Dadurch kann die Batterieladung verhindert werden oder aus der Batterie eingespeist werden, obwohl dies nicht sinnvoll ist.")) break;
         const factor = this._simFactor;
         const params = { type: "eeg_optimizer/set_test_overrides", consumption_factor: factor };
         if (this._simSocEnabled && this._simSocOverride !== null) {
@@ -471,6 +474,14 @@ class EegOptimizerPanel extends HTMLElement {
           this._simSocEnabled = false;
         }).catch(err => console.error("clear_test_overrides failed:", err))
         .finally(() => { this._simLoading = false; this._render(); });
+        break;
+      case "toggle-manual-control":
+        this._manualControlOpen = !this._manualControlOpen;
+        this._render();
+        break;
+      case "toggle-simulation":
+        this._simulationOpen = !this._simulationOpen;
+        this._render();
         break;
     }
   }
@@ -2515,10 +2526,14 @@ class EegOptimizerPanel extends HTMLElement {
         ${this._config?.expert_mode ? `
         <!-- Manual Control Card -->
         <div class="card">
-          <h3 style="margin-top:0">Manuelle Steuerung</h3>
-          <p style="color:var(--secondary-text-color);font-size:14px">
-            Wechselrichter direkt steuern. Achtung: Der Optimizer &uuml;berschreibt manuelle Befehle im n&auml;chsten Zyklus.
+          <div data-action="toggle-manual-control" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
+            <h3 style="margin:0">Manuelle Steuerung</h3>
+            <ha-icon icon="mdi:chevron-${this._manualControlOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
+          </div>
+          <p style="color:var(--secondary-text-color);font-size:14px;margin-top:8px">
+            Wechselrichter testweise ansteuern, um die Kommunikation ausprobieren zu k\u00f6nnen. Achtung: Der Optimizer \u00fcberschreibt manuelle Befehle im n\u00e4chsten Zyklus.
           </p>
+          ${this._manualControlOpen ? `
           ${!this._config?.setup_complete ? `
             <div class="btn-manual-grid">
               <button class="btn-manual btn-manual-normal" disabled>
@@ -2536,7 +2551,7 @@ class EegOptimizerPanel extends HTMLElement {
             </div>
             <div class="help-text" style="margin-top:12px">
               <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
-              Die manuelle Steuerung ist erst nach Abschluss der Einrichtung verf&uuml;gbar. Bitte zuerst den Wizard abschlie&szlig;en.
+              Die manuelle Steuerung ist erst nach Abschluss der Einrichtung verf\u00fcgbar. Bitte zuerst den Wizard abschlie\u00dfen.
             </div>
           ` : `
             <div class="btn-manual-grid">
@@ -2572,17 +2587,23 @@ class EegOptimizerPanel extends HTMLElement {
             </div>
             ${manualStatusHtml}
           `}
+          ` : ""}
         </div>
 
         <!-- Simulation Card -->
         ${this._config?.setup_complete ? `
         <div class="card">
-          <h3 style="margin-top:0">
-            <ha-icon icon="mdi:flask-outline" style="--mdc-icon-size:20px;vertical-align:middle"></ha-icon>
-            Simulation
-          </h3>
-          <p style="color:var(--secondary-text-color);font-size:14px">
-            Verbrauchswerte skalieren und SOC ueberschreiben, um Optimizer-Entscheidungen zu testen.
+          <div data-action="toggle-simulation" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
+            <h3 style="margin:0">
+              <ha-icon icon="mdi:flask-outline" style="--mdc-icon-size:20px;vertical-align:middle"></ha-icon>
+              Simulation
+              ${this._simActive ? `<span style="font-size:12px;font-weight:normal;color:var(--warning-color, #ff9800);margin-left:8px">Aktiv</span>` : ""}
+            </h3>
+            <ha-icon icon="mdi:chevron-${this._simulationOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
+          </div>
+          ${this._simulationOpen ? `
+          <p style="color:var(--secondary-text-color);font-size:14px;margin-top:8px">
+            Verbrauchswerte skalieren und SOC \u00fcberschreiben, um Optimizer-Entscheidungen zu testen.
           </p>
           <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:12px 0">
             <label style="font-size:14px;display:flex;align-items:center;gap:6px">
@@ -2627,6 +2648,7 @@ class EegOptimizerPanel extends HTMLElement {
               <ha-icon icon="mdi:alert-outline" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
               Override aktiv.
             </div>
+          ` : ""}
           ` : ""}
         </div>
         ` : ""}
