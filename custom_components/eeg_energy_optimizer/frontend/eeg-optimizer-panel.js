@@ -2029,16 +2029,17 @@ class EegOptimizerPanel extends HTMLElement {
             <span class="info-popup-trigger" data-popup="morning-info">
               <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color);cursor:pointer"></ha-icon>
               <div class="info-popup">
-                <strong>Verz\u00f6gerte Ladung</strong>
-                <p>Stellt sicher, dass PV-\u00dcbersch\u00fcsse bevorzugt am Morgen ins Netz der Energiegemeinschaft eingespeist werden \u2014 wenn die Gemeinschaft den Strom am meisten braucht.</p>
-                <p>Die Batterieladung wird ab einer Stunde vor Sonnenaufgang blockiert und fr\u00fchestens um die konfigurierte Endzeit wieder freigegeben. Die Blockierung erfolgt nur, solange die PV-Prognose den Gesamtbedarf \u00fcbersteigt.</p>
-                <strong>Gesamtbedarf:</strong>
+                <strong>Verz\u00f6gerte Ladung (Morgen-Einspeisung)</strong>
+                <p>Stellt sicher, dass PV-\u00dcbersch\u00fcsse bevorzugt am Morgen ins Netz der Energiegemeinschaft eingespeist werden \u2014 also dann, wenn die Gemeinschaft den Strom dringend braucht. Ohne diese Funktion w\u00fcrde die Batterie den PV-\u00dcberschuss sofort ab Sonnenaufgang aufladen. Die Einspeisung in die Energiegemeinschaft w\u00fcrde dann erst ab Mittag erfolgen, wenn ohnehin genug Strom vorhanden ist.</p>
+                <p><strong>Funktionsweise:</strong> Die Batterieladung wird ab einer Stunde vor Sonnenaufgang blockiert und fr\u00fchestens um die konfigurierte Endzeit (Standard: 10:00 Uhr) wieder freigegeben. Die Blockierung erfolgt nur, solange die PV-Prognose des aktuellen Tages den Gesamtbedarf \u00fcbersteigt.</p>
+                <strong>Der Gesamtbedarf setzt sich zusammen aus:</strong>
                 <ul>
-                  <li>Verbrauch Sonnenaufgang \u2192 Sonnenuntergang</li>
-                  <li>Sicherheitspuffer auf den Verbrauch</li>
-                  <li>Fehlende Energie zum Vollladen der Batterie</li>
+                  <li>Gesch\u00e4tzter Stromverbrauch von Sonnenaufgang bis Sonnenuntergang</li>
+                  <li>Sicherheitspuffer auf den Verbrauch (konfigurierbar, Standard: 25%)</li>
+                  <li>Fehlende Energie zum Vollladen der Batterie (basierend auf aktuellem SOC)</li>
                 </ul>
-                <p>Reicht die PV-Prognose nicht aus, wird die Batterie sofort geladen \u2014 damit der Haushalt bis zum Abend versorgt ist.</p>
+                <p>Der Stromverbrauch wird anhand des durchschnittlichen Verbrauchs desselben Wochentags der letzten Wochen berechnet (konfigurierbar, Standard: 4 Wochen).</p>
+                <p>Reicht die PV-Prognose nicht aus, um den Gesamtbedarf zu decken, wird die Batterie sofort geladen \u2014 damit der Haushalt bis zum Abend versorgt ist.</p>
               </div>
             </span>
           </h3>
@@ -2052,15 +2053,28 @@ class EegOptimizerPanel extends HTMLElement {
             <span class="info-popup-trigger" data-popup="discharge-info">
               <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color);cursor:pointer"></ha-icon>
               <div class="info-popup">
-                <strong>Abend-Entladung</strong>
-                <p>Speist gespeicherte Energie am Abend ins Netz der Energiegemeinschaft ein \u2014 wenn die Nachfrage hoch, aber keine PV-Erzeugung mehr verf\u00fcgbar ist.</p>
-                <p>Ab der konfigurierten Startzeit wird die Batterie entladen, bis der dynamisch berechnete Ziel-SOC erreicht ist. Der Ziel-SOC stellt sicher, dass gen\u00fcgend Energie f\u00fcr den Nachtverbrauch reserviert bleibt.</p>
-                <strong>Bedingungen:</strong>
+                <strong>Abend-Entladung (Nachteinspeisung)</strong>
+                <p>Speist unter Tags gewonnene Energie, die der eigene Haushalt nicht ben\u00f6tigt, um \u00fcber die Nacht zu kommen, in die Energiegemeinschaft ein. So steht Strom zu einem Zeitpunkt zur Verf\u00fcgung, an dem ansonsten keine PV-Erzeugung im Netz vorhanden ist.</p>
+                <p><strong>Funktionsweise:</strong> Ab der konfigurierten Startzeit (Standard: 20:00 Uhr) wird die Batterie mit einstellbarer Leistung entladen, bis der dynamisch berechnete Ziel-SOC erreicht ist.</p>
+                <strong>Der Ziel-SOC ergibt sich aus:</strong>
                 <ul>
-                  <li>SOC liegt \u00fcber dem berechneten Ziel-SOC</li>
-                  <li>PV-Prognose morgen deckt Tagesbedarf (Verbrauch + Puffer + Batterieladung)</li>
+                  <li>Konfigurierter Mindest-SOC der Batterie</li>
+                  <li>Gesch\u00e4tzter Stromverbrauch in der Nacht (Entladestart bis eine Stunde nach Sonnenaufgang)</li>
+                  <li>Sicherheitspuffer auf den Nachtverbrauch (konfigurierbar, Standard: 25%)</li>
                 </ul>
-                <p>So wird sichergestellt, dass die Batterie am n\u00e4chsten Tag wieder vollst\u00e4ndig \u00fcber PV geladen werden kann.</p>
+                <strong>Die Entladung erfolgt nur, wenn alle Bedingungen erf\u00fcllt sind:</strong>
+                <ul>
+                  <li>Aktueller SOC liegt \u00fcber dem berechneten Ziel-SOC</li>
+                  <li>Die PV-Prognose f\u00fcr morgen deckt den erwarteten Gesamtbedarf</li>
+                </ul>
+                <strong>Der Gesamtbedarf f\u00fcr morgen setzt sich zusammen aus:</strong>
+                <ul>
+                  <li>Gesch\u00e4tzter Stromverbrauch von Sonnenaufgang bis Sonnenuntergang</li>
+                  <li>Sicherheitspuffer auf den Verbrauch (konfigurierbar, Standard: 25%)</li>
+                  <li>Ben\u00f6tigte Energie zum Laden der Batterie (von Mindest-SOC auf 100%)</li>
+                </ul>
+                <p>Der Stromverbrauch wird jeweils anhand des durchschnittlichen Verbrauchs desselben Wochentags der letzten Wochen berechnet (konfigurierbar, Standard: 4 Wochen).</p>
+                <p>So wird sichergestellt, dass die Batterie am n\u00e4chsten Tag wieder vollst\u00e4ndig \u00fcber PV geladen werden kann und der Haushalt versorgt ist.</p>
               </div>
             </span>
           </h3>
@@ -2559,6 +2573,13 @@ class EegOptimizerPanel extends HTMLElement {
           <h3 class="status-card-title" style="margin-top:0">
             <ha-icon icon="mdi:chart-bar" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4)"></ha-icon>
             Energieprognose (7 Tage)
+            <span class="info-popup-trigger">
+              <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color);cursor:pointer"></ha-icon>
+              <div class="info-popup">
+                <strong>Energieprognose</strong>
+                <p>Das Diagramm zeigt f\u00fcr die n\u00e4chsten 7 Tage den durchschnittlichen Energieverbrauch desselben Wochentags der letzten Wochen (konfigurierbar, Standard: 4 Wochen) sowie den von der Prognosesoftware gesch\u00e4tzten PV-Ertrag des jeweiligen Tages.</p>
+              </div>
+            </span>
           </h3>
           ${this._renderBarChart(forecastData, pvForecastData)}
         </div>
@@ -2568,6 +2589,13 @@ class EegOptimizerPanel extends HTMLElement {
           <h3 class="status-card-title" style="margin-top:0">
             <ha-icon icon="mdi:chart-line" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4)"></ha-icon>
             Verbrauchsprofil (Wochentage)
+            <span class="info-popup-trigger">
+              <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color);cursor:pointer"></ha-icon>
+              <div class="info-popup">
+                <strong>Verbrauchsprofil</strong>
+                <p>Das Diagramm zeigt den durchschnittlichen Energieverbrauch der letzten Wochen (konfigurierbar, Standard: 4 Wochen) pro Wochentag im Tagesverlauf. So wird sichtbar, zu welchen Uhrzeiten an welchen Wochentagen der Verbrauch typischerweise am h\u00f6chsten ist.</p>
+              </div>
+            </span>
           </h3>
           ${this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0)}
         </div>
@@ -3068,7 +3096,8 @@ class EegOptimizerPanel extends HTMLElement {
         }
         .info-popup {
           display: none; position: absolute; top: calc(100% + 8px); left: 50%;
-          transform: translateX(-50%); z-index: 100; width: 320px; max-width: 90vw;
+          transform: translateX(-50%); z-index: 100; width: 380px; max-width: 90vw;
+          max-height: 70vh; overflow-y: auto;
           background: var(--card-background-color, #fff); color: var(--primary-text-color, #212121);
           border: 1px solid var(--divider-color, #e0e0e0); border-radius: 12px;
           padding: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.15);
