@@ -175,6 +175,16 @@ const DIALOG_CONTENT = {
   },
 };
 
+// Suppress HA-internal unhandled promise rejections that crash the panel
+window.addEventListener("unhandledrejection", (e) => {
+  const msg = e.reason?.message || String(e.reason || "");
+  if (msg.includes("Subscription not found") ||
+      msg.includes("Transition was aborted") ||
+      msg.includes("message channel closed")) {
+    e.preventDefault();
+  }
+});
+
 class EegOptimizerPanel extends HTMLElement {
   constructor() {
     super();
@@ -1969,8 +1979,6 @@ class EegOptimizerPanel extends HTMLElement {
       const socOk = Number(ma.discharge_soc || 0) > Number(ma.discharge_min_soc || 0);
       const pvOk = Number(ma.discharge_pv_tomorrow_kwh || 0) >= Number(ma.discharge_demand_total_kwh || 0);
 
-      const infoTooltip = "Der Ziel-SOC ergibt sich aus: Eingestellter Mindest-SOC + geschätzter Nachtverbrauch (Entladestart bis Sonnenaufgang) + Sicherheitspuffer. So bleibt genug Energie für die Nacht.";
-
       dConditionsHtml = `
         <hr class="status-divider">
         <div class="condition-row">
@@ -1978,7 +1986,7 @@ class EegOptimizerPanel extends HTMLElement {
           <span>${soc}% <span class="${socOk ? "check" : "cross"}">${socOk ? "\u2713" : "\u2717"}</span></span>
         </div>
         <div class="condition-row">
-          <span>Entlade-Ziel SOC (Nachtverbr.: ${overnightDemand} kWh) <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:16px;color:var(--secondary-text-color);cursor:help;vertical-align:middle" title="${infoTooltip}"></ha-icon></span>
+          <span>Entlade-Ziel SOC (Nachtverbr.: ${overnightDemand} kWh)</span>
           <span>${minSoc}%</span>
         </div>
         <hr class="status-divider">
