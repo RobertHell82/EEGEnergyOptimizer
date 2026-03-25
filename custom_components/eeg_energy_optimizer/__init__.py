@@ -357,6 +357,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         prev_zustand = [None]  # mutable container for closure
         last_heartbeat_quarter = [None]  # track last logged quarter-hour
+        first_cycle = [True]  # skip logging on first cycle (sensors not ready)
 
         def _log_activity(decision, reason):
             """Append an activity entry and fire a HA event."""
@@ -387,7 +388,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             # Activity logging: on state change + at fixed quarter-hours (:00, :15, :30, :45)
             if decision:
-                if decision.zustand != prev_zustand[0]:
+                # Skip first cycle — sensors may not have real data yet
+                if first_cycle[0]:
+                    first_cycle[0] = False
+                    prev_zustand[0] = decision.zustand
+                elif decision.zustand != prev_zustand[0]:
                     _log_activity(decision, decision.zustand)
                     prev_zustand[0] = decision.zustand
                 else:

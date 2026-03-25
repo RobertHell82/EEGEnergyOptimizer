@@ -2007,7 +2007,7 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="activity-dot" style="background:${color}">${icon}</div>
         <div class="activity-content">
           <div class="activity-header">${reason} ${badge}</div>
-          <div class="activity-details">SOC ${e.soc}%${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${e.min_soc}%` : ""} &middot; PV-Prognose (Rest) ${e.pv_today} kWh &middot; Gesamtbedarf ${e.bedarf} kWh${e.ausfuehrung ? " &middot; Aktiv" : ""}</div>
+          <div class="activity-details">SOC ${e.soc}%${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${e.min_soc}%` : ""} &middot; PV-Prognose (Rest) ${e.pv_today} kWh &middot; Gesamtbedarf ${e.bedarf} kWh${e.ausfuehrung === false ? " &middot; Testmodus" : ""}</div>
         </div>
       </div>`;
     }).join("");
