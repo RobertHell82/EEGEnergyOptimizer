@@ -1,7 +1,7 @@
 {
   "domain": "eeg_energy_optimizer",
   "name": "EEG Energy Optimizer",
-  "version": "0.3.16",
+  "version": "0.3.17",
   "documentation": "https://github.com/RobertHell82/EEGEnergyOptimizer",
   "issue_tracker": "https://github.com/RobertHell82/EEGEnergyOptimizer/issues",
   "dependencies": ["recorder", "sun", "http", "frontend", "websocket_api"],

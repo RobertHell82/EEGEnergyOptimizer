@@ -50,8 +50,10 @@ try:
     from homeassistant.util import dt as dt_util
 
     _now = dt_util.now
+    _as_local = dt_util.as_local
 except ImportError:
     _now = lambda: datetime.now(tz=timezone.utc)  # noqa: E731
+    _as_local = lambda dt: dt  # noqa: E731
 
 
 def _read_float(hass: Any, entity_id: str) -> float | None:
@@ -360,13 +362,13 @@ class EEGOptimizer:
 
         if next_rising is not None:
             try:
-                sunrise = datetime.fromisoformat(str(next_rising))
+                sunrise = _as_local(datetime.fromisoformat(str(next_rising)))
             except (ValueError, TypeError):
                 pass
 
         if next_setting is not None:
             try:
-                sunset = datetime.fromisoformat(str(next_setting))
+                sunset = _as_local(datetime.fromisoformat(str(next_setting)))
             except (ValueError, TypeError):
                 pass
 

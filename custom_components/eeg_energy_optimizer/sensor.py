@@ -58,8 +58,10 @@ try:
     from homeassistant.util import dt as dt_util
 
     _now = dt_util.now
+    _as_local = dt_util.as_local
 except ImportError:
     _now = lambda: datetime.now(tz=timezone.utc)  # noqa: E731
+    _as_local = lambda dt: dt  # noqa: E731
 
 # HA imports guarded for test environment
 try:
@@ -317,7 +319,7 @@ class SunriseForecastSensor(SensorEntity):
             return
 
         try:
-            sunrise = datetime.fromisoformat(str(next_rising))
+            sunrise = _as_local(datetime.fromisoformat(str(next_rising)))
         except (ValueError, TypeError):
             self._attr_native_value = None
             return
