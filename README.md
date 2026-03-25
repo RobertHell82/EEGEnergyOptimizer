@@ -39,6 +39,33 @@ The sidebar panel (`/eeg-optimizer`) will guide you through:
 5. Optimizer settings (morning window, discharge time, min-SOC, safety buffer)
 6. Inverter connection test
 
+## Funktionsweise
+
+### Verzögerte Ladung (Morgen-Einspeisung)
+
+Die verzögerte Ladung stellt sicher, dass PV-Überschüsse bevorzugt am Morgen in das Netz der Energiegemeinschaft eingespeist werden — also dann, wenn die Gemeinschaft den Strom am meisten braucht. Ohne diese Funktion würde die Batterie den PV-Überschuss sofort ab Sonnenaufgang aufladen. Die Einspeisung in die Energiegemeinschaft würde dann erst ab Mittag erfolgen, wenn ohnehin genug Strom vorhanden ist.
+
+**Funktionsweise:** Die Batterieladung wird ab einer Stunde vor Sonnenaufgang blockiert und frühestens um die konfigurierte Endzeit (Standard: 10:00 Uhr) wieder freigegeben. Die Blockierung erfolgt nur, solange die PV-Prognose des aktuellen Tages den Gesamtbedarf übersteigt.
+
+**Der Gesamtbedarf setzt sich zusammen aus:**
+- Geschätzter Stromverbrauch von Sonnenaufgang bis Sonnenuntergang
+- Sicherheitspuffer auf den Verbrauch (konfigurierbar, Standard: 25%)
+- Fehlende Energie zum Vollladen der Batterie (basierend auf aktuellem SOC)
+
+Wird die Ladung blockiert, fließt der gesamte PV-Überschuss ins Netz. Reicht die PV-Prognose nicht aus, um den Gesamtbedarf zu decken, wird die Batterie sofort geladen — damit der Haushalt bis zum Abend versorgt ist.
+
+### Abend-Entladung (Nachteinspeisung)
+
+Die Abend-Entladung speist gespeicherte Energie am Abend in das Netz der Energiegemeinschaft ein — zu einer Zeit, in der die Nachfrage hoch, aber keine PV-Erzeugung mehr verfügbar ist.
+
+**Funktionsweise:** Ab der konfigurierten Startzeit (Standard: 20:00 Uhr) wird die Batterie mit einstellbarer Leistung entladen, bis der dynamisch berechnete Ziel-SOC erreicht ist. Der Ziel-SOC stellt sicher, dass genügend Energie für den Nachtverbrauch des Haushalts reserviert bleibt.
+
+**Die Entladung erfolgt nur, wenn alle Bedingungen erfüllt sind:**
+- Aktueller SOC liegt über dem berechneten Ziel-SOC
+- Die PV-Prognose für morgen deckt den erwarteten Tagesbedarf (Verbrauch + Sicherheitspuffer + Batterieladung)
+
+So wird sichergestellt, dass die Batterie am nächsten Tag wieder vollständig über PV geladen werden kann.
+
 ## Requirements
 
 - Home Assistant 2025.1.0 or newer

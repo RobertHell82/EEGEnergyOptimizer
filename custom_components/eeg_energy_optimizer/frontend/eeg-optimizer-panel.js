@@ -235,7 +235,21 @@ class EegOptimizerPanel extends HTMLElement {
       svg.querySelectorAll(".wl").forEach(g => g.classList.remove("wl-legend-hover"));
     });
 
+    // Info popup toggle for touch devices
     this._shadow.addEventListener("click", (e) => {
+      const trigger = e.target.closest(".info-popup-trigger");
+      if (trigger) {
+        e.stopPropagation();
+        // Close any other open popups
+        this._shadow.querySelectorAll(".info-popup-trigger.active").forEach(t => {
+          if (t !== trigger) t.classList.remove("active");
+        });
+        trigger.classList.toggle("active");
+        return;
+      }
+      // Close popups when clicking elsewhere
+      this._shadow.querySelectorAll(".info-popup-trigger.active").forEach(t => t.classList.remove("active"));
+
       // Close dialog when clicking overlay background (not the card itself)
       if (e.target.classList.contains("dialog-overlay")) {
         this._showDialog = null;
@@ -2003,7 +2017,22 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="card">
           <h3 class="status-card-title" style="margin-top:0">
             <ha-icon icon="mdi:weather-sunny" style="--mdc-icon-size:20px;color:var(--warning-color,#ff9800)"></ha-icon>
-            Verz&ouml;gerte Ladung
+            Verz\u00f6gerte Ladung
+            <span class="info-popup-trigger" data-popup="morning-info">
+              <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color);cursor:pointer"></ha-icon>
+              <div class="info-popup">
+                <strong>Verz\u00f6gerte Ladung</strong>
+                <p>Stellt sicher, dass PV-\u00dcbersch\u00fcsse bevorzugt am Morgen ins Netz der Energiegemeinschaft eingespeist werden \u2014 wenn die Gemeinschaft den Strom am meisten braucht.</p>
+                <p>Die Batterieladung wird ab einer Stunde vor Sonnenaufgang blockiert und fr\u00fchestens um die konfigurierte Endzeit wieder freigegeben. Die Blockierung erfolgt nur, solange die PV-Prognose den Gesamtbedarf \u00fcbersteigt.</p>
+                <strong>Gesamtbedarf:</strong>
+                <ul>
+                  <li>Verbrauch Sonnenaufgang \u2192 Sonnenuntergang</li>
+                  <li>Sicherheitspuffer auf den Verbrauch</li>
+                  <li>Fehlende Energie zum Vollladen der Batterie</li>
+                </ul>
+                <p>Reicht die PV-Prognose nicht aus, wird die Batterie sofort geladen \u2014 damit der Haushalt bis zum Abend versorgt ist.</p>
+              </div>
+            </span>
           </h3>
           <div class="status-indicator ${mColorClass}">${mIndicator}</div>
           ${mConditionsHtml}
@@ -2012,6 +2041,20 @@ class EegOptimizerPanel extends HTMLElement {
           <h3 class="status-card-title" style="margin-top:0">
             <ha-icon icon="mdi:weather-night" style="--mdc-icon-size:20px;color:var(--info-color,#2196f3)"></ha-icon>
             Abend-Entladung
+            <span class="info-popup-trigger" data-popup="discharge-info">
+              <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color);cursor:pointer"></ha-icon>
+              <div class="info-popup">
+                <strong>Abend-Entladung</strong>
+                <p>Speist gespeicherte Energie am Abend ins Netz der Energiegemeinschaft ein \u2014 wenn die Nachfrage hoch, aber keine PV-Erzeugung mehr verf\u00fcgbar ist.</p>
+                <p>Ab der konfigurierten Startzeit wird die Batterie entladen, bis der dynamisch berechnete Ziel-SOC erreicht ist. Der Ziel-SOC stellt sicher, dass gen\u00fcgend Energie f\u00fcr den Nachtverbrauch reserviert bleibt.</p>
+                <strong>Bedingungen:</strong>
+                <ul>
+                  <li>SOC liegt \u00fcber dem berechneten Ziel-SOC</li>
+                  <li>PV-Prognose morgen deckt Tagesbedarf (Verbrauch + Puffer + Batterieladung)</li>
+                </ul>
+                <p>So wird sichergestellt, dass die Batterie am n\u00e4chsten Tag wieder vollst\u00e4ndig \u00fcber PV geladen werden kann.</p>
+              </div>
+            </span>
           </h3>
           <div class="status-indicator ${dColorClass}">${dIndicator}</div>
           ${dConditionsHtml}
@@ -3012,6 +3055,24 @@ class EegOptimizerPanel extends HTMLElement {
         .header-toggle-cell { display: flex; flex-direction: row; align-items: center; gap: 8px; justify-content: flex-end; }
         .header-timestamps { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--divider-color, #e0e0e0); font-size: 11px; color: var(--secondary-text-color, #999); }
         .status-card-title { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 16px; }
+        .info-popup-trigger {
+          position: relative; display: inline-flex; align-items: center;
+        }
+        .info-popup {
+          display: none; position: absolute; top: calc(100% + 8px); left: 50%;
+          transform: translateX(-50%); z-index: 100; width: 320px; max-width: 90vw;
+          background: var(--card-background-color, #fff); color: var(--primary-text-color, #212121);
+          border: 1px solid var(--divider-color, #e0e0e0); border-radius: 12px;
+          padding: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.15);
+          font-size: 13px; font-weight: normal; line-height: 1.5; text-align: left;
+        }
+        .info-popup strong { display: block; font-size: 14px; margin-bottom: 6px; }
+        .info-popup p { margin: 6px 0; }
+        .info-popup ul { margin: 6px 0; padding-left: 20px; }
+        .info-popup li { margin: 3px 0; }
+        .info-popup-trigger:hover .info-popup,
+        .info-popup-trigger:focus-within .info-popup,
+        .info-popup-trigger.active .info-popup { display: block; }
         .dashboard-grid.narrow .status-cards-row { flex-direction: column; }
         .btn-manual-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
         .btn-manual {
