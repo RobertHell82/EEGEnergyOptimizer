@@ -765,19 +765,28 @@ class EegOptimizerPanel extends HTMLElement {
       this._activityUnsub = null;
     }
     if (!this._hass?.connection) return;
-    this._hass.connection.subscribeEvents((ev) => {
-      if (ev.data) {
-        // Prepend new event (newest first)
-        this._activityLog.unshift(ev.data);
-        this._activityTotal += 1;
-        this._render();
-      }
-    }, "eeg_optimizer_activity").then(unsub => {
-      this._activityUnsub = unsub;
-    }).catch((err) => {
-      console.warn("EEG: activity subscription failed, will retry on next hass update:", err);
+    try {
+      this._hass.connection.subscribeEvents((ev) => {
+        try {
+          if (ev.data) {
+            // Prepend new event (newest first)
+            this._activityLog.unshift(ev.data);
+            this._activityTotal += 1;
+            this._render();
+          }
+        } catch (err) {
+          console.warn("EEG: error in activity event handler:", err);
+        }
+      }, "eeg_optimizer_activity").then(unsub => {
+        this._activityUnsub = unsub;
+      }).catch((err) => {
+        console.warn("EEG: activity subscription failed, will retry on next hass update:", err);
+        this._activityUnsub = null;
+      });
+    } catch (err) {
+      console.warn("EEG: could not subscribe to activity events:", err);
       this._activityUnsub = null;
-    });
+    }
   }
 
   /* ── Async data loading ───────────────────────── */
@@ -905,6 +914,14 @@ class EegOptimizerPanel extends HTMLElement {
   /* ── Hass / panel setters ─────────────────────── */
 
   set hass(hass) {
+    try {
+      this._setHassInner(hass);
+    } catch (err) {
+      console.error("EEG Optimizer: error in set hass():", err);
+    }
+  }
+
+  _setHassInner(hass) {
     const firstLoad = this._hass === null;
     const oldHass = this._hass;
     this._hass = hass;
@@ -1920,8 +1937,12 @@ class EegOptimizerPanel extends HTMLElement {
       const minSoc = ma.discharge_min_soc != null ? Math.round(Number(ma.discharge_min_soc)) : "---";
       const pvTom = ma.discharge_pv_tomorrow_kwh != null ? Number(ma.discharge_pv_tomorrow_kwh).toFixed(1) : "---";
       const overnightDemand = ma.discharge_demand_overnight_kwh != null ? Number(ma.discharge_demand_overnight_kwh).toFixed(1) : "---";
+      const consDaylight = ma.discharge_consumption_daylight_kwh != null ? Number(ma.discharge_consumption_daylight_kwh).toFixed(1) : "---";
+      const safetyBuffer = ma.discharge_safety_buffer_kwh != null ? Number(ma.discharge_safety_buffer_kwh).toFixed(1) : "---";
+      const battCharge = ma.discharge_battery_charge_needed_kwh != null ? Number(ma.discharge_battery_charge_needed_kwh).toFixed(1) : "---";
+      const demandTotal = ma.discharge_demand_total_kwh != null ? Number(ma.discharge_demand_total_kwh).toFixed(1) : "---";
       const socOk = Number(ma.discharge_soc || 0) > Number(ma.discharge_min_soc || 0);
-      const pvOk = Number(ma.discharge_pv_tomorrow_kwh || 0) >= Number(ma.discharge_demand_overnight_kwh || 0);
+      const pvOk = Number(ma.discharge_pv_tomorrow_kwh || 0) >= Number(ma.discharge_demand_total_kwh || 0);
 
       const infoTooltip = "Der Ziel-SOC ergibt sich aus: Eingestellter Mindest-SOC + geschätzter Nachtverbrauch (Entladestart bis Sonnenaufgang) + Sicherheitspuffer. So bleibt genug Energie für die Nacht.";
 
@@ -1932,15 +1953,28 @@ class EegOptimizerPanel extends HTMLElement {
           <span>${soc}% <span class="${socOk ? "check" : "cross"}">${socOk ? "\u2713" : "\u2717"}</span></span>
         </div>
         <div class="condition-row">
-          <span>Entlade-Ziel SOC <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:16px;color:var(--secondary-text-color);cursor:help;vertical-align:middle" title="${infoTooltip}"></ha-icon></span>
+          <span>Entlade-Ziel SOC (Nachtverbr.: ${overnightDemand} kWh) <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:16px;color:var(--secondary-text-color);cursor:help;vertical-align:middle" title="${infoTooltip}"></ha-icon></span>
           <span>${minSoc}%</span>
         </div>
+        <hr class="status-divider">
         <div class="condition-row">
-          <span>Nachtverbrauch (Entladestart\u2192SA)</span>
-          <span>${overnightDemand} kWh</span>
+          <span>Bedarf SA\u2192SU</span>
+          <span>${consDaylight} kWh</span>
         </div>
         <div class="condition-row">
-          <span>PV Prognose morgen</span>
+          <span>Sicherheitspuffer</span>
+          <span>${safetyBuffer} kWh</span>
+        </div>
+        <div class="condition-row">
+          <span>Batterieladung</span>
+          <span>${battCharge} kWh</span>
+        </div>
+        <div class="condition-row" style="font-weight:500">
+          <span>Gesamtbedarf</span>
+          <span>${demandTotal} kWh</span>
+        </div>
+        <div class="condition-row">
+          <span>PV Prognose</span>
           <span>${pvTom} kWh <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}</span></span>
         </div>`;
       if (dStatus === "aktiv") {

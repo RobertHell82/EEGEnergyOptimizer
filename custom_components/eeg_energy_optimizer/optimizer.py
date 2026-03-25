@@ -86,6 +86,7 @@ class Snapshot:
     sunset: datetime | None = None
     sunrise_today: datetime | None = None
     sunset_today: datetime | None = None
+    sim_factor: float = 1.0
 
 
 @dataclass
@@ -123,6 +124,10 @@ class Decision:
     discharge_min_soc: float = 0.0
     discharge_pv_tomorrow_kwh: float = 0.0
     discharge_demand_overnight_kwh: float = 0.0
+    discharge_consumption_daylight_kwh: float = 0.0
+    discharge_safety_buffer_kwh: float = 0.0
+    discharge_battery_charge_needed_kwh: float = 0.0
+    discharge_demand_total_kwh: float = 0.0
     discharge_power_kw: float = 0.0
     discharge_start_time: str = ""
 
@@ -307,6 +312,7 @@ class EEGOptimizer:
         if overrides:
             factor = overrides.get("consumption_factor", 1.0)
             soc_override = overrides.get("soc_override")
+            snap.sim_factor = factor
             if factor != 1.0:
                 snap.consumption_today_kwh *= factor
                 snap.consumption_to_sunset_kwh *= factor
@@ -479,6 +485,12 @@ class EEGOptimizer:
         pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
         overnight_kwh = snap.consumption_overnight_kwh
 
+        # Compute demand breakdown (same logic as _should_discharge)
+        consumption_daylight = snap.consumption_tomorrow_daylight_kwh
+        safety_buffer_kwh = consumption_daylight * (self._safety_buffer_pct / 100)
+        battery_charge_needed = (100 - self._min_soc) / 100 * snap.battery_capacity_kwh * snap.sim_factor
+        demand_total = consumption_daylight + safety_buffer_kwh + battery_charge_needed
+
         result: dict = {
             "status": "deaktiviert",
             "reasons": [],
@@ -486,6 +498,10 @@ class EEGOptimizer:
             "min_soc": min_soc,
             "pv_tomorrow_kwh": pv_tomorrow,
             "demand_overnight_kwh": overnight_kwh,
+            "consumption_daylight_kwh": round(consumption_daylight, 1),
+            "safety_buffer_kwh": round(safety_buffer_kwh, 1),
+            "battery_charge_needed_kwh": round(battery_charge_needed, 1),
+            "demand_total_kwh": round(demand_total, 1),
             "power_kw": self._discharge_power_kw,
             "start_time": start_time_str,
         }
@@ -615,13 +631,14 @@ class EEGOptimizer:
             reasons.append(f"SOC {snap.battery_soc:.0f}% <= Min-SOC {min_soc:.0f}%")
 
         # Check tomorrow surplus (D-09)
-        # Tomorrow demand = daylight consumption + battery charge needed
+        # Tomorrow demand = daylight consumption (with safety buffer) + battery charge needed
         # Only daylight consumption competes with PV; evening consumption
         # is covered by the fully charged battery (battery_charge_needed).
+        consumption_with_buffer = snap.consumption_tomorrow_daylight_kwh * (1 + self._safety_buffer_pct / 100)
         battery_charge_needed = (
-            (100 - self._min_soc) / 100 * snap.battery_capacity_kwh
+            (100 - self._min_soc) / 100 * snap.battery_capacity_kwh * snap.sim_factor
         )
-        tomorrow_demand = snap.consumption_tomorrow_daylight_kwh + battery_charge_needed
+        tomorrow_demand = consumption_with_buffer + battery_charge_needed
         pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
 
         if pv_tomorrow < tomorrow_demand:
@@ -695,6 +712,10 @@ class EEGOptimizer:
             discharge_min_soc=round(min_soc, 1),
             discharge_pv_tomorrow_kwh=round(discharge_info["pv_tomorrow_kwh"], 1),
             discharge_demand_overnight_kwh=round(discharge_info["demand_overnight_kwh"], 1),
+            discharge_consumption_daylight_kwh=discharge_info["consumption_daylight_kwh"],
+            discharge_safety_buffer_kwh=discharge_info["safety_buffer_kwh"],
+            discharge_battery_charge_needed_kwh=discharge_info["battery_charge_needed_kwh"],
+            discharge_demand_total_kwh=discharge_info["demand_total_kwh"],
             discharge_power_kw=self._discharge_power_kw,
             discharge_start_time=discharge_info["start_time"],
         )
