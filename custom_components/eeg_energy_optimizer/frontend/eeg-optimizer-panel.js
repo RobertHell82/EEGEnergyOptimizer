@@ -2467,6 +2467,10 @@ class EegOptimizerPanel extends HTMLElement {
         ${simBanner}
         <!-- Header Card: Live Values Grid + Toggle + Timestamps -->
         <div class="card header-card">
+          <h3 class="status-card-title" style="margin-top:0">
+            <ha-icon icon="mdi:pulse" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4)"></ha-icon>
+            Aktueller Status
+          </h3>
           <div class="header-grid">
             <div class="hlv"><span class="hlv-label">PV</span><span class="hlv-val val-green">${pvKw.toFixed(2)} kW</span></div>
             <div class="hlv"><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${Math.abs(batKw).toFixed(2)} kW <small>(${batLabel})</small></span></div>
@@ -2501,13 +2505,19 @@ class EegOptimizerPanel extends HTMLElement {
         ` : `
         <!-- 7-Day Forecast Chart -->
         <div class="card chart-card">
-          <h3>Energieprognose (7 Tage)</h3>
+          <h3 class="status-card-title" style="margin-top:0">
+            <ha-icon icon="mdi:chart-bar" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4)"></ha-icon>
+            Energieprognose (7 Tage)
+          </h3>
           ${this._renderBarChart(forecastData, pvForecastData)}
         </div>
 
         <!-- Hourly Profile Chart -->
         <div class="card chart-card">
-          <h3>Verbrauchsprofil (Wochentage)</h3>
+          <h3 class="status-card-title" style="margin-top:0">
+            <ha-icon icon="mdi:chart-line" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4)"></ha-icon>
+            Verbrauchsprofil (Wochentage)
+          </h3>
           ${this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0)}
         </div>
         `}
@@ -2515,7 +2525,10 @@ class EegOptimizerPanel extends HTMLElement {
         <!-- Activity Timeline -->
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-            <h3 style="margin:0">Aktivit&auml;tsprotokoll</h3>
+            <h3 style="margin:0">
+              <ha-icon icon="mdi:history" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
+              Aktivit\u00e4tsprotokoll
+            </h3>
             <button class="btn-link" data-action="refresh-activity-log" style="font-size:12px">
               <ha-icon icon="mdi:refresh" style="--mdc-icon-size:14px;vertical-align:middle"></ha-icon> Aktualisieren
             </button>
@@ -2527,7 +2540,10 @@ class EegOptimizerPanel extends HTMLElement {
         <!-- Manual Control Card -->
         <div class="card">
           <div data-action="toggle-manual-control" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
-            <h3 style="margin:0">Manuelle Steuerung</h3>
+            <h3 style="margin:0">
+              <ha-icon icon="mdi:gamepad-variant-outline" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
+              Manuelle Steuerung
+            </h3>
             <ha-icon icon="mdi:chevron-${this._manualControlOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
           </div>
           ${this._manualControlOpen ? `
