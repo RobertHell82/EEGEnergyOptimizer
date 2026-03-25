@@ -126,9 +126,10 @@ None yet.
 | 260324-ip7 | Optimizer-Aktivitaetsprotokoll: HA Events + Dashboard Timeline | 2026-03-24 | e64fef4 | | [260324-ip7-optimizer-aktivitaetsprotokoll-ha-logboo](./quick/260324-ip7-optimizer-aktivitaetsprotokoll-ha-logboo/) |
 | 260324-ji1 | Optimizer Startup beschleunigen: Backfill async, Timer 30s | 2026-03-24 | db23c89 | | [260324-ji1-optimizer-startup-beschleunigen-backfill](./quick/260324-ji1-optimizer-startup-beschleunigen-backfill/) |
 | 260325-na6 | Huawei Inverter Dependency Inventory: Sensor reads, writes, config, hardcoded refs | 2026-03-25 | 291e6a0 | Verified | [260325-na6-huawei-inverter-sensor-reads-and-write-o](./quick/260325-na6-huawei-inverter-sensor-reads-and-write-o/) |
+| 260325-sh8 | SolarEdge HA Integration Research: StorEdge battery control feasibility via solaredge-modbus-multi | 2026-03-25 | bc3443e | | [260325-sh8-solaredge-ha-integration-research-m-glic](./quick/260325-sh8-solaredge-ha-integration-research-m-glic/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-25 - Completed quick task 260325-na6: Huawei Inverter Dependency Inventory
-Stopped at: Completed quick-260325-na6
+Last activity: 2026-03-25 - Completed quick task 260325-sh8: SolarEdge HA Integration Research
+Stopped at: Completed quick-260325-sh8
 Resume file: None
