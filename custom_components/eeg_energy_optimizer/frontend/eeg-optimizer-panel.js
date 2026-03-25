@@ -2530,10 +2530,10 @@ class EegOptimizerPanel extends HTMLElement {
             <h3 style="margin:0">Manuelle Steuerung</h3>
             <ha-icon icon="mdi:chevron-${this._manualControlOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
           </div>
+          ${this._manualControlOpen ? `
           <p style="color:var(--secondary-text-color);font-size:14px;margin-top:8px">
             Wechselrichter testweise ansteuern, um die Kommunikation ausprobieren zu k\u00f6nnen. Achtung: Der Optimizer \u00fcberschreibt manuelle Befehle im n\u00e4chsten Zyklus.
           </p>
-          ${this._manualControlOpen ? `
           ${!this._config?.setup_complete ? `
             <div class="btn-manual-grid">
               <button class="btn-manual btn-manual-normal" disabled>
