@@ -759,7 +759,12 @@ class EegOptimizerPanel extends HTMLElement {
   }
 
   _subscribeActivityEvents() {
-    if (this._activityUnsub || !this._hass?.connection) return;
+    // Clean up stale subscription first
+    if (this._activityUnsub) {
+      try { this._activityUnsub(); } catch (_) { /* already gone */ }
+      this._activityUnsub = null;
+    }
+    if (!this._hass?.connection) return;
     this._hass.connection.subscribeEvents((ev) => {
       if (ev.data) {
         // Prepend new event (newest first)
@@ -769,7 +774,10 @@ class EegOptimizerPanel extends HTMLElement {
       }
     }, "eeg_optimizer_activity").then(unsub => {
       this._activityUnsub = unsub;
-    }).catch(() => {});
+    }).catch((err) => {
+      console.warn("EEG: activity subscription failed, will retry on next hass update:", err);
+      this._activityUnsub = null;
+    });
   }
 
   /* ── Async data loading ───────────────────────── */
@@ -910,6 +918,11 @@ class EegOptimizerPanel extends HTMLElement {
     if (!this._initialized && !this._loadConfigPending) {
       this._loadConfigWithRetry();
       return;
+    }
+
+    // Detect connection object change (HA reconnect) — re-subscribe events
+    if (oldHass && hass && oldHass.connection !== hass.connection && this._setupComplete) {
+      this._subscribeActivityEvents();
     }
 
     // Update entity pickers in shadow DOM with new hass
@@ -2591,6 +2604,23 @@ class EegOptimizerPanel extends HTMLElement {
   /* ── Main render ──────────────────────────────── */
 
   _render() {
+    try {
+      this._renderInner();
+    } catch (outerErr) {
+      console.error("EEG Optimizer fatal render error:", outerErr);
+      try {
+        this._shadow.innerHTML = `
+          <div style="padding:24px;font-family:sans-serif">
+            <h3 style="color:#db4437;margin-top:0">Dashboard-Fehler</h3>
+            <p>Ein unerwarteter Fehler ist aufgetreten.</p>
+            <pre style="font-size:12px;overflow:auto;background:#f5f5f5;padding:12px;border-radius:4px">${outerErr.message}\n${outerErr.stack}</pre>
+            <button onclick="location.reload()" style="margin-top:12px;padding:8px 16px;cursor:pointer">Seite neu laden</button>
+          </div>`;
+      } catch (_) { /* truly fatal */ }
+    }
+  }
+
+  _renderInner() {
     if (!this._initialized) {
       // Show loading indicator instead of blank white screen
       this._shadow.innerHTML = `
@@ -2978,7 +3008,7 @@ class EegOptimizerPanel extends HTMLElement {
 
   disconnectedCallback() {
     if (this._activityUnsub) {
-      this._activityUnsub();
+      try { this._activityUnsub(); } catch (_) { /* connection already gone */ }
       this._activityUnsub = null;
     }
   }
