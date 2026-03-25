@@ -105,27 +105,27 @@ None yet.
 
 ### Quick Tasks Completed
 
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 260322-v34 | Hausverbrauch-Sensor: grid_power_sensor Config + berechneter Sensor mit state_class measurement | 2026-03-22 | 16b10e0 | [260322-v34-hausverbrauch-sensor-grid-power-sensor-c](./quick/260322-v34-hausverbrauch-sensor-grid-power-sensor-c/) |
-| 260322-v8z | Hausverbrauch-Formel korrigiert: PV - Batterie - Netz (3-Term) + Migration v7 | 2026-03-22 | 686e918 | [260322-v8z-fix-hausverbrauch-formel-pv-eingang-minu](./quick/260322-v8z-fix-hausverbrauch-formel-pv-eingang-minu/) |
-| 260323-cs1 | Default Consumption Sensor auf eigenen Hausverbrauch umgestellt + Migration v8 | 2026-03-23 | 450c302 | [260323-cs1-verbrauchsprognose-auf-eigenen-hausverbr](./quick/260323-cs1-verbrauchsprognose-auf-eigenen-hausverbr/) |
-| 260323-czf | consumption_sensor Config entfernt, hardcoded auf Hausverbrauch + Wizard 8->7 Steps + Migration v9 | 2026-03-23 | 39b389f | [260323-czf-consumption-sensor-config-entfernen-fest](./quick/260323-czf-consumption-sensor-config-entfernen-fest/) |
-| 260323-ddr | Dashboard: Grouped bar chart (Verbrauch+PV) + Multi-weekday line chart | 2026-03-23 | 54a57bf | [260323-ddr-dashboard-pv-erzeugungsprognose-im-7-tag](./quick/260323-ddr-dashboard-pv-erzeugungsprognose-im-7-tag/) |
-| 260323-dyi | Wizard Step 1: 3 Hausverbrauch-Sensoren (PV, Batterie, Netz) entity pickers + Validation + Summary | 2026-03-23 | 6493551 | [260323-dyi-hausverbrauch-sensoren-pv-batterie-netz-](./quick/260323-dyi-hausverbrauch-sensoren-pv-batterie-netz-/) |
-| 260323-fzl | Einmaliger Backfill Hausverbrauch-Statistiken aus PV/Batterie/Netz-Sensoren | 2026-03-23 | d827f6f | [260323-fzl-einmaliger-backfill-hausverbrauch-statis](./quick/260323-fzl-einmaliger-backfill-hausverbrauch-statis/) |
-| 260323-lmg | Manuelle Wechselrichter-Steuerung: 3 WS-Commands + Dashboard-UI | 2026-03-23 | 8e68b95 | [260323-lmg-manuelle-wechselrichter-steuerung-am-das](./quick/260323-lmg-manuelle-wechselrichter-steuerung-am-das/) |
-| 260323-m0o | Dashboard Status-Header: 2 Status-Cards (Verzogerte Ladung + Abend-Entladung) mit Bedingungen | 2026-03-23 | 7885d0d | [260323-m0o-dashboard-status-header-berarbeiten-opti](./quick/260323-m0o-dashboard-status-header-berarbeiten-opti/) |
-| 260323-mpk | Dashboard: Verbindung-verloren Banner statt weissem Bildschirm bei Connection-Loss | 2026-03-23 | 40d741a | [260323-mpk-dashboard-verbindungsverlust-banner-stat](./quick/260323-mpk-dashboard-verbindungsverlust-banner-stat/) |
-| 260323-muk | Dashboard: Redundante Wechselrichter-Verbindungstest Card entfernt | 2026-03-23 | 99b78c1 | [260323-muk-dashboard-wechselrichter-verbindungstest](./quick/260323-muk-dashboard-wechselrichter-verbindungstest/) |
-| 260323-q66 | Tagesverbrauch SA->SU: Daylight-only consumption fuer Morgen-Verzoegerung | 2026-03-23 | f430b17 | [260323-q66-tagesverbrauch-sensor-sonnenaufgang-sonn](./quick/260323-q66-tagesverbrauch-sensor-sonnenaufgang-sonn/) |
-| 260323-rzw | Dashboard: Ein/Test Toggle + Metrics Row entfernt + Mode Badge entfernt | 2026-03-23 | 32bb793 | [260323-rzw-dashboard-ein-test-toggle-metrics-row-we](./quick/260323-rzw-dashboard-ein-test-toggle-metrics-row-we/) |
-| 260323-tg9 | Dashboard: SVG Energy Flow Diagramm + Live Values Card | 2026-03-23 | 96ee638 | [260323-tg9-dashboard-svg-energy-flow-diagramm-live-](./quick/260323-tg9-dashboard-svg-energy-flow-diagramm-live-/) |
-| 260323-u1p | Simulation: Verbrauchsfaktor + SOC Override fuer Optimizer-Testing | 2026-03-23 | 0a2b305 | [260323-u1p-testing-bereich-verbrauchswerte-berschre](./quick/260323-u1p-testing-bereich-verbrauchswerte-berschre/) |
-| 260324-hy6 | Expertenmodus-Schalter im Wizard: Toggle oben im Progress-Bar | 2026-03-24 | b86231d | [260324-hy6-expertenmodus-schalter-im-wizard-toggle-](./quick/260324-hy6-expertenmodus-schalter-im-wizard-toggle-/) |
-| 260324-ip7 | Optimizer-Aktivitaetsprotokoll: HA Events + Dashboard Timeline | 2026-03-24 | e64fef4 | [260324-ip7-optimizer-aktivitaetsprotokoll-ha-logboo](./quick/260324-ip7-optimizer-aktivitaetsprotokoll-ha-logboo/) |
-| 260324-ji1 | Optimizer Startup beschleunigen: Backfill async, Timer 30s | 2026-03-24 | db23c89 | [260324-ji1-optimizer-startup-beschleunigen-backfill](./quick/260324-ji1-optimizer-startup-beschleunigen-backfill/) |
-| 260325-na6 | Huawei Inverter Dependency Inventory: Sensor reads, writes, config, hardcoded refs | 2026-03-25 | 291e6a0 | [260325-na6-huawei-inverter-sensor-reads-and-write-o](./quick/260325-na6-huawei-inverter-sensor-reads-and-write-o/) |
+| # | Description | Date | Commit | Status | Directory |
+|---|-------------|------|--------|--------|-----------|
+| 260322-v34 | Hausverbrauch-Sensor: grid_power_sensor Config + berechneter Sensor mit state_class measurement | 2026-03-22 | 16b10e0 | | [260322-v34-hausverbrauch-sensor-grid-power-sensor-c](./quick/260322-v34-hausverbrauch-sensor-grid-power-sensor-c/) |
+| 260322-v8z | Hausverbrauch-Formel korrigiert: PV - Batterie - Netz (3-Term) + Migration v7 | 2026-03-22 | 686e918 | | [260322-v8z-fix-hausverbrauch-formel-pv-eingang-minu](./quick/260322-v8z-fix-hausverbrauch-formel-pv-eingang-minu/) |
+| 260323-cs1 | Default Consumption Sensor auf eigenen Hausverbrauch umgestellt + Migration v8 | 2026-03-23 | 450c302 | | [260323-cs1-verbrauchsprognose-auf-eigenen-hausverbr](./quick/260323-cs1-verbrauchsprognose-auf-eigenen-hausverbr/) |
+| 260323-czf | consumption_sensor Config entfernt, hardcoded auf Hausverbrauch + Wizard 8->7 Steps + Migration v9 | 2026-03-23 | 39b389f | | [260323-czf-consumption-sensor-config-entfernen-fest](./quick/260323-czf-consumption-sensor-config-entfernen-fest/) |
+| 260323-ddr | Dashboard: Grouped bar chart (Verbrauch+PV) + Multi-weekday line chart | 2026-03-23 | 54a57bf | | [260323-ddr-dashboard-pv-erzeugungsprognose-im-7-tag](./quick/260323-ddr-dashboard-pv-erzeugungsprognose-im-7-tag/) |
+| 260323-dyi | Wizard Step 1: 3 Hausverbrauch-Sensoren (PV, Batterie, Netz) entity pickers + Validation + Summary | 2026-03-23 | 6493551 | | [260323-dyi-hausverbrauch-sensoren-pv-batterie-netz-](./quick/260323-dyi-hausverbrauch-sensoren-pv-batterie-netz-/) |
+| 260323-fzl | Einmaliger Backfill Hausverbrauch-Statistiken aus PV/Batterie/Netz-Sensoren | 2026-03-23 | d827f6f | | [260323-fzl-einmaliger-backfill-hausverbrauch-statis](./quick/260323-fzl-einmaliger-backfill-hausverbrauch-statis/) |
+| 260323-lmg | Manuelle Wechselrichter-Steuerung: 3 WS-Commands + Dashboard-UI | 2026-03-23 | 8e68b95 | | [260323-lmg-manuelle-wechselrichter-steuerung-am-das](./quick/260323-lmg-manuelle-wechselrichter-steuerung-am-das/) |
+| 260323-m0o | Dashboard Status-Header: 2 Status-Cards (Verzogerte Ladung + Abend-Entladung) mit Bedingungen | 2026-03-23 | 7885d0d | | [260323-m0o-dashboard-status-header-berarbeiten-opti](./quick/260323-m0o-dashboard-status-header-berarbeiten-opti/) |
+| 260323-mpk | Dashboard: Verbindung-verloren Banner statt weissem Bildschirm bei Connection-Loss | 2026-03-23 | 40d741a | | [260323-mpk-dashboard-verbindungsverlust-banner-stat](./quick/260323-mpk-dashboard-verbindungsverlust-banner-stat/) |
+| 260323-muk | Dashboard: Redundante Wechselrichter-Verbindungstest Card entfernt | 2026-03-23 | 99b78c1 | | [260323-muk-dashboard-wechselrichter-verbindungstest](./quick/260323-muk-dashboard-wechselrichter-verbindungstest/) |
+| 260323-q66 | Tagesverbrauch SA->SU: Daylight-only consumption fuer Morgen-Verzoegerung | 2026-03-23 | f430b17 | | [260323-q66-tagesverbrauch-sensor-sonnenaufgang-sonn](./quick/260323-q66-tagesverbrauch-sensor-sonnenaufgang-sonn/) |
+| 260323-rzw | Dashboard: Ein/Test Toggle + Metrics Row entfernt + Mode Badge entfernt | 2026-03-23 | 32bb793 | | [260323-rzw-dashboard-ein-test-toggle-metrics-row-we](./quick/260323-rzw-dashboard-ein-test-toggle-metrics-row-we/) |
+| 260323-tg9 | Dashboard: SVG Energy Flow Diagramm + Live Values Card | 2026-03-23 | 96ee638 | | [260323-tg9-dashboard-svg-energy-flow-diagramm-live-](./quick/260323-tg9-dashboard-svg-energy-flow-diagramm-live-/) |
+| 260323-u1p | Simulation: Verbrauchsfaktor + SOC Override fuer Optimizer-Testing | 2026-03-23 | 0a2b305 | | [260323-u1p-testing-bereich-verbrauchswerte-berschre](./quick/260323-u1p-testing-bereich-verbrauchswerte-berschre/) |
+| 260324-hy6 | Expertenmodus-Schalter im Wizard: Toggle oben im Progress-Bar | 2026-03-24 | b86231d | | [260324-hy6-expertenmodus-schalter-im-wizard-toggle-](./quick/260324-hy6-expertenmodus-schalter-im-wizard-toggle-/) |
+| 260324-ip7 | Optimizer-Aktivitaetsprotokoll: HA Events + Dashboard Timeline | 2026-03-24 | e64fef4 | | [260324-ip7-optimizer-aktivitaetsprotokoll-ha-logboo](./quick/260324-ip7-optimizer-aktivitaetsprotokoll-ha-logboo/) |
+| 260324-ji1 | Optimizer Startup beschleunigen: Backfill async, Timer 30s | 2026-03-24 | db23c89 | | [260324-ji1-optimizer-startup-beschleunigen-backfill](./quick/260324-ji1-optimizer-startup-beschleunigen-backfill/) |
+| 260325-na6 | Huawei Inverter Dependency Inventory: Sensor reads, writes, config, hardcoded refs | 2026-03-25 | 291e6a0 | Verified | [260325-na6-huawei-inverter-sensor-reads-and-write-o](./quick/260325-na6-huawei-inverter-sensor-reads-and-write-o/) |
 
 ## Session Continuity
 
