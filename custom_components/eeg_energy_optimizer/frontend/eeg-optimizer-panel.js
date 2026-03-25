@@ -207,8 +207,11 @@ class EegOptimizerPanel extends HTMLElement {
     this._activityLog = [];
     this._activityLogLoaded = false;
     this._activityUnsub = null;
-    this._activityPageSize = 25;
-    this._activityShowCount = 25;
+    this._activityTotal = 0;
+    this._activityHasMore = false;
+    this._activityLoadingMore = false;
+    this._loadConfigPending = false;
+    this._connectionLostSeen = false;
 
     // Event delegation on shadow root
     // Legend hover: highlight matching weekday line
@@ -355,12 +358,13 @@ class EegOptimizerPanel extends HTMLElement {
         this._toggleHaSidebar();
         break;
       case "refresh-activity-log":
-        this._activityShowCount = this._activityPageSize;
+        this._activityLog = [];
+        this._activityTotal = 0;
+        this._activityHasMore = false;
         this._loadActivityLog();
         break;
       case "show-more-activity":
-        this._activityShowCount += this._activityPageSize;
-        this._render();
+        this._loadMoreActivity();
         break;
       case "toggle-mode": {
         const modeState = this._readState(this._entityIds?.select || "select.eeg_energy_optimizer_optimizer");
@@ -719,8 +723,14 @@ class EegOptimizerPanel extends HTMLElement {
   async _loadActivityLog() {
     if (!this._hass) return;
     try {
-      const result = await this._hass.callWS({ type: "eeg_optimizer/get_activity_log" });
+      const result = await this._hass.callWS({
+        type: "eeg_optimizer/get_activity_log",
+        offset: 0,
+        limit: 100,
+      });
       this._activityLog = result?.entries || [];
+      this._activityTotal = result?.total || 0;
+      this._activityHasMore = result?.has_more || false;
       this._activityLogLoaded = true;
       this._render();
     } catch (e) {
@@ -728,13 +738,33 @@ class EegOptimizerPanel extends HTMLElement {
     }
   }
 
+  async _loadMoreActivity() {
+    if (this._activityLoadingMore || !this._activityHasMore) return;
+    this._activityLoadingMore = true;
+    this._render();
+    try {
+      const result = await this._hass.callWS({
+        type: "eeg_optimizer/get_activity_log",
+        offset: this._activityLog.length,
+        limit: 100,
+      });
+      this._activityLog = this._activityLog.concat(result?.entries || []);
+      this._activityTotal = result?.total || this._activityTotal;
+      this._activityHasMore = result?.has_more || false;
+    } catch (e) {
+      console.error("Failed to load more activity:", e);
+    }
+    this._activityLoadingMore = false;
+    this._render();
+  }
+
   _subscribeActivityEvents() {
     if (this._activityUnsub || !this._hass?.connection) return;
     this._hass.connection.subscribeEvents((ev) => {
       if (ev.data) {
-        this._activityLog.push(ev.data);
-        // Keep max 200 entries client-side
-        if (this._activityLog.length > 200) this._activityLog.shift();
+        // Prepend new event (newest first)
+        this._activityLog.unshift(ev.data);
+        this._activityTotal += 1;
         this._render();
       }
     }, "eeg_optimizer_activity").then(unsub => {
@@ -872,7 +902,13 @@ class EegOptimizerPanel extends HTMLElement {
     this._hass = hass;
 
     if (firstLoad) {
-      this._loadConfig();
+      this._loadConfigWithRetry();
+      return;
+    }
+
+    // Detect reconnect: if we lost connection and hass is back, reload
+    if (!this._initialized && !this._loadConfigPending) {
+      this._loadConfigWithRetry();
       return;
     }
 
@@ -920,6 +956,25 @@ class EegOptimizerPanel extends HTMLElement {
     this._render();
   }
 
+  async _loadConfigWithRetry(attempt = 0) {
+    if (this._loadConfigPending) return;
+    this._loadConfigPending = true;
+    try {
+      await this._loadConfig();
+    } catch (_) {
+      // Retry up to 5 times with increasing delay (2s, 4s, 6s, 8s, 10s)
+      if (attempt < 5) {
+        this._loadConfigPending = false;
+        const delay = (attempt + 1) * 2000;
+        console.warn(`EEG Optimizer: config load failed, retry ${attempt + 1}/5 in ${delay}ms`);
+        setTimeout(() => this._loadConfigWithRetry(attempt + 1), delay);
+        return;
+      }
+      console.error("EEG Optimizer: config load failed after 5 retries");
+    }
+    this._loadConfigPending = false;
+  }
+
   async _loadConfig() {
     try {
       const result = await this._hass.callWS({
@@ -931,6 +986,9 @@ class EegOptimizerPanel extends HTMLElement {
     } catch (err) {
       if (err.code === "not_configured") {
         this._setupComplete = false;
+      } else {
+        // Connection error — rethrow so retry logic kicks in
+        throw err;
       }
       this._config = null;
     }
@@ -951,9 +1009,12 @@ class EegOptimizerPanel extends HTMLElement {
     this._render();
 
     // Load activity log and subscribe to live events
-    if (this._setupComplete && !this._activityLogLoaded) {
+    if (this._setupComplete) {
       this._loadActivityLog();
-      this._subscribeActivityEvents();
+      // Re-subscribe if previous subscription was lost (e.g. after reconnect)
+      if (!this._activityUnsub) {
+        this._subscribeActivityEvents();
+      }
     }
   }
 
@@ -1918,10 +1979,8 @@ class EegOptimizerPanel extends HTMLElement {
       return "var(--success-color, #4CAF50)";
     };
 
-    // Show newest first, paged
-    const allEntries = [...this._activityLog].reverse();
-    const entries = allEntries.slice(0, this._activityShowCount);
-    const hasMore = allEntries.length > this._activityShowCount;
+    // Already sorted newest-first from server
+    const entries = this._activityLog;
     const rows = entries.map(e => {
       const ts = e.timestamp ? new Date(e.timestamp) : null;
       const timeStr = ts ? `${String(ts.getHours()).padStart(2,"0")}:${String(ts.getMinutes()).padStart(2,"0")}` : "---";
@@ -1940,11 +1999,17 @@ class EegOptimizerPanel extends HTMLElement {
       </div>`;
     }).join("");
 
-    const moreBtn = hasMore ? `<div style="text-align:center;padding:8px">
-      <button class="btn-secondary" data-action="show-more-activity" style="font-size:13px">
-        Mehr anzeigen (${allEntries.length - this._activityShowCount} weitere)
-      </button>
-    </div>` : "";
+    const remaining = this._activityTotal - this._activityLog.length;
+    let moreBtn = "";
+    if (this._activityLoadingMore) {
+      moreBtn = `<div style="text-align:center;padding:12px;color:var(--secondary-text-color)">Laden\u2026</div>`;
+    } else if (this._activityHasMore && remaining > 0) {
+      moreBtn = `<div style="text-align:center;padding:8px">
+        <button class="btn-secondary" data-action="show-more-activity" style="font-size:13px">
+          Mehr laden (${remaining} weitere)
+        </button>
+      </div>`;
+    }
 
     return `<div class="activity-timeline">${rows}</div>${moreBtn}`;
   }
@@ -2526,7 +2591,21 @@ class EegOptimizerPanel extends HTMLElement {
   /* ── Main render ──────────────────────────────── */
 
   _render() {
-    if (!this._initialized) return;
+    if (!this._initialized) {
+      // Show loading indicator instead of blank white screen
+      this._shadow.innerHTML = `
+        <style>
+          :host { display:block; height:100%; background:var(--primary-background-color,#fafafa); }
+          .loading-screen { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:16px; color:var(--secondary-text-color,#666); }
+          .loading-spinner { width:40px; height:40px; border:3px solid var(--divider-color,#e0e0e0); border-top-color:var(--primary-color,#03a9f4); border-radius:50%; animation:spin 1s linear infinite; }
+          @keyframes spin { to { transform:rotate(360deg); } }
+        </style>
+        <div class="loading-screen">
+          <div class="loading-spinner"></div>
+          <div>Verbindung wird hergestellt\u2026</div>
+        </div>`;
+      return;
+    }
 
     let headerRight = "";
     if (this._setupComplete && this._view === "dashboard") {

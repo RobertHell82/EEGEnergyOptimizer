@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**EEG Energy Optimizer** (v0.1.0) — a Home Assistant custom integration for grid-friendly battery management, optimized for energy communities (Energiegemeinschaften / EEG) in the DACH region. It controls when a PV battery charges and discharges to maximize feed-in during EEG-relevant time windows (mornings and evenings).
+**EEG Energy Optimizer** (v0.3.8) — a Home Assistant custom integration for grid-friendly battery management, optimized for energy communities (Energiegemeinschaften / EEG) in the DACH region. It controls when a PV battery charges and discharges to maximize feed-in during EEG-relevant time windows (mornings and evenings).
 
 **Language**: Python (async, Home Assistant framework) + plain JS (panel)
 **Distribution**: HACS-compatible repository structure
@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 All code lives in `custom_components/eeg_energy_optimizer/`. The integration runs as a Home Assistant config-flow hub with a sidebar onboarding panel.
 
-### Core Processing Loop (60-second cycle)
+### Core Processing Loop (30-second cycle)
 
 ```
 __init__.py: async_setup_entry()
@@ -21,7 +21,8 @@ __init__.py: async_setup_entry()
   → Platforms forwarded: sensor, select
   → WebSocket API registered for panel
   → Frontend panel registered
-  → 60s timer: _optimizer_cycle()
+  → Activity log: persistent ring buffer (5000 entries, paginated API)
+  → 30s timer: _optimizer_cycle()
 
 optimizer.py: async_run_cycle(mode)
   → _gather_snapshot() → Snapshot (all sensor states as dataclass)
@@ -44,19 +45,19 @@ optimizer.py: async_run_cycle(mode)
 
 | File | Role |
 |------|------|
-| `__init__.py` | Entry setup, 60s optimizer timer, panel registration, config migration |
+| `__init__.py` | Entry setup, 30s optimizer timer, activity log, panel registration, config migration |
 | `optimizer.py` | Decision engine — Snapshot/Decision dataclasses, charge blocking, discharge logic |
 | `sensor.py` | 14 sensors: consumption profile, forecasts, battery, PV, Hausverbrauch, decision |
-| `coordinator.py` | Loads hourly consumption averages from recorder (rolling, 7-day weekday split) |
+| `coordinator.py` | Loads hourly consumption averages from recorder (rolling, weekday split) |
 | `forecast_provider.py` | Abstract PV forecast provider — Solcast and Forecast.Solar implementations |
 | `config_flow.py` | Single-click config flow (full setup happens in panel) |
-| `websocket_api.py` | WebSocket commands for panel: get/save config, prerequisites, sensor detection, inverter test |
+| `websocket_api.py` | 12 WebSocket commands for panel (config, sensors, inverter control, activity log) |
 | `inverter/base.py` | Abstract inverter interface (InverterBase ABC) |
 | `inverter/huawei.py` | Huawei SUN2000 implementation via HA services |
 | `inverter/__init__.py` | Factory function `create_inverter()` |
-| `select.py` | Optimizer mode select entity (Ein/Test/Aus), restores state across restarts |
+| `select.py` | Optimizer mode select entity (Ein/Test), restores state across restarts |
 | `const.py` | All constants, defaults, mode enums, state names |
-| `frontend/eeg-optimizer-panel.js` | Onboarding panel (plain HTMLElement, Shadow DOM) |
+| `frontend/eeg-optimizer-panel.js` | Dashboard + onboarding panel (plain HTMLElement, Shadow DOM) |
 
 ### Sensors (14 total)
 
@@ -69,19 +70,43 @@ optimizer.py: async_run_cycle(mode)
 | 11 | PV Prognose heute | fast | Remaining PV today from forecast provider |
 | 12 | PV Prognose morgen | fast | PV forecast tomorrow |
 | 13 | Hausverbrauch | fast | Calculated: PV - Battery - Grid (kW, MEASUREMENT) |
-| 14 | Entscheidung | 60s | Current optimizer state + Markdown dashboard |
+| 14 | Entscheidung | 30s | Current optimizer state + Markdown dashboard |
 
 ### Select Entity
 
 | Entity | Options | Description |
 |--------|---------|-------------|
-| `select.eeg_energy_optimizer_optimizer` | Ein / Test / Aus | Optimizer mode — Ein executes, Test is dry-run, Aus disables |
+| `select.eeg_energy_optimizer_optimizer` | Ein / Test | Optimizer mode — Ein executes inverter commands, Test is dry-run (Aus is internal state only) |
 
 ### Optimizer States
 
 - **Morgen-Einspeisung**: Battery charging blocked to maximize morning EEG feed-in
 - **Abend-Entladung**: Battery discharging for evening EEG feed-in
 - **Normal**: Standard operation (inverter in auto mode)
+
+### Activity Log
+
+- **Ring buffer**: 5000 entries (`collections.deque`), persisted via `homeassistant.helpers.storage.Store`
+- **Logging**: At fixed quarter-hours (:00, :15, :30, :45) as heartbeat + on every state change
+- **API**: Paginated WebSocket endpoint (`get_activity_log` with `offset`/`limit`)
+- **Frontend**: Loads 100 entries initially, "Mehr laden" fetches 100 more per click, live events via subscription
+
+### WebSocket API (12 commands)
+
+| Command | Description |
+|---------|-------------|
+| `eeg_optimizer/get_config` | Read config entry data |
+| `eeg_optimizer/save_config` | Update config entry |
+| `eeg_optimizer/check_prerequisites` | Check required integrations |
+| `eeg_optimizer/detect_sensors` | Auto-detect Huawei sensors |
+| `eeg_optimizer/test_inverter` | Test inverter connection |
+| `eeg_optimizer/manual_stop` | Stop forcible charge/discharge |
+| `eeg_optimizer/manual_discharge` | Trigger manual discharge |
+| `eeg_optimizer/manual_block_charge` | Block battery charging |
+| `eeg_optimizer/set_test_overrides` | Set simulation overrides |
+| `eeg_optimizer/get_test_overrides` | Read simulation overrides |
+| `eeg_optimizer/clear_test_overrides` | Clear simulation overrides |
+| `eeg_optimizer/get_activity_log` | Paginated activity log (offset, limit) |
 
 ### Inverter Abstraction
 
@@ -110,7 +135,7 @@ Implementations:
 - **Evening Discharge**: Discharges battery into grid during evening hours when community demand is high. Requires: sufficient SOC above dynamic min-SOC, and tomorrow's PV forecast covers tomorrow's demand.
 - **Dynamic Min-SOC**: base_min_soc + ceil((overnight_consumption * (1 + buffer%) / capacity) * 100) — ensures enough energy for overnight household consumption.
 - **Safety Buffer** (`safety_buffer_pct`, default 25%): Applied to both morning blocking threshold and overnight consumption reserve.
-- **Consumption Profile**: Hourly averages from recorder, split by 7 individual weekdays (mo–so), rolling window (default 8 weeks), with weekday fallback chain for missing data.
+- **Consumption Profile**: Hourly averages from recorder, split by 7 individual weekdays (mo–so), rolling window (default 4 weeks), with weekday fallback chain for missing data.
 - **Dual Update Timers**: Slow sensors (profile) every 15min, fast sensors (forecasts, battery, Hausverbrauch) every 1min.
 
 ## Config Flow & Onboarding
@@ -121,12 +146,11 @@ The config flow is a single-click setup that creates a config entry with `setup_
 2. Inverter type selection + auto-detection of sensors
 3. Battery & PV sensor mapping
 4. Forecast source selection (Solcast / Forecast.Solar)
-5. Consumption sensor configuration
-6. Optimizer settings (morning window, discharge time, min-SOC, etc.)
-7. Inverter connection test
-8. Live dashboard
+5. Optimizer settings (morning window, discharge time, min-SOC, etc.)
+6. Inverter connection test
+7. Live dashboard with energy flow, charts, manual controls, activity log
 
-Config entry version: 8 (migrations in `__init__.py`)
+Config entry version: 9 (migrations in `__init__.py`)
 
 ## Development Notes
 

@@ -328,7 +328,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         from homeassistant.helpers.storage import Store
         ACTIVITY_STORE_KEY = f"{DOMAIN}_{entry.entry_id}_activity"
         activity_store = Store(hass, 1, ACTIVITY_STORE_KEY)
-        activity_log = collections.deque(maxlen=500)
+        activity_log = collections.deque(maxlen=5000)
         data["activity_log"] = activity_log
         save_pending = [False]
 
@@ -357,7 +357,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await _do_save()
 
         prev_zustand = [None]  # mutable container for closure
-        log_cycle_count = [0]  # track cycles for 15min heartbeat
+        last_heartbeat_quarter = [None]  # track last logged quarter-hour
 
         def _log_activity(decision, reason):
             """Append an activity entry and fire a HA event."""
@@ -386,16 +386,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if decision_sensor and decision:
                 decision_sensor.update_from_decision(decision)
 
-            # Activity logging: on state change + every 15 cycles (15min)
+            # Activity logging: on state change + at fixed quarter-hours (:00, :15, :30, :45)
             if decision:
-                log_cycle_count[0] += 1
                 if decision.zustand != prev_zustand[0]:
                     _log_activity(decision, decision.zustand)
                     prev_zustand[0] = decision.zustand
-                    log_cycle_count[0] = 0
-                elif log_cycle_count[0] >= 30:
-                    _log_activity(decision, "Heartbeat")
-                    log_cycle_count[0] = 0
+                else:
+                    from datetime import datetime as dt
+                    now = dt.now()
+                    current_quarter = (now.hour, now.minute // 15)
+                    if current_quarter != last_heartbeat_quarter[0]:
+                        _log_activity(decision, "Heartbeat")
+                        last_heartbeat_quarter[0] = current_quarter
 
         if async_track_time_interval is not None:
             unsub = async_track_time_interval(

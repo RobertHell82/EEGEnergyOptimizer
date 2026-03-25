@@ -478,6 +478,8 @@ async def ws_clear_test_overrides(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "eeg_optimizer/get_activity_log",
+        vol.Optional("offset", default=0): int,
+        vol.Optional("limit", default=100): int,
     }
 )
 @websocket_api.async_response
@@ -486,10 +488,25 @@ async def ws_get_activity_log(
     connection: websocket_api.ActiveConnection,
     msg: dict,
 ) -> None:
-    """Return the activity log ring buffer."""
+    """Return a page of the activity log (newest first)."""
     entry, data = _get_entry_data(hass, connection, msg)
     if entry is None:
         return
 
     log = data.get("activity_log")
-    connection.send_result(msg["id"], {"entries": list(log) if log else []})
+    if not log:
+        connection.send_result(msg["id"], {"entries": [], "total": 0})
+        return
+
+    total = len(log)
+    # Convert deque to list in reverse (newest first), then slice
+    all_entries = list(reversed(log))
+    offset = msg.get("offset", 0)
+    limit = msg.get("limit", 100)
+    page = all_entries[offset:offset + limit]
+    connection.send_result(msg["id"], {
+        "entries": page,
+        "total": total,
+        "offset": offset,
+        "has_more": offset + limit < total,
+    })
