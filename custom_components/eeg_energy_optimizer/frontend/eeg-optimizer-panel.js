@@ -2448,7 +2448,7 @@ class EegOptimizerPanel extends HTMLElement {
         Simulation aktiv — Verbrauchsfaktor: ${this._simFactor}x${this._simSocOverride !== null ? `, SOC: ${this._simSocOverride}%` : ""}
         <button style="margin-left:auto;background:rgba(255,255,255,0.2);border:none;color:#fff;
           padding:6px 12px;border-radius:8px;cursor:pointer;font-size:13px"
-          data-action="sim-reset">Zuruecksetzen</button>
+          data-action="sim-reset">Zur\u00fccksetzen</button>
       </div>` : "";
 
     return `
@@ -2614,7 +2614,7 @@ class EegOptimizerPanel extends HTMLElement {
             <button class="btn-manual btn-manual-normal" data-action="sim-reset"
               style="flex:1" ${!this._simActive || this._simLoading ? "disabled" : ""}>
               <ha-icon icon="mdi:restore"></ha-icon>
-              <span>Zuruecksetzen</span>
+              <span>Zur\u00fccksetzen</span>
             </button>
           </div>
           ${this._simLoading ? `

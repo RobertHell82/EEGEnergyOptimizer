@@ -450,7 +450,7 @@ class EEGOptimizer:
             # Estimate tomorrow's demand: consumption + missing battery energy
             missing_battery_est = 0.0
             if snap.battery_capacity_kwh > 0:
-                missing_battery_est = (100 - self._min_soc) / 100 * snap.battery_capacity_kwh
+                missing_battery_est = (100 - self._min_soc) / 100 * snap.battery_capacity_kwh * snap.sim_factor
             consumption_tomorrow = snap.consumption_tomorrow_daylight_kwh
             buffer_tomorrow = consumption_tomorrow * self._safety_buffer_pct / 100
             consumption_with_buffer = consumption_tomorrow + buffer_tomorrow
@@ -539,7 +539,7 @@ class EEGOptimizer:
         missing_battery = 0.0
         if snap.battery_capacity_kwh > 0:
             missing_battery = (
-                (100 - snap.battery_soc) / 100 * snap.battery_capacity_kwh
+                (100 - snap.battery_soc) / 100 * snap.battery_capacity_kwh * snap.sim_factor
             )
 
         return consumption_with_buffer + missing_battery
