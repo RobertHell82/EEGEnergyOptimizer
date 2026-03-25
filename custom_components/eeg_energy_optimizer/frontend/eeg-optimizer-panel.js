@@ -180,7 +180,17 @@ window.addEventListener("unhandledrejection", (e) => {
   const msg = e.reason?.message || String(e.reason || "");
   if (msg.includes("Subscription not found") ||
       msg.includes("Transition was aborted") ||
-      msg.includes("message channel closed")) {
+      msg.includes("message channel closed") ||
+      msg.includes("asynchronous response")) {
+    e.preventDefault();
+  }
+});
+
+// Also suppress synchronous errors from HA internals / extensions
+window.addEventListener("error", (e) => {
+  const msg = e.message || "";
+  if (msg.includes("message channel closed") ||
+      msg.includes("asynchronous response")) {
     e.preventDefault();
   }
 });
@@ -224,6 +234,21 @@ class EegOptimizerPanel extends HTMLElement {
     this._connectionLostSeen = false;
     this._manualControlOpen = false;
     this._simulationOpen = false;
+    this._lastHassUpdate = Date.now();
+
+    // Recover from network switches / long sleep when tab becomes visible
+    this._onVisibilityChange = () => {
+      if (document.visibilityState === "visible" && this._hass) {
+        const elapsed = Date.now() - this._lastHassUpdate;
+        // If no hass update for >30s, the connection likely dropped
+        if (elapsed > 30000) {
+          console.info("EEG Optimizer: tab visible after " + Math.round(elapsed / 1000) + "s, refreshing");
+          this._loadConfigPending = false;
+          this._loadConfigWithRetry();
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", this._onVisibilityChange);
 
     // Event delegation on shadow root
     // Legend hover: highlight matching weekday line
@@ -960,6 +985,7 @@ class EegOptimizerPanel extends HTMLElement {
     const firstLoad = this._hass === null;
     const oldHass = this._hass;
     this._hass = hass;
+    this._lastHassUpdate = Date.now();
 
     if (firstLoad) {
       this._loadConfigWithRetry();
@@ -972,9 +998,13 @@ class EegOptimizerPanel extends HTMLElement {
       return;
     }
 
-    // Detect connection object change (HA reconnect) — re-subscribe events
-    if (oldHass && hass && oldHass.connection !== hass.connection && this._setupComplete) {
-      this._subscribeActivityEvents();
+    // Detect connection object change (HA reconnect after network switch)
+    if (oldHass && hass && oldHass.connection !== hass.connection) {
+      console.info("EEG Optimizer: connection changed (network switch?), reloading");
+      this._activityUnsub = null; // old subscription is dead
+      this._loadConfigPending = false;
+      this._loadConfigWithRetry();
+      return;
     }
 
     // Update entity pickers in shadow DOM with new hass
@@ -3180,6 +3210,9 @@ class EegOptimizerPanel extends HTMLElement {
     if (this._activityUnsub) {
       try { this._activityUnsub(); } catch (_) { /* connection already gone */ }
       this._activityUnsub = null;
+    }
+    if (this._onVisibilityChange) {
+      document.removeEventListener("visibilitychange", this._onVisibilityChange);
     }
   }
 }
