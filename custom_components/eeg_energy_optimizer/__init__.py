@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -268,6 +269,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.http.async_register_static_paths(
         [StaticPathConfig(PANEL_FRONTEND_URL, frontend_path, cache_headers=False)]
     )
+
+    # Read version from manifest for cache-busting query parameter
+    manifest_path = Path(__file__).parent / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    panel_version = manifest.get("version", "0")
+
     if PANEL_URL_PATH not in hass.data.get("frontend_panels", {}):
         async_register_built_in_panel(
             hass,
@@ -280,7 +287,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     "name": "eeg-optimizer-panel",
                     "embed_iframe": False,
                     "trust_external": False,
-                    "js_url": f"{PANEL_FRONTEND_URL}/eeg-optimizer-panel.js",
+                    "js_url": f"{PANEL_FRONTEND_URL}/eeg-optimizer-panel.js?v={panel_version}",
                 }
             },
             require_admin=False,
