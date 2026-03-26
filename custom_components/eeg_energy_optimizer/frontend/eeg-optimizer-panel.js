@@ -546,7 +546,8 @@ class EegOptimizerPanel extends HTMLElement {
       this._wizardStep = saved.step;
       this._wizardData = { ...WIZARD_DEFAULTS, ...saved.data };
     } else if (this._config && this._config.setup_complete) {
-      // Re-configuration: pre-fill from existing config
+      // Re-configuration: jump to Ladung & Einspeisung
+      this._wizardStep = 4;
       this._wizardData = { ...WIZARD_DEFAULTS };
       for (const key of Object.keys(WIZARD_DEFAULTS)) {
         if (this._config[key] !== undefined && this._config[key] !== null) {
