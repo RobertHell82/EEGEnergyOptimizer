@@ -328,7 +328,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         from homeassistant.helpers.storage import Store
         ACTIVITY_STORE_KEY = f"{DOMAIN}_{entry.entry_id}_activity"
         activity_store = Store(hass, 1, ACTIVITY_STORE_KEY)
-        activity_log = collections.deque(maxlen=5000)
+        activity_log = collections.deque(maxlen=2500)
         data["activity_log"] = activity_log
         activity_dirty = [False]
 
@@ -356,7 +356,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.warning("Failed to save activity log: %s", err)
 
         prev_zustand = [None]  # mutable container for closure
-        last_heartbeat_quarter = [None]  # track last logged quarter-hour
+        last_heartbeat_hour = [None]  # track last logged hour
         first_cycle = [True]  # skip logging on first cycle (sensors not ready)
 
         def _log_activity(decision, reason):
@@ -386,7 +386,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if decision_sensor and decision:
                 decision_sensor.update_from_decision(decision)
 
-            # Activity logging: on state change + at fixed quarter-hours (:00, :15, :30, :45)
+            # Activity logging: on state change + at full hours (:00)
             if decision:
                 # Skip first cycle — sensors may not have real data yet
                 if first_cycle[0]:
@@ -398,10 +398,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 else:
                     from datetime import datetime as dt
                     now = dt.now()
-                    current_quarter = (now.hour, now.minute // 15)
-                    if current_quarter != last_heartbeat_quarter[0]:
+                    current_hour = now.hour
+                    if current_hour != last_heartbeat_hour[0]:
                         _log_activity(decision, "Heartbeat")
-                        last_heartbeat_quarter[0] = current_quarter
+                        last_heartbeat_hour[0] = current_hour
 
             # Persist activity log to disk if changed
             await _flush_activity_log()

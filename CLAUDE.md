@@ -86,8 +86,8 @@ optimizer.py: async_run_cycle(mode)
 
 ### Activity Log
 
-- **Ring buffer**: 5000 entries (`collections.deque`), persisted via `homeassistant.helpers.storage.Store`
-- **Logging**: At fixed quarter-hours (:00, :15, :30, :45) as heartbeat + on every state change
+- **Ring buffer**: 2500 entries (`collections.deque`), persisted via `homeassistant.helpers.storage.Store`
+- **Logging**: At full hours (:00) as heartbeat + on every state change
 - **API**: Paginated WebSocket endpoint (`get_activity_log` with `offset`/`limit`)
 - **Frontend**: Loads 100 entries initially, "Mehr laden" fetches 100 more per click, live events via subscription
 
