@@ -275,23 +275,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     manifest = json.loads(manifest_path.read_text())
     panel_version = manifest.get("version", "0")
 
-    if PANEL_URL_PATH not in hass.data.get("frontend_panels", {}):
-        async_register_built_in_panel(
-            hass,
-            component_name="custom",
-            sidebar_title=PANEL_TITLE,
-            sidebar_icon=PANEL_ICON,
-            frontend_url_path=PANEL_URL_PATH,
-            config={
-                "_panel_custom": {
-                    "name": "eeg-optimizer-panel",
-                    "embed_iframe": False,
-                    "trust_external": False,
-                    "js_url": f"{PANEL_FRONTEND_URL}/eeg-optimizer-panel.js?v={panel_version}",
-                }
-            },
-            require_admin=False,
-        )
+    # Always re-register panel to update cache-busting version in js_url
+    if PANEL_URL_PATH in hass.data.get("frontend_panels", {}):
+        async_remove_panel(hass, PANEL_URL_PATH)
+    async_register_built_in_panel(
+        hass,
+        component_name="custom",
+        sidebar_title=PANEL_TITLE,
+        sidebar_icon=PANEL_ICON,
+        frontend_url_path=PANEL_URL_PATH,
+        config={
+            "_panel_custom": {
+                "name": "eeg-optimizer-panel",
+                "embed_iframe": False,
+                "trust_external": False,
+                "js_url": f"{PANEL_FRONTEND_URL}/eeg-optimizer-panel.js?v={panel_version}",
+            }
+        },
+        require_admin=False,
+    )
 
     hass.data[DOMAIN][entry.entry_id] = {
         "config": config,
