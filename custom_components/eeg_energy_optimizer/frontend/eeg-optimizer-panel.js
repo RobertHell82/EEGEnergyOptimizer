@@ -2536,8 +2536,8 @@ class EegOptimizerPanel extends HTMLElement {
     const hausKw = this._readFloat("sensor.eeg_energy_optimizer_hausverbrauch") || Math.max(0, pvKw - batKw - gridKw);
     const batLabel = batKw >= 0 ? "Ladung" : "Entladung";
     const batColor = "val-orange";
-    const gridLabel = gridKw >= 0 ? "Bezug" : "Einspeisung";
-    const gridColor = gridKw >= 0 ? "val-red" : "val-green";
+    const gridLabel = gridKw >= 0 ? "Einspeisung" : "Bezug";
+    const gridColor = gridKw >= 0 ? "val-green" : "val-red";
     const socColor = socVal == null ? "" : socVal > 50 ? "val-green" : socVal >= 25 ? "val-orange" : "val-red";
 
     const fmtTime = (isoStr) => {
