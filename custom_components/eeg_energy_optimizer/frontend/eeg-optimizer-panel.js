@@ -2477,6 +2477,7 @@ class EegOptimizerPanel extends HTMLElement {
     const pvForecastData = forecastData.map((d, i) => {
       return { label: d.label, value: pvWeek[i] || 0 };
     });
+    const _solcastDay37Missing = solcastPrefix && pvWeek.slice(2).every(v => v === 0);
 
     // --- Hourly profile chart (all weekdays) ---
     const profilState = this._readState(this._entityIds?.verbrauchsprofil || "sensor.eeg_energy_optimizer_verbrauchsprofil");
@@ -2612,6 +2613,9 @@ class EegOptimizerPanel extends HTMLElement {
             </span>
           </h3>
           ${this._renderBarChart(forecastData, pvForecastData)}
+          ${_solcastDay37Missing ? `<p style="margin:8px 0 0;padding:10px 12px;background:var(--warning-color,#ff9800)22;border-left:3px solid var(--warning-color,#ff9800);border-radius:4px;font-size:0.85em;color:var(--primary-text-color)">
+            <ha-icon icon="mdi:alert-outline" style="--mdc-icon-size:16px;vertical-align:middle;margin-right:4px;color:var(--warning-color,#ff9800)"></ha-icon>
+            Bitte die Sensoren f\u00fcr die Tage 3\u20137 in der Solcast Integration aktivieren, um die fehlenden Prognosedaten anzeigen zu lassen.</p>` : ""}
         </div>
 
         <!-- Hourly Profile Chart -->

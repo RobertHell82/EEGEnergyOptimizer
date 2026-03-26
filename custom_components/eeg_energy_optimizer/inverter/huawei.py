@@ -13,7 +13,10 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 HUAWEI_DOMAIN = "huawei_solar"
-MAX_CHARGE_POWER_ENTITY = "number.batteries_maximale_ladeleistung"
+MAX_CHARGE_POWER_CANDIDATES = [
+    "number.batteries_maximale_ladeleistung",
+    "number.batterien_maximale_ladeleistung",
+]
 
 
 class HuaweiInverter(InverterBase):
@@ -28,10 +31,22 @@ class HuaweiInverter(InverterBase):
                 "device was not auto-detected. Re-run setup wizard to detect the Huawei device."
             )
         self._device_id: str = device_id
+        self._max_charge_entity = self._resolve_charge_entity()
+
+    def _resolve_charge_entity(self) -> str:
+        """Find the correct max charge power entity from known candidates."""
+        for entity_id in MAX_CHARGE_POWER_CANDIDATES:
+            if self._hass.states.get(entity_id) is not None:
+                _LOGGER.debug("Huawei: Using charge power entity %s", entity_id)
+                return entity_id
+        raise ValueError(
+            f"Huawei: Kein Ladeleistungs-Entity gefunden. "
+            f"Erwartet: {MAX_CHARGE_POWER_CANDIDATES}"
+        )
 
     async def _get_max_charge_power(self) -> float:
         """Read the max value of the charge power number entity."""
-        state = self._hass.states.get(MAX_CHARGE_POWER_ENTITY)
+        state = self._hass.states.get(self._max_charge_entity)
         if state is None:
             return 5000.0
         return float(state.attributes.get("max", 5000))
@@ -47,14 +62,14 @@ class HuaweiInverter(InverterBase):
                 "number",
                 "set_value",
                 {
-                    "entity_id": MAX_CHARGE_POWER_ENTITY,
+                    "entity_id": self._max_charge_entity,
                     "value": power_w,
                 },
                 blocking=True,
             )
             return True
         except Exception:
-            _LOGGER.exception("Huawei: Failed to set charge limit via %s", MAX_CHARGE_POWER_ENTITY)
+            _LOGGER.exception("Huawei: Failed to set charge limit via %s", self._max_charge_entity)
             return False
 
     async def async_set_discharge(
@@ -92,7 +107,7 @@ class HuaweiInverter(InverterBase):
                 "number",
                 "set_value",
                 {
-                    "entity_id": MAX_CHARGE_POWER_ENTITY,
+                    "entity_id": self._max_charge_entity,
                     "value": max_power,
                 },
                 blocking=True,
