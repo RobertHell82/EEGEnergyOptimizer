@@ -18,8 +18,10 @@ from .const import (
     CONF_HUAWEI_DEVICE_ID,
     CONF_INVERTER_TYPE,
     CONF_PV_POWER_SENSOR,
+    CONF_PV_POWER_SENSOR_2,
     DOMAIN,
     INVERTER_TYPE_HUAWEI,
+    INVERTER_TYPE_SOLAX,
 )
 
 if TYPE_CHECKING:
@@ -52,6 +54,38 @@ HUAWEI_DEFAULTS: dict[str, list[str]] = {
         "sensor.batterien_lade_entladeleistung",
     ],
 }
+
+SOLAX_DEFAULTS: dict[str, list[str]] = {
+    CONF_BATTERY_SOC_SENSOR: [
+        "sensor.solax_inverter_battery_capacity",
+        "sensor.solax_battery_capacity",
+    ],
+    CONF_PV_POWER_SENSOR: [
+        "sensor.solax_energy_dashboard_solax_solar_power",
+        "sensor.solax_solar_power",
+    ],
+    CONF_GRID_POWER_SENSOR: [
+        "sensor.solax_energy_dashboard_solax_grid_power",
+        "sensor.solax_grid_power",
+    ],
+    CONF_BATTERY_POWER_SENSOR: [
+        "sensor.solax_energy_dashboard_solax_battery_power",
+        "sensor.solax_battery_power",
+    ],
+    CONF_PV_POWER_SENSOR_2: [
+        "sensor.solax_inverter_meter_2_measured_power",
+    ],
+}
+
+
+def _find_solax_prefix(hass: HomeAssistant) -> str | None:
+    """Auto-detect the SolaX entity prefix by searching for remotecontrol_power_control."""
+    for state in hass.states.async_all("select"):
+        if state.entity_id.endswith("remotecontrol_power_control"):
+            # e.g. "select.solax_remotecontrol_power_control" -> "solax_"
+            prefix = state.entity_id.replace("select.", "").replace("remotecontrol_power_control", "")
+            return prefix
+    return None
 
 
 def _find_huawei_battery_device(hass: HomeAssistant) -> str | None:
@@ -196,7 +230,7 @@ async def ws_check_prerequisites(
     msg: dict,
 ) -> None:
     """Check which prerequisite integrations are installed and loaded."""
-    check_domains = ["huawei_solar", "solcast_solar", "forecast_solar"]
+    check_domains = ["huawei_solar", "solax_modbus", "solcast_solar", "forecast_solar"]
     result = {}
 
     for domain in check_domains:
@@ -218,36 +252,70 @@ async def ws_detect_sensors(
     connection: websocket_api.ActiveConnection,
     msg: dict,
 ) -> None:
-    """Auto-detect Huawei sensors and device ID."""
+    """Auto-detect inverter sensors (Huawei or SolaX)."""
     # Check if Huawei Solar integration is loaded
     huawei_entries = hass.config_entries.async_entries("huawei_solar")
     huawei_loaded = any(e.state.value == "loaded" for e in huawei_entries)
 
-    if not huawei_loaded:
-        connection.send_result(msg["id"], {"detected": False, "sensors": {}})
+    if huawei_loaded:
+        # Detect Huawei sensors by checking state availability (first match wins)
+        sensors: dict[str, str] = {}
+        for conf_key, candidates in HUAWEI_DEFAULTS.items():
+            for entity_id in candidates:
+                state = hass.states.get(entity_id)
+                if state is not None:
+                    sensors[conf_key] = entity_id
+                    break
+
+        # Detect battery device
+        device_id = _find_huawei_battery_device(hass)
+
+        result: dict = {
+            CONF_INVERTER_TYPE: INVERTER_TYPE_HUAWEI,
+            "detected": True,
+            "sensors": sensors,
+        }
+        if device_id:
+            result[CONF_HUAWEI_DEVICE_ID] = device_id
+
+        connection.send_result(msg["id"], result)
         return
 
-    # Detect sensors by checking state availability (first match wins)
-    sensors: dict[str, str] = {}
-    for conf_key, candidates in HUAWEI_DEFAULTS.items():
-        for entity_id in candidates:
-            state = hass.states.get(entity_id)
-            if state is not None:
-                sensors[conf_key] = entity_id
-                break
+    # Check if SolaX Modbus integration is loaded
+    solax_entries = hass.config_entries.async_entries("solax_modbus")
+    solax_loaded = any(e.state.value == "loaded" for e in solax_entries)
 
-    # Detect battery device
-    device_id = _find_huawei_battery_device(hass)
+    if solax_loaded:
+        sensors = {}
+        for conf_key, candidates in SOLAX_DEFAULTS.items():
+            for entity_id in candidates:
+                state = hass.states.get(entity_id)
+                if state is not None:
+                    sensors[conf_key] = entity_id
+                    break
 
-    result: dict = {
-        CONF_INVERTER_TYPE: INVERTER_TYPE_HUAWEI,
-        "detected": True,
-        "sensors": sensors,
-    }
-    if device_id:
-        result[CONF_HUAWEI_DEVICE_ID] = device_id
+        # Detect SolaX entity prefix for control entities
+        prefix = _find_solax_prefix(hass)
 
-    connection.send_result(msg["id"], result)
+        result = {
+            CONF_INVERTER_TYPE: INVERTER_TYPE_SOLAX,
+            "detected": True,
+            "sensors": sensors,
+        }
+        if prefix:
+            result["solax_prefix"] = prefix
+            # Pre-fill control entity IDs based on detected prefix
+            result["solax_remotecontrol_power_control"] = f"select.{prefix}remotecontrol_power_control"
+            result["solax_remotecontrol_active_power"] = f"number.{prefix}remotecontrol_active_power"
+            result["solax_remotecontrol_autorepeat_duration"] = f"number.{prefix}remotecontrol_autorepeat_duration"
+            result["solax_remotecontrol_trigger"] = f"button.{prefix}remotecontrol_trigger"
+            result["solax_selfuse_discharge_min_soc"] = f"number.{prefix}selfuse_discharge_min_soc"
+
+        connection.send_result(msg["id"], result)
+        return
+
+    # Neither Huawei nor SolaX detected
+    connection.send_result(msg["id"], {"detected": False, "sensors": {}})
 
 
 @websocket_api.websocket_command(
