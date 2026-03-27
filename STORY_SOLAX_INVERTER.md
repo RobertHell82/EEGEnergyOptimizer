@@ -45,8 +45,7 @@ Die SolaX Modbus Integration (`solax_modbus` von wills106) steuert den Wechselri
 Phase 1: Parameter setzen (DATA_LOCAL — nur im Integrations-Speicher, NICHT auf Modbus)
   select.solax_remotecontrol_power_control  = "Enabled Battery Control"
   number.solax_remotecontrol_active_power   = -3000  (Watts, negativ = Entladen)
-  number.solax_remotecontrol_duration       = 60     (Sekunden)
-  number.solax_remotecontrol_autorepeat_duration = 120 (Sekunden)
+  number.solax_remotecontrol_autorepeat_duration = 60  (Sekunden)
 
 Phase 2: Trigger druecken (schreibt ALLE Parameter als ein write_multiple_registers auf 0x7C)
   button.solax_remotecontrol_trigger  -->  write_multiple_registers(0x7C, payload)
@@ -105,7 +104,6 @@ Phase 2: Trigger druecken (schreibt ALLE Parameter als ein write_multiple_regist
 |-----------|-------------------|----------|-------|----------|
 | `solax_remotecontrol_power_control` | `select.solax_remotecontrol_power_control` | select | Modus-Auswahl | JA |
 | `solax_remotecontrol_active_power` | `number.solax_remotecontrol_active_power` | number | Ziel-Leistung (W) | JA |
-| `solax_remotecontrol_duration` | `number.solax_remotecontrol_duration` | number | Slot-Dauer (s) | JA |
 | `solax_remotecontrol_autorepeat_duration` | `number.solax_remotecontrol_autorepeat_duration` | number | Wiederholungs-Intervall (s) | JA |
 | `solax_remotecontrol_trigger` | `button.solax_remotecontrol_trigger` | button | Kommando ausfuehren | JA |
 | `solax_selfuse_discharge_min_soc` | `number.solax_selfuse_discharge_min_soc` | number | Min SOC Floor (%) | JA |
@@ -164,15 +162,14 @@ async def async_set_charge_limit(self, power_kw: float) -> bool:
         power_w = int(power_kw * 1000)
         await self._set_select("remotecontrol_power_control", "Enabled Battery Control")
         await self._set_number("remotecontrol_active_power", power_w)
-    await self._set_number("remotecontrol_duration", 60)
-    await self._set_number("remotecontrol_autorepeat_duration", 120)
+    await self._set_number("remotecontrol_autorepeat_duration", 60)
     await self._press_trigger()
     return True
 ```
 
 **Warum NICHT "Enabled No Discharge"?** Der Name ist irrefuehrend: "No Discharge" bedeutet die Batterie KANN laden, KANN NICHT entladen — also das Gegenteil von dem was wir wollen.
 
-**Alternative: "Enabled Feedin Priority"** priorisiert Grid-Export ueber Batterie-Laden und koennte etwas besser fuer maximalen Grid-Export sein. Beide Ansaetze muessen auf echter Hardware getestet werden.
+**Warum NICHT "Enabled Feedin Priority"?** Laut offizieller Doku (readthedocs) ist Feedin Priority eine **Emulation** des eingebauten Feedin-Priority-Modus, die den Target-Wert **ignoriert** und *"may not be as accurate/responsive as the builtin feedin_priority mode"*. "Enabled Battery Control" mit active_power=0 ist der offizielle, getestete Weg — bestaetigt durch die Beispiel-Automationen in der Integration-Doku.
 
 #### `async_set_discharge(power_kw, target_soc)` — Erzwungene Entladung
 
@@ -189,13 +186,12 @@ async def async_set_discharge(self, power_kw: float, target_soc: float | None = 
     power_w = -abs(int(power_kw * 1000))  # Sicherstellen dass negativ
     await self._set_select("remotecontrol_power_control", "Enabled Battery Control")
     await self._set_number("remotecontrol_active_power", power_w)
-    await self._set_number("remotecontrol_duration", 60)
-    await self._set_number("remotecontrol_autorepeat_duration", 120)
+    await self._set_number("remotecontrol_autorepeat_duration", 60)
     await self._press_trigger()
     return True
 ```
 
-**Target SOC Caveat:** Das `selfuse_discharge_min_soc` Register (0x61) setzt den minimalen SOC fuer den Self Use Modus. Waehrend Remote Control "Enabled Battery Control" wird dieses Limit moeglicherweise NICHT von der Firmware durchgesetzt. Der Optimizer MUSS den SOC im 30s-Zyklus ueberwachen und `async_stop_forcible()` aufrufen wenn der SOC das Ziel erreicht.
+**Target SOC Caveat:** Das `selfuse_discharge_min_soc` Register (0x61) setzt den minimalen SOC fuer den Self Use Modus. Waehrend Remote Control "Enabled Battery Control" wird dieses Limit moeglicherweise NICHT von der Firmware durchgesetzt. Der Optimizer prueft im regulaeren Zyklus den SOC und ruft `async_stop_forcible()` auf wenn das Ziel erreicht ist — kein extra Mechanismus noetig, dieselbe Logik wie beim Morgen-Check.
 
 #### `async_stop_forcible()` — Zurueck auf Automatik
 
@@ -232,7 +228,6 @@ SOLAX_DOMAIN = "solax_modbus"
 SOLAX_ENTITY_DEFAULTS = {
     "remotecontrol_power_control": "select.solax_remotecontrol_power_control",
     "remotecontrol_active_power": "number.solax_remotecontrol_active_power",
-    "remotecontrol_duration": "number.solax_remotecontrol_duration",
     "remotecontrol_autorepeat_duration": "number.solax_remotecontrol_autorepeat_duration",
     "remotecontrol_trigger": "button.solax_remotecontrol_trigger",
     "selfuse_discharge_min_soc": "number.solax_selfuse_discharge_min_soc",
@@ -278,14 +273,13 @@ Remote Control Kommandos haben eine begrenzte Lebensdauer. Wenn `duration` ablae
 
 | Parameter | Wert | Begruendung |
 |-----------|------|-------------|
-| `remotecontrol_duration` | 60 Sekunden | Einzelner Kommando-Slot |
-| `remotecontrol_autorepeat_duration` | 120 Sekunden | Gesamtes Wiederholungsfenster (> Optimizer-Zyklus) |
-| `remotecontrol_timeout` | 0 | Kein Timeout (Autorepeat uebernimmt) |
+| `remotecontrol_autorepeat_duration` | 60 Sekunden | Wiederholungsfenster (>= Optimizer-Zyklus von 30s) |
 
 **Wie Autorepeat funktioniert:**
 1. Beim Trigger-Press mit `autorepeat_duration > 0` plant die Integration einen Timer
 2. Der Timer sendet dasselbe Modbus-Kommando bei jedem Polling-Zyklus bis `autorepeat_duration` ablaeuft
-3. Unser Optimizer triggert alle 30s neu, daher gibt `autorepeat_duration=120s` einen 4-fachen Sicherheitspuffer
+3. Unser Optimizer triggert alle 30s neu, daher gibt `autorepeat_duration=60s` einen 2-fachen Sicherheitspuffer
+4. `remotecontrol_duration` muss nicht explizit gesetzt werden — Autorepeat uebernimmt die Wiederholung
 
 **Beim Stoppen:** `autorepeat_duration=0` setzen BEVOR der Trigger mit "Disabled" gedrueckt wird, damit der Autorepeat-Timer sicher geloescht wird.
 
@@ -308,7 +302,7 @@ Remote Control Kommandos haben eine begrenzte Lebensdauer. Wenn `duration` ablae
 
 1. **Lock State muss entsperrt sein:** Der Wechselrichter hat ein `select.solax_lock_state` Entity. Bei gesperrtem Zustand scheitern alle Schreib-Operationen lautlos oder mit Fehler. Entsperren mit Passwort **2014** (Register 0x00). Im Setup-Wizard als Prerequisite pruefen.
 
-2. **Target SOC nicht firmware-seitig enforced:** Waehrend "Enabled Battery Control" mit negativer Leistung kann der Wechselrichter unter `selfuse_discharge_min_soc` entladen. Das Min-SOC-Register gilt fuer den Self Use Betriebsmodus, nicht zwingend fuer Remote Control Kommandos. **Software-seitiges SOC-Monitoring im 30s-Zyklus ist Pflicht.**
+2. **Target SOC nicht firmware-seitig enforced:** Waehrend "Enabled Battery Control" mit negativer Leistung kann der Wechselrichter unter `selfuse_discharge_min_soc` entladen. Das Min-SOC-Register gilt fuer den Self Use Betriebsmodus, nicht zwingend fuer Remote Control Kommandos. **Der Optimizer prueft den SOC im regulaeren Zyklus und wechselt auf Normalmodus wenn das Ziel erreicht ist.**
 
 3. **Power Value Clamping:** Der Wechselrichter begrenzt die Leistung auf seine Nennleistung. Ein 3kW-Wechselrichter ignoriert ein 6kW-Kommando lautlos. Kein Fehler wird zurueckgegeben.
 
@@ -350,11 +344,11 @@ Remote Control Kommandos haben eine begrenzte Lebensdauer. Wenn `duration` ablae
 ### Erledigt (durch Recherche beantwortet)
 
 - [x] **Einheiten-Handling:** Umrechnung W <-> kW im SolaX-Inverter-Code (`power_w = int(power_kw * 1000)`). Siehe Caveat 4 in Abschnitt 2.8.
-- [x] **RemoteControl Autorepeat:** `duration=60s`, `autorepeat_duration=120s` gibt 4-fachen Sicherheitspuffer bei 30s Optimizer-Zyklus. Siehe Abschnitt 2.6.
+- [x] **RemoteControl Autorepeat:** `autorepeat_duration=60s` genuegt bei 30s Optimizer-Zyklus. Siehe Abschnitt 2.6.
+- [x] **Enabled Feedin Priority vs Enabled Battery Control (power=0):** Geklaert — "Enabled Feedin Priority" ist laut offizieller Doku eine Emulation die den Target-Wert ignoriert und weniger praezise ist. "Enabled Battery Control" mit active_power=0 ist der offizielle, getestete Weg. Kein Hardware-Test noetig.
 
 ### Offen (Hardware-Test erforderlich)
 
-- [ ] **Enabled Feedin Priority vs Enabled Battery Control (power=0):** Beide Ansaetze sind plausibel fuer Morning Charge Blocking. "Battery Control power=0" ist die sicherste Wahl (Batterie idle), "Feedin Priority" koennte etwas mehr Grid-Export bringen. Auf echter Hardware testen welcher Modus zuverlaessiger funktioniert.
 - [ ] **Lock State Handling:** Muss vor jedem Schreibzyklus explizit entsperrt werden (Passwort 2014)? Oder reicht einmaliges Entsperren beim Setup? Hardware-Test noetig.
 - [ ] **X1 Fit Kompatibilitaet:** Der SolaX X1 Fit (AC-coupled) hat moeglicherweise keinen `remotecontrol_trigger` Button. Auf echter Hardware pruefen ob das Entity existiert.
 - [ ] **Gen4-Erkennung:** Wie erkennt man programmatisch ob es ein Gen4+ ist? (Firmware-Version? Modell-Sensor? `sensor.solax_inverter_power_type`?) Muss im Wizard getestet werden.
