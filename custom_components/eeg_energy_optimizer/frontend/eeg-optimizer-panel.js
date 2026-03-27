@@ -230,6 +230,7 @@ class EegOptimizerPanel extends HTMLElement {
     this._activityTotal = 0;
     this._activityHasMore = false;
     this._activityLoadingMore = false;
+    this._activityShowAll = false;
     this._loadConfigPending = false;
     this._connectionLostSeen = false;
     this._manualControlOpen = false;
@@ -416,6 +417,10 @@ class EegOptimizerPanel extends HTMLElement {
         break;
       case "show-more-activity":
         this._loadMoreActivity();
+        break;
+      case "toggle-activity-show-all":
+        this._activityShowAll = !this._activityShowAll;
+        this._update();
         break;
       case "toggle-mode": {
         const modeState = this._readState(this._entityIds?.select || "select.eeg_energy_optimizer_optimizer");
@@ -2134,7 +2139,16 @@ class EegOptimizerPanel extends HTMLElement {
     };
 
     // Already sorted newest-first from server
-    const entries = this._activityLog;
+    const entries = this._activityShowAll
+      ? this._activityLog
+      : this._activityLog.filter(e => e.reason !== "Heartbeat");
+
+    if (entries.length === 0) {
+      return `<p style="color:var(--secondary-text-color);font-size:14px;text-align:center;margin:16px 0">
+        Keine Status\u00e4nderungen vorhanden. Aktiviere "Alle Eintr\u00e4ge", um auch Heartbeats zu sehen.
+      </p>`;
+    }
+
     const rows = entries.map(e => {
       const ts = e.timestamp ? new Date(e.timestamp) : null;
       const timeStr = ts ? `${String(ts.getHours()).padStart(2,"0")}:${String(ts.getMinutes()).padStart(2,"0")}` : "---";
@@ -2643,9 +2657,14 @@ class EegOptimizerPanel extends HTMLElement {
               <ha-icon icon="mdi:history" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
               Aktivit\u00e4tsprotokoll
             </h3>
-            <button class="btn-link" data-action="refresh-activity-log" style="font-size:12px">
-              <ha-icon icon="mdi:refresh" style="--mdc-icon-size:14px;vertical-align:middle"></ha-icon> Aktualisieren
-            </button>
+            <div style="display:flex;align-items:center;gap:12px">
+              <label data-action="toggle-activity-show-all" style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--secondary-text-color);cursor:pointer;user-select:none">
+                <input type="checkbox" ${this._activityShowAll ? "checked" : ""} style="pointer-events:none;margin:0"> Alle Eintr\u00e4ge
+              </label>
+              <button class="btn-link" data-action="refresh-activity-log" style="font-size:12px">
+                <ha-icon icon="mdi:refresh" style="--mdc-icon-size:14px;vertical-align:middle"></ha-icon> Aktualisieren
+              </button>
+            </div>
           </div>
           ${this._renderActivityTimeline()}
         </div>
