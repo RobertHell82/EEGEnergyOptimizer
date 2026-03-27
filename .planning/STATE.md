@@ -129,9 +129,10 @@ None yet.
 | 260325-sh8 | SolarEdge HA Integration Research: StorEdge battery control feasibility via solaredge-modbus-multi | 2026-03-25 | bc3443e | | [260325-sh8-solaredge-ha-integration-research-m-glic](./quick/260325-sh8-solaredge-ha-integration-research-m-glic/) |
 | 260326-u93 | Zahnrad nach Setup-Abschluss direkt zu Ladung & Einspeisung (Step 4) | 2026-03-26 | 48fd4d1 | | [260326-u93-zahnrad-nach-setup-abschluss-direkt-zu-l](./quick/260326-u93-zahnrad-nach-setup-abschluss-direkt-zu-l/) |
 | 260326-v3v | Erweitere STORY_SOLAX_INVERTER.md + NECESSARY_SENSORS: pv_power_sensor_2 optional | 2026-03-26 | 8c25bd3 | Verified | [260326-v3v-erweitere-story-solax-inverter-md-option](./quick/260326-v3v-erweitere-story-solax-inverter-md-option/) |
+| 260327-blj | SolaX Modbus Write-Sensoren: Register, Entity-Mappings, InverterBase-Impl, Caveats in Story | 2026-03-27 | 3b5348b | Verified | [260327-blj-solax-modbus-write-sensoren-recherche-sc](./quick/260327-blj-solax-modbus-write-sensoren-recherche-sc/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-26 - Completed quick task 260326-v3v: pv_power_sensor_2 documentation
-Stopped at: Completed quick-260326-v3v
+Last activity: 2026-03-27 - Completed quick task 260327-blj: SolaX Write-Sensoren Recherche + Story-Update
+Stopped at: Completed quick-260327-blj
 Resume file: None
