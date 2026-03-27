@@ -28,11 +28,10 @@ from .const import (
     CONF_GRID_POWER_SENSOR,
     CONF_LOOKBACK_WEEKS,
     CONF_PV_POWER_SENSOR,
+    CONF_PV_POWER_SENSOR_2,
     CONF_UPDATE_INTERVAL_FAST,
     CONF_UPDATE_INTERVAL_SLOW,
     CONSUMPTION_SENSOR,
-    DEFAULT_BATTERY_POWER_SENSOR,
-    DEFAULT_GRID_POWER_SENSOR,
     DEFAULT_LOOKBACK_WEEKS,
     DEFAULT_UPDATE_INTERVAL_FAST,
     DEFAULT_UPDATE_INTERVAL_SLOW,
@@ -484,8 +483,9 @@ class HausverbrauchSensor(SensorEntity):
     def __init__(self, hass: Any, entry: Any, config: dict) -> None:
         self.hass = hass
         self._pv_sensor_id = config.get(CONF_PV_POWER_SENSOR, "")
-        self._battery_power_sensor_id = config.get(CONF_BATTERY_POWER_SENSOR, DEFAULT_BATTERY_POWER_SENSOR)
-        self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, DEFAULT_GRID_POWER_SENSOR)
+        self._pv_sensor_2_id = config.get(CONF_PV_POWER_SENSOR_2, "")
+        self._battery_power_sensor_id = config.get(CONF_BATTERY_POWER_SENSOR, "")
+        self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, "")
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_hausverbrauch"
         self._attr_device_info = _device_info(entry.entry_id)
         self._attr_native_value: float | None = None
@@ -508,16 +508,27 @@ class HausverbrauchSensor(SensorEntity):
             self._attr_extra_state_attributes = {"hinweis": ", ".join(hints)}
             return
 
+        # Sum optional second PV sensor (e.g. SolaX generator inverter via Meter 2)
+        if self._pv_sensor_2_id:
+            pv2 = _read_float(self.hass, self._pv_sensor_2_id)
+            if pv2 is not None:
+                pv_power += pv2
+
         # PV input - battery power - grid power
         # battery positive = charging, negative = discharging
         # grid positive = export, negative = import
         hausverbrauch = max(pv_power - battery_power - grid_power, 0.0)
         self._attr_native_value = round(hausverbrauch, 3)
-        self._attr_extra_state_attributes = {
+        attrs = {
             "pv_leistung_kw": round(pv_power, 3),
             "batterie_leistung_kw": round(battery_power, 3),
             "netz_leistung_kw": round(grid_power, 3),
         }
+        if self._pv_sensor_2_id:
+            pv2_val = _read_float(self.hass, self._pv_sensor_2_id)
+            if pv2_val is not None:
+                attrs["pv_leistung_2_kw"] = round(pv2_val, 3)
+        self._attr_extra_state_attributes = attrs
 
 
 # ---------------------------------------------------------------------------

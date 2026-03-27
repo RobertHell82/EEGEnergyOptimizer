@@ -12,10 +12,14 @@ CONF_BATTERY_POWER_SENSOR = "battery_power_sensor"
 CONF_HUAWEI_DEVICE_ID = "huawei_device_id"
 
 INVERTER_TYPE_HUAWEI = "huawei_sun2000"
+INVERTER_TYPE_SOLAX = "solax_gen4"
 
 INVERTER_PREREQUISITES = {
     "huawei_sun2000": "huawei_solar",
+    "solax_gen4": "solax_modbus",
 }
+
+CONF_PV_POWER_SENSOR_2 = "pv_power_sensor_2"
 
 # Phase 2: Forecast & Consumption
 CONF_FORECAST_SOURCE = "forecast_source"
@@ -30,8 +34,6 @@ CONSUMPTION_SENSOR = "sensor.eeg_energy_optimizer_hausverbrauch"
 FORECAST_SOURCE_SOLCAST = "solcast_solar"
 FORECAST_SOURCE_FORECAST_SOLAR = "forecast_solar"
 
-DEFAULT_GRID_POWER_SENSOR = "sensor.power_meter_wirkleistung"
-DEFAULT_BATTERY_POWER_SENSOR = "sensor.batteries_lade_entladeleistung"
 DEFAULT_LOOKBACK_WEEKS = 4
 DEFAULT_UPDATE_INTERVAL_FAST = 1   # minutes
 DEFAULT_UPDATE_INTERVAL_SLOW = 15  # minutes
