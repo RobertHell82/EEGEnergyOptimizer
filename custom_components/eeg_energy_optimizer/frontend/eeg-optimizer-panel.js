@@ -420,7 +420,7 @@ class EegOptimizerPanel extends HTMLElement {
         break;
       case "toggle-activity-show-all":
         this._activityShowAll = !this._activityShowAll;
-        this._update();
+        this._render();
         break;
       case "toggle-mode": {
         const modeState = this._readState(this._entityIds?.select || "select.eeg_energy_optimizer_optimizer");
