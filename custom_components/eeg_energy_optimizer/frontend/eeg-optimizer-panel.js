@@ -462,9 +462,20 @@ class EegOptimizerPanel extends HTMLElement {
       }
       case "select-inverter": {
         const invValue = dataset?.value;
-        if (invValue) {
+        if (invValue && invValue !== this._wizardData.inverter_type) {
           this._wizardData.inverter_type = invValue;
-          this._render();
+          // Clear sensor fields so auto-detection can re-fill them
+          const sensorKeys = [
+            "pv_power_sensor", "battery_power_sensor", "grid_power_sensor",
+            "battery_soc_sensor", "battery_capacity_sensor", "huawei_device_id",
+            "pv_power_sensor_2",
+            "solax_remotecontrol_power_control", "solax_remotecontrol_active_power",
+            "solax_remotecontrol_autorepeat_duration", "solax_remotecontrol_trigger",
+            "solax_selfuse_discharge_min_soc",
+          ];
+          for (const k of sensorKeys) this._wizardData[k] = "";
+          this._detectedSensors = null;
+          this._detectSensors();
         }
         break;
       }
@@ -592,12 +603,8 @@ class EegOptimizerPanel extends HTMLElement {
     if (step === 1) {
       await this._checkPrerequisites();
       await this._ensureEntityPicker();
-      if (!this._detectedSensors) {
-        await this._detectSensors();
-        return; // _detectSensors calls _render
-      }
-      this._render();
-      return;
+      await this._detectSensors();
+      return; // _detectSensors calls _render
     }
     if (step === 2) {
       await this._checkPrerequisites();
@@ -608,10 +615,6 @@ class EegOptimizerPanel extends HTMLElement {
     // Load entity picker for sensor steps
     if (step === 3) {
       await this._ensureEntityPicker();
-      if (!this._detectedSensors) {
-        await this._detectSensors();
-        return; // _detectSensors calls _render
-      }
     }
     this._render();
   }
