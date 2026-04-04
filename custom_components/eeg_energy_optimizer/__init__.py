@@ -18,8 +18,6 @@ from .const import (
     CONF_GRID_POWER_SENSOR,
     CONF_LOOKBACK_WEEKS,
     CONSUMPTION_SENSOR,
-    DEFAULT_BATTERY_POWER_SENSOR,
-    DEFAULT_GRID_POWER_SENSOR,
     DEFAULT_LOOKBACK_WEEKS,
 )
 from .inverter import create_inverter
@@ -90,10 +88,17 @@ async def async_backfill_hausverbrauch_stats(
             return
 
         # --- Read source sensor IDs from config ---
-        # Fallback to Huawei defaults if not in config (pre-wizard configs)
-        pv_id = config.get(CONF_PV_POWER_SENSOR, "") or "sensor.inverter_eingangsleistung"
-        battery_id = config.get(CONF_BATTERY_POWER_SENSOR, DEFAULT_BATTERY_POWER_SENSOR)
-        grid_id = config.get(CONF_GRID_POWER_SENSOR, DEFAULT_GRID_POWER_SENSOR)
+        pv_id = config.get(CONF_PV_POWER_SENSOR, "")
+        battery_id = config.get(CONF_BATTERY_POWER_SENSOR, "")
+        grid_id = config.get(CONF_GRID_POWER_SENSOR, "")
+
+        if not pv_id or not battery_id or not grid_id:
+            _LOGGER.warning(
+                "Hausverbrauch backfill skipped — sensor IDs not configured "
+                "(PV=%s, Battery=%s, Grid=%s)",
+                pv_id or "(empty)", battery_id or "(empty)", grid_id or "(empty)",
+            )
+            return
 
         lookback_weeks = config.get(CONF_LOOKBACK_WEEKS, DEFAULT_LOOKBACK_WEEKS)
         start_time = now - timedelta(weeks=lookback_weeks)

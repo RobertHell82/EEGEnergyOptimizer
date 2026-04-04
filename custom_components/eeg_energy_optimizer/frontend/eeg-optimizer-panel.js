@@ -58,6 +58,12 @@ const WIZARD_DEFAULTS = {
   battery_power_sensor: "",
   grid_power_sensor: "",
   huawei_device_id: "",
+  pv_power_sensor_2: "",
+  solax_remotecontrol_power_control: "",
+  solax_remotecontrol_active_power: "",
+  solax_remotecontrol_autorepeat_duration: "",
+  solax_remotecontrol_trigger: "",
+  solax_selfuse_discharge_min_soc: "",
   forecast_source: "solcast_solar",
   forecast_remaining_entity: "",
   forecast_tomorrow_entity: "",
@@ -642,6 +648,10 @@ class EegOptimizerPanel extends HTMLElement {
           this._showValidationError("Huawei Solar Integration muss zuerst installiert werden.");
           return false;
         }
+        if (invType === "solax_gen4" && invP && !invP.solax_modbus) {
+          this._showValidationError("SolaX Modbus Integration muss zuerst installiert werden.");
+          return false;
+        }
         return true;
       }
       case 2: { // Prognose
@@ -927,6 +937,21 @@ class EegOptimizerPanel extends HTMLElement {
         ) {
           this._wizardData.huawei_device_id =
             this._detectedSensors.huawei_device_id;
+        }
+        // SolaX control entity prefix detection
+        if (this._detectedSensors.solax_prefix) {
+          const solaxKeys = [
+            "solax_remotecontrol_power_control",
+            "solax_remotecontrol_active_power",
+            "solax_remotecontrol_autorepeat_duration",
+            "solax_remotecontrol_trigger",
+            "solax_selfuse_discharge_min_soc",
+          ];
+          for (const key of solaxKeys) {
+            if (this._detectedSensors[key] && !this._wizardData[key]) {
+              this._wizardData[key] = this._detectedSensors[key];
+            }
+          }
         }
       }
     } catch (err) {
@@ -1403,14 +1428,30 @@ class EegOptimizerPanel extends HTMLElement {
   _renderStep1() {
     const p = this._prerequisites;
     const huaweiOk = p && p.huawei_solar;
+    const solaxOk = p && p.solax_modbus;
     const selected = this._wizardData.inverter_type || "";
     const huaweiSelected = selected === "huawei_sun2000";
+    const solaxSelected = selected === "solax_gen4";
 
     const huaweiBadge = huaweiOk
       ? '<span class="status-badge installed">Installiert</span>'
       : '<span class="status-badge missing">Nicht installiert</span>';
 
+    const solaxBadge = solaxOk
+      ? '<span class="status-badge installed">Installiert</span>'
+      : '<span class="status-badge missing">Nicht installiert</span>';
+
     const huaweiAutoDetect = "";
+
+    const pvHelp = huaweiSelected
+      ? "Aktuelle PV-Produktion in W oder kW (Huawei: sensor.inverter_eingangsleistung)."
+      : "Aktuelle PV-Produktion in W (SolaX: sensor.solax_energy_dashboard_solax_solar_power).";
+    const batteryHelp = huaweiSelected
+      ? "Lade- und Entladeleistung der Batterie in W oder kW (Huawei: sensor.batteries_lade_entladeleistung)."
+      : "Lade- und Entladeleistung der Batterie in W (SolaX: sensor.solax_energy_dashboard_solax_battery_power).";
+    const gridHelp = huaweiSelected
+      ? "Wirkleistung am Netzanschluss in W oder kW (Huawei: sensor.power_meter_wirkleistung)."
+      : "Wirkleistung am Netzanschluss in W (SolaX: sensor.solax_energy_dashboard_solax_grid_power).";
 
     return `
       <p style="margin-bottom:12px;color:var(--secondary-text-color)">Wähle deinen Wechselrichter-Typ:</p>
@@ -1424,13 +1465,16 @@ class EegOptimizerPanel extends HTMLElement {
           ${huaweiAutoDetect}
           <button class="btn-secondary" style="margin-top:8px" data-action="show-dialog" data-dialog="huawei">Anleitung</button>
         </div>
-        <div class="card forecast-option" style="padding:16px;cursor:default;text-align:center;opacity:0.4">
-          <div style="font-size:48px;margin-bottom:8px;color:var(--secondary-text-color)">+</div>
-          <h3 style="margin:0 0 8px;color:var(--secondary-text-color)">Weitere folgen</h3>
-          <p style="font-size:12px;color:var(--secondary-text-color);margin:0">Fronius, SMA, ...</p>
+        <div class="card forecast-option ${solaxSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center" data-action="select-inverter" data-value="solax_gen4">
+          <div style="height:60px;display:flex;align-items:center;justify-content:center;margin-bottom:8px">
+            <span style="font-size:32px">SolaX</span>
+          </div>
+          <h3 style="margin:0 0 4px">SolaX Gen4+</h3>
+          <p style="font-size:11px;color:var(--secondary-text-color);margin:0 0 8px">Gen4, Gen5, Gen6</p>
+          ${solaxBadge}
         </div>
       </div>
-      ${huaweiSelected ? `
+      ${huaweiSelected || solaxSelected ? `
       <div class="card" style="padding:16px;margin-bottom:16px">
         <h3 style="margin:0 0 4px">Hausverbrauch-Sensoren</h3>
         <p style="font-size:13px;color:var(--secondary-text-color);margin:0 0 12px">
@@ -1440,23 +1484,30 @@ class EegOptimizerPanel extends HTMLElement {
           "pv_power_sensor",
           this._wizardData.pv_power_sensor,
           "PV-Eingangsleistung *",
-          "Aktuelle PV-Produktion in W oder kW (Huawei: sensor.inverter_eingangsleistung).",
+          pvHelp,
           "sensor"
         )}
         ${this._entityPickerHtml(
           "battery_power_sensor",
           this._wizardData.battery_power_sensor,
           "Batterie Lade-/Entladeleistung *",
-          "Lade- und Entladeleistung der Batterie in W oder kW (Huawei: sensor.batteries_lade_entladeleistung).",
+          batteryHelp,
           "sensor"
         )}
         ${this._entityPickerHtml(
           "grid_power_sensor",
           this._wizardData.grid_power_sensor,
           "Netzbezug/-einspeisung *",
-          "Wirkleistung am Netzanschluss in W oder kW (Huawei: sensor.power_meter_wirkleistung).",
+          gridHelp,
           "sensor"
         )}
+        ${solaxSelected ? this._entityPickerHtml(
+          "pv_power_sensor_2",
+          this._wizardData.pv_power_sensor_2,
+          "Zweiter PV-Sensor (optional)",
+          "Fuer Anlagen mit Generator-Wechselrichter ueber Meter 2 (sensor.solax_inverter_meter_2_measured_power).",
+          "sensor"
+        ) : ""}
       </div>
       ` : ""}
       <button class="btn-secondary" data-action="recheck-prerequisites">Erneut prüfen</button>`;
@@ -1610,7 +1661,10 @@ class EegOptimizerPanel extends HTMLElement {
 
     // Auto-select capacity mode: if sensor was detected, pick "sensor"; else "manual"
     // Re-evaluate after detection (don't cache stale pre-detection default)
-    if (!this._capacityMode || (detected && !this._capacityModeUserSet)) {
+    // SolaX has no capacity sensor — always default to manual
+    if (this._wizardData.inverter_type === "solax_gen4" && !this._capacityModeUserSet) {
+      this._capacityMode = "manual";
+    } else if (!this._capacityMode || (detected && !this._capacityModeUserSet)) {
       this._capacityMode = this._wizardData.battery_capacity_sensor ? "sensor" : "manual";
     }
     const capSensor = this._capacityMode === "sensor";
@@ -1796,7 +1850,7 @@ class EegOptimizerPanel extends HTMLElement {
 
       <div class="summary-section">
         <h3>Wechselrichter</h3>
-        ${row("Typ", "Huawei SUN2000")}
+        ${row("Typ", ({"huawei_sun2000": "Huawei SUN2000", "solax_gen4": "SolaX Gen4+"})[d.inverter_type] || d.inverter_type)}
       </div>
 
       <div class="summary-section">
@@ -1809,6 +1863,7 @@ class EegOptimizerPanel extends HTMLElement {
             : d.battery_capacity_kwh + " kWh (manuell)"
         )}
         ${row("PV-Sensor", d.pv_power_sensor || "—")}
+        ${d.pv_power_sensor_2 ? row("PV-Sensor 2", d.pv_power_sensor_2) : ""}
         ${row("Batterie-Leistung", d.battery_power_sensor || "—")}
         ${row("Netz-Leistung", d.grid_power_sensor || "—")}
       </div>
