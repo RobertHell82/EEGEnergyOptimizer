@@ -318,7 +318,7 @@ class TestAsyncRunCycle:
         )
         with patch.object(opt, "_gather_snapshot", return_value=snap):
             decision = await opt.async_run_cycle(MODE_TEST)
-        assert decision.ausfuehrung is False
+        assert decision.ausführung is False
         mock_inverter.async_set_charge_limit.assert_not_called()
         mock_inverter.async_set_discharge.assert_not_called()
         mock_inverter.async_stop_forcible.assert_not_called()

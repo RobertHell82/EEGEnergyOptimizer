@@ -539,7 +539,7 @@ class EntscheidungsSensor(SensorEntity):
     """Optimizer decision sensor with Markdown dashboard attribute.
 
     State: Next planned action (e.g. 'Abend-Entladung 20:00', 'Normalbetrieb')
-    Attributes: Markdown mini-dashboard, zustand, ueberschuss_faktor,
+    Attributes: Markdown mini-dashboard, zustand, überschuss_faktor,
                 entladung_aktiv, min_soc, letzte_aktualisierung
 
     Updated by the optimizer timer in __init__.py, NOT by the dual-timer system.
@@ -562,7 +562,7 @@ class EntscheidungsSensor(SensorEntity):
         Called by the optimizer timer in __init__.py after each cycle.
         Uses duck typing to avoid circular imports with optimizer.py.
         """
-        self._attr_native_value = decision.naechste_aktion
+        self._attr_native_value = decision.nächste_aktion
         self._attr_extra_state_attributes = {
             "markdown": decision.markdown,
             "zustand": decision.zustand,
@@ -571,7 +571,7 @@ class EntscheidungsSensor(SensorEntity):
             "ladung_blockiert": decision.ladung_blockiert,
             "min_soc": decision.min_soc_berechnet,
             "entladeleistung_kw": decision.entladeleistung_kw,
-            "ausfuehrung": decision.ausfuehrung,
+            "ausführung": decision.ausführung,
             "letzte_aktualisierung": decision.timestamp,
             # Morning delay status card
             "morning_status": decision.morning_status,

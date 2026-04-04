@@ -43,7 +43,7 @@ WEEKDAY_KEYS = ["mo", "di", "mi", "do", "fr", "sa", "so"]
 # Phase 3: Optimizer
 CONF_ENABLE_MORNING_DELAY = "enable_morning_delay"
 CONF_ENABLE_NIGHT_DISCHARGE = "enable_night_discharge"
-CONF_UEBERSCHUSS_SCHWELLE = "ueberschuss_schwelle"
+CONF_ÜBERSCHUSS_SCHWELLE = "ueberschuss_schwelle"  # legacy config key, do not rename string
 CONF_MORNING_END_TIME = "morning_end_time"
 CONF_DISCHARGE_START_TIME = "discharge_start_time"
 CONF_DISCHARGE_POWER_KW = "discharge_power_kw"

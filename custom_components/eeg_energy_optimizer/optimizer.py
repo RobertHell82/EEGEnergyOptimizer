@@ -102,9 +102,9 @@ class Decision:
     entladung_aktiv: bool = False
     entladeleistung_kw: float = 0.0
     min_soc_berechnet: float = 0.0
-    naechste_aktion: str = ""
+    nächste_aktion: str = ""
     markdown: str = ""
-    ausfuehrung: bool = False
+    ausführung: bool = False
     block_reasons: list[str] = field(default_factory=list)
 
     # Morning delay status card fields
@@ -445,7 +445,7 @@ class EEGOptimizer:
                 result["reason"] = f"Ladung blockiert bis {end_time_str}"
             else:
                 result["status"] = "nicht_aktiv"
-                result["reason"] = "PV reicht nicht fuer Bedarf + Puffer"
+                result["reason"] = "PV reicht nicht für Bedarf + Puffer"
         else:
             # Outside window: check if tomorrow's conditions would trigger
             pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
@@ -666,17 +666,17 @@ class EEGOptimizer:
 
         # Determine next action text
         if zustand == STATE_MORGEN_EINSPEISUNG:
-            naechste_aktion = (
+            nächste_aktion = (
                 f"Morgen-Einspeisung bis "
                 f"{self._morning_end_hour:02d}:{self._morning_end_min:02d}"
             )
         elif zustand == STATE_ABEND_ENTLADUNG:
-            naechste_aktion = (
+            nächste_aktion = (
                 f"Abend-Entladung {self._discharge_start_h:02d}:"
                 f"{self._discharge_start_m:02d}"
             )
         else:
-            naechste_aktion = "Normalbetrieb"
+            nächste_aktion = "Normalbetrieb"
 
         # Compute detailed status for both features
         morning_info = self._morning_delay_status(snap, bedarf)
@@ -692,9 +692,9 @@ class EEGOptimizer:
             entladung_aktiv=(zustand == STATE_ABEND_ENTLADUNG),
             entladeleistung_kw=self._discharge_power_kw if zustand == STATE_ABEND_ENTLADUNG else 0.0,
             min_soc_berechnet=round(min_soc, 1),
-            naechste_aktion=naechste_aktion,
-            # Explicit: ausfuehrung=True only for MODE_EIN, False for MODE_TEST/MODE_AUS
-            ausfuehrung=(mode == MODE_EIN),
+            nächste_aktion=nächste_aktion,
+            # Explicit: ausführung=True only for MODE_EIN, False for MODE_TEST/MODE_AUS
+            ausführung=(mode == MODE_EIN),
             block_reasons=discharge_reasons if zustand != STATE_ABEND_ENTLADUNG else [],
             # Morning delay status card fields
             morning_status=morning_info["status"],
@@ -775,7 +775,7 @@ class EEGOptimizer:
             lines.append(f"- Batterie SOC: {snap.battery_soc:.0f}%")
             lines.append("")
 
-        lines.append(f"**Modus:** {'Ausfuehrung' if decision.ausfuehrung else 'Berechnung'}")
+        lines.append(f"**Modus:** {'Ausführung' if decision.ausführung else 'Berechnung'}")
 
         return "\n".join(lines)
 
@@ -786,7 +786,7 @@ class EEGOptimizer:
     async def _execute(self, decision: Decision, snap: Snapshot) -> None:
         """Execute inverter commands based on decision.
 
-        Only called when decision.ausfuehrung is True.
+        Only called when decision.ausführung is True.
         Deduplicates against previous state.
         """
         if decision.zustand == self._prev_zustand:
@@ -822,7 +822,7 @@ class EEGOptimizer:
             if mode == MODE_EIN:
                 await self._execute(decision, snap)
             elif mode == MODE_TEST:
-                _LOGGER.debug("Dry-run: %s (keine Ausfuehrung)", decision.zustand)
+                _LOGGER.debug("Dry-run: %s (keine Ausführung)", decision.zustand)
 
             self._last_decision = decision
             return decision
@@ -832,7 +832,7 @@ class EEGOptimizer:
             fallback = Decision(
                 timestamp=_now().isoformat(),
                 zustand=STATE_NORMAL,
-                naechste_aktion="Fehler im Optimizer-Zyklus",
+                nächste_aktion="Fehler im Optimizer-Zyklus",
             )
             self._last_decision = fallback
             return fallback

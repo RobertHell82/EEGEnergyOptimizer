@@ -225,7 +225,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data = {**entry.data}
         new_data.setdefault("enable_morning_delay", True)
         new_data.setdefault("enable_night_discharge", True)
-        # ueberschuss_schwelle no longer used — safety_buffer_pct replaces it
+        # überschuss_schwelle no longer used — safety_buffer_pct replaces it
         new_data.pop("ueberschuss_schwelle", None)
         hass.config_entries.async_update_entry(entry, data=new_data, version=5)
 
@@ -384,7 +384,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "pv_today": round(decision.morning_pv_today_kwh, 1),
                 "pv_tomorrow": round(decision.discharge_pv_tomorrow_kwh, 1),
                 "bedarf": round(decision.energiebedarf_kwh, 1),
-                "ausfuehrung": decision.ausfuehrung,
+                "ausführung": decision.ausführung,
             }
             activity_log.append(entry_data)
             hass.bus.async_fire("eeg_optimizer_activity", entry_data)

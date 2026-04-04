@@ -1512,7 +1512,7 @@ class EegOptimizerPanel extends HTMLElement {
           "pv_power_sensor_2",
           this._wizardData.pv_power_sensor_2,
           "Zweiter PV-Sensor (optional)",
-          "Fuer Anlagen mit Generator-Wechselrichter ueber Meter 2 (sensor.solax_inverter_meter_2_measured_power).",
+          "Für Anlagen mit Generator-Wechselrichter über Meter 2 (sensor.solax_inverter_meter_2_measured_power).",
           "sensor"
         ) : ""}
       </div>
@@ -1983,7 +1983,7 @@ class EegOptimizerPanel extends HTMLElement {
       mIndicator = `\u25CF AKTIV \u2014 Ladung blockiert bis ${ma.morning_end_time || ""}`;
     } else if (mStatus === "nicht_aktiv") {
       mColorClass = "red";
-      mIndicator = `\u2715 Nicht aktiv \u2014 PV reicht nicht fuer Bedarf + Puffer`;
+      mIndicator = `\u2715 Nicht aktiv \u2014 PV reicht nicht für Bedarf + Puffer`;
     } else if (mStatus === "morgen_erwartet") {
       mColorClass = "blue";
       mIndicator = `\u25CB Morgen ab ${ma.morning_sunrise_tomorrow || ""} (PV ausreichend)`;
@@ -2058,7 +2058,7 @@ class EegOptimizerPanel extends HTMLElement {
         else if (r.includes("SOC")) reasonParts.push("SOC zu niedrig");
         else if (r.includes("PV")) reasonParts.push("PV morgen nicht ausreichend");
       });
-      const reasonText = reasonParts.length > 0 ? reasonParts.join(", ") : "Bedingungen nicht erfuellt";
+      const reasonText = reasonParts.length > 0 ? reasonParts.join(", ") : "Bedingungen nicht erfüllt";
       dIndicator = `\u2715 Nicht geplant \u2014 ${reasonText}`;
     } else {
       dColorClass = "gray";
@@ -2224,7 +2224,7 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="activity-dot" style="background:${color}">${icon}</div>
         <div class="activity-content">
           <div class="activity-header">${reason} ${badge}</div>
-          <div class="activity-details">SOC ${e.soc}%${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${e.min_soc}%` : ""} &middot; PV-Prognose (Rest) ${e.pv_today} kWh &middot; Gesamtbedarf ${e.bedarf} kWh${e.ausfuehrung === false ? " &middot; Testmodus" : ""}</div>
+          <div class="activity-details">SOC ${e.soc}%${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${e.min_soc}%` : ""} &middot; PV-Prognose (Rest) ${e.pv_today} kWh &middot; Gesamtbedarf ${e.bedarf} kWh${e.ausführung === false ? " &middot; Testmodus" : ""}</div>
         </div>
       </div>`;
     }).join("");
@@ -2447,7 +2447,7 @@ class EegOptimizerPanel extends HTMLElement {
       zustand === "Normal" ? "green" :
       zustand === "Abend-Entladung" ? "orange" : "gray";
 
-    const naechsteAktion = decisionState?.attributes?.naechste_aktion || decisionState?.state || "---";
+    const nächsteAktion = decisionState?.attributes?.nächste_aktion || decisionState?.state || "---";
     const energiebedarf = decisionState?.attributes?.energiebedarf_kwh;
     const energiebedarfText = energiebedarf != null ? `${Number(energiebedarf).toFixed(1)} kWh` : "---";
 
