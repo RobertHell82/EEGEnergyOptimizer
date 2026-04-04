@@ -1682,7 +1682,9 @@ class EegOptimizerPanel extends HTMLElement {
       "battery_capacity_sensor",
       this._wizardData.battery_capacity_sensor,
       "Sensor für Batteriekapazität",
-      "Gesamtkapazit\u00e4t der Batterie in kWh oder Wh (Huawei: sensor.batterien_akkukapazitat).",
+      this._wizardData.inverter_type === "huawei_sun2000"
+        ? "Gesamtkapazität der Batterie in kWh oder Wh (Huawei: sensor.batterien_akkukapazitat)."
+        : "Gesamtkapazität der Batterie in kWh oder Wh.",
       "sensor"
     ) : "";
 
@@ -1693,7 +1695,11 @@ class EegOptimizerPanel extends HTMLElement {
                value="${this._wizardData.battery_capacity_kwh || ""}"
                min="1" max="100" step="0.5"
                placeholder="z.B. 10">
-        <div class="help-text">z.B. 10 für LUNA2000-10, 15 für LUNA2000-15</div>
+        <div class="help-text">${this._wizardData.inverter_type === "huawei_sun2000"
+          ? "z.B. 10 für LUNA2000-10, 15 für LUNA2000-15"
+          : this._wizardData.inverter_type === "solax_gen4"
+          ? "z.B. 5.8 für Triple Power T58, 11.6 für zwei Module"
+          : "Nutzbare Gesamtkapazität deines Batteriespeichers in kWh"}</div>
       </div>` : "";
 
     return `
@@ -1702,7 +1708,9 @@ class EegOptimizerPanel extends HTMLElement {
         "battery_soc_sensor",
         this._wizardData.battery_soc_sensor,
         "Sensor für Batterieladezustand (SOC) *",
-        "Der SOC-Sensor zeigt den aktuellen Ladestand deiner Batterie in Prozent (Huawei: sensor.batteries_batterieladung).",
+        this._wizardData.inverter_type === "huawei_sun2000"
+          ? "Der SOC-Sensor zeigt den aktuellen Ladestand deiner Batterie in Prozent (Huawei: sensor.batteries_batterieladung)."
+          : "Der SOC-Sensor zeigt den aktuellen Ladestand deiner Batterie in Prozent.",
         "sensor"
       )}
       <div class="field-group">
@@ -1717,7 +1725,7 @@ class EegOptimizerPanel extends HTMLElement {
             <span>Über Sensor</span>
           </div>
         </div>
-        ${capSensor ? `<div class="help-text" style="margin-top:8px;margin-bottom:8px">
+        ${capSensor && this._wizardData.inverter_type === "huawei_sun2000" ? `<div class="help-text" style="margin-top:8px;margin-bottom:8px">
           Bei Huawei ist der Kapazitätssensor standardmäßig deaktiviert.
           <button class="btn-link" data-action="show-dialog" data-dialog="capacity_sensor">Anleitung zur Aktivierung</button>
         </div>` : ""}
