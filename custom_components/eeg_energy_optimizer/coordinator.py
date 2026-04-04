@@ -213,15 +213,11 @@ class ConsumptionCoordinator:
                 continue
 
             # Auto-correct old data where W was incorrectly recorded as kW
-            # Normal household consumption is < 50 kW; values above that
-            # are treated as W and divided by 1000.
-            # Values still > 50 kW after correction (i.e. original > 50000 W)
-            # are unrealistic and skipped.
-            if mean > 50.0:
+            # Household consumption above 200 kW is unrealistic and indicates
+            # the value was recorded in W instead of kW — divide by 1000.
+            if mean > 200.0:
                 mean = mean / 1000.0
                 corrected += 1
-                if mean > 50.0:
-                    continue
 
             # Convert kW to W (consumption sensor always reports in kW)
             value = mean * 1000.0
