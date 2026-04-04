@@ -142,6 +142,28 @@ def _read_float(hass: Any, entity_id: str) -> float | None:
         return None
 
 
+def _read_power_kw(hass: Any, entity_id: str) -> float | None:
+    """Read a power sensor value and normalize to kW.
+
+    Checks the sensor's unit_of_measurement attribute:
+    - W → divide by 1000
+    - kW or missing → return as-is
+    """
+    state = hass.states.get(entity_id)
+    if state is None:
+        return None
+    if state.state in ("unknown", "unavailable", ""):
+        return None
+    try:
+        val = float(state.state)
+    except (ValueError, TypeError):
+        return None
+    unit = (state.attributes.get("unit_of_measurement") or "").strip()
+    if unit == "W":
+        return val / 1000.0
+    return val
+
+
 def _device_info(entry_id: str) -> DeviceInfo:
     """Return shared DeviceInfo for all sensors of this integration."""
     return DeviceInfo(
@@ -492,9 +514,9 @@ class HausverbrauchSensor(SensorEntity):
         self._attr_extra_state_attributes: dict[str, Any] = {}
 
     async def async_update(self) -> None:
-        pv_power = _read_float(self.hass, self._pv_sensor_id)
-        battery_power = _read_float(self.hass, self._battery_power_sensor_id)
-        grid_power = _read_float(self.hass, self._grid_sensor_id)
+        pv_power = _read_power_kw(self.hass, self._pv_sensor_id)
+        battery_power = _read_power_kw(self.hass, self._battery_power_sensor_id)
+        grid_power = _read_power_kw(self.hass, self._grid_sensor_id)
 
         if pv_power is None or battery_power is None or grid_power is None:
             self._attr_native_value = None
@@ -510,13 +532,14 @@ class HausverbrauchSensor(SensorEntity):
 
         # Sum optional second PV sensor (e.g. SolaX generator inverter via Meter 2)
         if self._pv_sensor_2_id:
-            pv2 = _read_float(self.hass, self._pv_sensor_2_id)
+            pv2 = _read_power_kw(self.hass, self._pv_sensor_2_id)
             if pv2 is not None:
                 pv_power += pv2
 
         # PV input - battery power - grid power
         # battery positive = charging, negative = discharging
         # grid positive = export, negative = import
+        # All values normalized to kW by _read_power_kw
         hausverbrauch = max(pv_power - battery_power - grid_power, 0.0)
         self._attr_native_value = round(hausverbrauch, 3)
         attrs = {
@@ -525,7 +548,7 @@ class HausverbrauchSensor(SensorEntity):
             "netz_leistung_kw": round(grid_power, 3),
         }
         if self._pv_sensor_2_id:
-            pv2_val = _read_float(self.hass, self._pv_sensor_2_id)
+            pv2_val = _read_power_kw(self.hass, self._pv_sensor_2_id)
             if pv2_val is not None:
                 attrs["pv_leistung_2_kw"] = round(pv2_val, 3)
         self._attr_extra_state_attributes = attrs
