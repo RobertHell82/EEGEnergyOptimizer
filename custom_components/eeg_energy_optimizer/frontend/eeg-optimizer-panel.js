@@ -882,9 +882,15 @@ class EegOptimizerPanel extends HTMLElement {
         forecast_solar: false,
       };
     }
-    // Auto-select forecast source — always prefer Solcast when installed
+    // Auto-select inverter type based on detected integration
     const p = this._prerequisites;
     if (p) {
+      if (p.huawei_solar && !p.solax_modbus) {
+        this._wizardData.inverter_type = "huawei_sun2000";
+      } else if (p.solax_modbus && !p.huawei_solar) {
+        this._wizardData.inverter_type = "solax_gen4";
+      }
+      // Auto-select forecast source — always prefer Solcast when installed
       if (p.solcast_solar) {
         this._wizardData.forecast_source = "solcast_solar";
         this._applyForecastDefaults("solcast_solar");
@@ -1420,6 +1426,7 @@ class EegOptimizerPanel extends HTMLElement {
       <h3 style="margin-bottom:8px">Getestete Setups</h3>
       <ul style="line-height:1.8;padding-left:20px">
         <li>Huawei SUN2000 mit LUNA2000 Batteriespeicher</li>
+        <li>SolaX Gen4+ mit Triple Power Batteriespeicher</li>
       </ul>`;
   }
 
