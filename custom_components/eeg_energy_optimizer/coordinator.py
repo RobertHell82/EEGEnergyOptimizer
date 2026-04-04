@@ -198,6 +198,7 @@ class ConsumptionCoordinator:
             day: {h: [] for h in range(24)} for day in WEEKDAY_KEYS
         }
 
+        skipped = 0
         for entry in entries:
             ts = entry.get("start") or entry.get("start_ts")
             mean = entry.get("mean")
@@ -208,11 +209,20 @@ class ConsumptionCoordinator:
             if local_dt is None:
                 continue
 
+            # Skip unrealistic values (> 50 kW household consumption)
+            # Catches old data where W was incorrectly recorded as kW
+            if mean < 0 or mean > 50.0:
+                skipped += 1
+                continue
+
             # Convert kW to W (consumption sensor always reports in kW)
             value = mean * 1000.0
 
             weekday_key = WEEKDAY_KEYS[local_dt.weekday()]
             accum[weekday_key][local_dt.hour].append(value)
+
+        if skipped:
+            _LOGGER.info("Skipped %d unrealistic mean entries (> 50 kW)", skipped)
 
         result = self._apply_fallbacks(accum)
         self._finalize(result, len(entries), "mean")
