@@ -1385,14 +1385,13 @@ class EegOptimizerPanel extends HTMLElement {
 
   _isNextDisabled() {
     const step = this._wizardStep;
-    // Step 1: block if Huawei not installed or Hausverbrauch sensors missing
+    // Step 1: block if no supported inverter installed or Hausverbrauch sensors missing
     if (step === 1) {
-      if (this._prerequisites && !this._prerequisites.huawei_solar) return true;
+      const p = this._prerequisites;
+      if (p && !p.huawei_solar && !p.solax_modbus) return true;
       const d = this._wizardData;
-      if (d.inverter_type === "huawei_sun2000" &&
-          (!d.pv_power_sensor || !d.battery_power_sensor || !d.grid_power_sensor)) {
-        return true;
-      }
+      if (!d.inverter_type) return true;
+      if (!d.pv_power_sensor || !d.battery_power_sensor || !d.grid_power_sensor) return true;
     }
     // Step 2: block if no forecast integration
     if (
