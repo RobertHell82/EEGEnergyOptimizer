@@ -199,6 +199,7 @@ window.addEventListener("unhandledrejection", (e) => {
   const msg = e.reason?.message || String(e.reason || "");
   if (msg.includes("Subscription not found") ||
       msg.includes("Transition was aborted") ||
+      msg.includes("Transition was skipped") ||
       msg.includes("message channel closed") ||
       msg.includes("asynchronous response")) {
     e.preventDefault();
@@ -1080,6 +1081,14 @@ class EegOptimizerPanel extends HTMLElement {
     if (this._view === "wizard") {
       const pickers = this._shadow.querySelectorAll("ha-entity-picker");
       pickers.forEach((p) => (p.hass = hass));
+    }
+
+    // Recover from blank panel (View Transition may wipe shadow DOM content)
+    if (this._initialized && this._shadow &&
+        (!this._shadow.firstElementChild || this._shadow.childNodes.length === 0)) {
+      console.info("EEG Optimizer: shadow DOM empty while initialized, forcing re-render");
+      this._render();
+      return;
     }
 
     // Selective re-render for dashboard: only if watched entities changed
@@ -3392,17 +3401,18 @@ class EegOptimizerPanel extends HTMLElement {
     this._stopWatchdog();
     this._watchdogInterval = setInterval(() => {
       if (document.visibilityState !== "visible" || !this._initialized) return;
+      // Check for blank panel even if hass updates are flowing
+      if (this._shadow && (!this._shadow.firstElementChild || this._shadow.childNodes.length === 0)) {
+        console.warn("EEG Optimizer: watchdog detected empty shadow DOM, forcing re-render");
+        this._render();
+      }
       const elapsed = Date.now() - this._lastHassUpdate;
       if (elapsed > 120000) {
         console.warn("EEG Optimizer: no hass update for " + Math.round(elapsed / 1000) + "s, forcing reload");
         this._loadConfigPending = false;
         this._loadConfigWithRetry();
-        // Also force re-render if shadow DOM is empty
-        if (this._shadow && this._shadow.childNodes.length === 0) {
-          this._render();
-        }
       }
-    }, 60000);
+    }, 30000);
   }
 
   _stopWatchdog() {
