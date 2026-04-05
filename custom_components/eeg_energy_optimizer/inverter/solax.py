@@ -88,7 +88,7 @@ class SolaXInverter(InverterBase):
                 power_w = int(power_kw * 1000)
                 await self._set_select("remotecontrol_power_control", "Enabled Battery Control")
                 await self._set_number("remotecontrol_active_power", power_w)
-            await self._set_number("remotecontrol_duration", 600)
+            await self._set_number("remotecontrol_duration", 300)
             await self._set_number("remotecontrol_autorepeat_duration", 60)
             await self._press_trigger()
             return True
@@ -112,7 +112,7 @@ class SolaXInverter(InverterBase):
             power_w = -abs(int(power_kw * 1000))
             await self._set_select("remotecontrol_power_control", "Enabled Battery Control")
             await self._set_number("remotecontrol_active_power", power_w)
-            await self._set_number("remotecontrol_duration", 600)
+            await self._set_number("remotecontrol_duration", 300)
             await self._set_number("remotecontrol_autorepeat_duration", 60)
             await self._press_trigger()
             return True
