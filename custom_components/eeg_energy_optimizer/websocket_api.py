@@ -22,6 +22,7 @@ from .const import (
     DOMAIN,
     INVERTER_TYPE_HUAWEI,
     INVERTER_TYPE_SOLAX,
+    INVERTER_TYPE_SOLAREDGE,
 )
 
 if TYPE_CHECKING:
@@ -76,6 +77,32 @@ SOLAX_DEFAULTS: dict[str, list[str]] = {
         "sensor.solax_inverter_meter_2_measured_power",
     ],
 }
+
+SOLAREDGE_DEFAULTS: dict[str, list[str]] = {
+    CONF_BATTERY_SOC_SENSOR: [
+        "sensor.solaredge_b1_state_of_energy",
+    ],
+    CONF_PV_POWER_SENSOR: [
+        "sensor.solaredge_ac_power",
+        "sensor.solaredge_dc_power",
+    ],
+    CONF_GRID_POWER_SENSOR: [
+        "sensor.solaredge_m1_ac_power",
+    ],
+    CONF_BATTERY_POWER_SENSOR: [
+        "sensor.solaredge_b1_dc_power",
+    ],
+}
+
+
+def _find_solaredge_prefix(hass: HomeAssistant) -> str | None:
+    """Auto-detect the SolarEdge entity prefix by searching for storage_command_mode."""
+    for state in hass.states.async_all("select"):
+        if state.entity_id.endswith("storage_command_mode"):
+            # e.g. "select.solaredge_storage_command_mode" -> "solaredge_"
+            prefix = state.entity_id.replace("select.", "").replace("storage_command_mode", "")
+            return prefix
+    return None
 
 
 def _find_solax_prefix(hass: HomeAssistant) -> str | None:
@@ -230,7 +257,7 @@ async def ws_check_prerequisites(
     msg: dict,
 ) -> None:
     """Check which prerequisite integrations are installed and loaded."""
-    check_domains = ["huawei_solar", "solax_modbus", "solcast_solar", "forecast_solar"]
+    check_domains = ["huawei_solar", "solax_modbus", "solaredge_modbus_multi", "solcast_solar", "forecast_solar"]
     result = {}
 
     for domain in check_domains:
@@ -315,7 +342,39 @@ async def ws_detect_sensors(
         connection.send_result(msg["id"], result)
         return
 
-    # Neither Huawei nor SolaX detected
+    # Check if SolarEdge Modbus Multi integration is loaded
+    solaredge_entries = hass.config_entries.async_entries("solaredge_modbus_multi")
+    solaredge_loaded = any(e.state.value == "loaded" for e in solaredge_entries)
+
+    if solaredge_loaded:
+        sensors = {}
+        for conf_key, candidates in SOLAREDGE_DEFAULTS.items():
+            for entity_id in candidates:
+                state = hass.states.get(entity_id)
+                if state is not None:
+                    sensors[conf_key] = entity_id
+                    break
+
+        # Detect SolarEdge entity prefix for control entities
+        prefix = _find_solaredge_prefix(hass)
+
+        result = {
+            CONF_INVERTER_TYPE: INVERTER_TYPE_SOLAREDGE,
+            "detected": True,
+            "sensors": sensors,
+        }
+        if prefix:
+            result["solaredge_prefix"] = prefix
+            # Pre-fill control entity IDs based on detected prefix
+            result["solaredge_storage_command_mode"] = f"select.{prefix}storage_command_mode"
+            result["solaredge_storage_charge_limit"] = f"number.{prefix}storage_charge_limit"
+            result["solaredge_storage_discharge_limit"] = f"number.{prefix}storage_discharge_limit"
+            result["solaredge_storage_backup_reserve"] = f"number.{prefix}storage_backup_reserve"
+
+        connection.send_result(msg["id"], result)
+        return
+
+    # Neither Huawei, SolaX, nor SolarEdge detected
     connection.send_result(msg["id"], {"detected": False, "sensors": {}})
 
 
