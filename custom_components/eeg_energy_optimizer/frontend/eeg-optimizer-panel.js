@@ -257,6 +257,10 @@ class EegOptimizerPanel extends HTMLElement {
     };
     document.addEventListener("visibilitychange", this._onVisibilityChange);
 
+    // Start watchdog for active-tab connection drops
+    this._watchdogInterval = null;
+    this._startWatchdog();
+
     // Event delegation on shadow root
     // Legend hover: highlight matching weekday line
     this._shadow.addEventListener("mouseover", (e) => {
@@ -1045,6 +1049,12 @@ class EegOptimizerPanel extends HTMLElement {
       this._loadConfigPending = false;
       this._loadConfigWithRetry();
       return;
+    }
+
+    // Recover silently-dead activity subscription
+    if (this._setupComplete && !this._activityUnsub && this._initialized) {
+      console.info("EEG Optimizer: activity subscription missing, re-subscribing");
+      this._subscribeActivityEvents();
     }
 
     // Update entity pickers in shadow DOM with new hass
@@ -3303,12 +3313,52 @@ class EegOptimizerPanel extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._stopWatchdog();
     if (this._activityUnsub) {
       try { this._activityUnsub(); } catch (_) { /* connection already gone */ }
       this._activityUnsub = null;
     }
     if (this._onVisibilityChange) {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
+    }
+  }
+
+  connectedCallback() {
+    // Re-register visibilitychange listener (disconnectedCallback removes it)
+    if (this._onVisibilityChange) {
+      document.addEventListener("visibilitychange", this._onVisibilityChange);
+    }
+    // If already initialized before detach, re-init data + subscription
+    if (this._hass && this._initialized) {
+      console.info("EEG Optimizer: panel reattached, refreshing");
+      this._loadConfigPending = false;
+      this._loadConfigWithRetry();
+    }
+    // Start watchdog
+    this._startWatchdog();
+  }
+
+  _startWatchdog() {
+    this._stopWatchdog();
+    this._watchdogInterval = setInterval(() => {
+      if (document.visibilityState !== "visible" || !this._initialized) return;
+      const elapsed = Date.now() - this._lastHassUpdate;
+      if (elapsed > 120000) {
+        console.warn("EEG Optimizer: no hass update for " + Math.round(elapsed / 1000) + "s, forcing reload");
+        this._loadConfigPending = false;
+        this._loadConfigWithRetry();
+        // Also force re-render if shadow DOM is empty
+        if (this._shadow && this._shadow.childNodes.length === 0) {
+          this._render();
+        }
+      }
+    }, 60000);
+  }
+
+  _stopWatchdog() {
+    if (this._watchdogInterval) {
+      clearInterval(this._watchdogInterval);
+      this._watchdogInterval = null;
     }
   }
 }
