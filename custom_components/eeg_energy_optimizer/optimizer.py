@@ -231,7 +231,7 @@ class EEGOptimizer:
 
         # Overnight consumption for discharge min-SOC calculation
         # Before discharge start: from discharge_start to sunrise + 1h
-        # After discharge start: from now to sunrise + 1h
+        # After discharge start (incl. past midnight): from now to sunrise + 1h
         consumption_overnight = 0.0
         if sunrise is not None:
             overnight_end = sunrise + timedelta(hours=1)
@@ -242,6 +242,11 @@ class EEGOptimizer:
                 microsecond=0,
             )
             overnight_start = max(discharge_start, now)
+            # Past midnight: discharge_start resolves to tonight (future),
+            # but we're already in the overnight period from yesterday's start.
+            # Use now as the start so we calculate remaining demand until sunrise.
+            if overnight_start > overnight_end:
+                overnight_start = now
             if overnight_end > overnight_start:
                 consumption_overnight = self._coordinator.calculate_period(
                     overnight_start, overnight_end
@@ -618,14 +623,22 @@ class EEGOptimizer:
         if min_soc >= 100.0:
             return (False, min_soc, ["Nachtverbrauch zu hoch"])
 
-        # Check time
+        # Check time — discharge window runs from discharge_start until sunrise
         discharge_start = snap.now.replace(
             hour=self._discharge_start_h,
             minute=self._discharge_start_m,
             second=0,
             microsecond=0,
         )
-        if snap.now < discharge_start:
+        # Past midnight: discharge_start points to tonight (future), but we're
+        # already in the discharge window that began yesterday evening.
+        # Check if sunrise is known and we're before it → still in window.
+        past_midnight_in_window = (
+            snap.now < discharge_start
+            and snap.sunrise is not None
+            and snap.now < snap.sunrise
+        )
+        if snap.now < discharge_start and not past_midnight_in_window:
             reasons.append(f"Startzeit {self._discharge_start_h:02d}:{self._discharge_start_m:02d} noch nicht erreicht")
 
         # Check SOC
