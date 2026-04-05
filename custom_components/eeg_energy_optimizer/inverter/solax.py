@@ -27,6 +27,7 @@ SOLAX_ENTITY_DEFAULTS = {
     "remotecontrol_power_control": "select.solax_remotecontrol_power_control",
     "remotecontrol_active_power": "number.solax_remotecontrol_active_power",
     "remotecontrol_autorepeat_duration": "number.solax_remotecontrol_autorepeat_duration",
+    "remotecontrol_duration": "number.solax_remotecontrol_duration",
     "remotecontrol_trigger": "button.solax_remotecontrol_trigger",
     "selfuse_discharge_min_soc": "number.solax_selfuse_discharge_min_soc",
     "battery_charge_max_current": "number.solax_battery_charge_max_current",
@@ -87,6 +88,7 @@ class SolaXInverter(InverterBase):
                 power_w = int(power_kw * 1000)
                 await self._set_select("remotecontrol_power_control", "Enabled Battery Control")
                 await self._set_number("remotecontrol_active_power", power_w)
+            await self._set_number("remotecontrol_duration", 600)
             await self._set_number("remotecontrol_autorepeat_duration", 60)
             await self._press_trigger()
             return True
@@ -110,6 +112,7 @@ class SolaXInverter(InverterBase):
             power_w = -abs(int(power_kw * 1000))
             await self._set_select("remotecontrol_power_control", "Enabled Battery Control")
             await self._set_number("remotecontrol_active_power", power_w)
+            await self._set_number("remotecontrol_duration", 600)
             await self._set_number("remotecontrol_autorepeat_duration", 60)
             await self._press_trigger()
             return True
@@ -125,6 +128,7 @@ class SolaXInverter(InverterBase):
         try:
             await self._set_select("remotecontrol_power_control", "Disabled")
             await self._set_number("remotecontrol_active_power", 0)
+            await self._set_number("remotecontrol_duration", 20)
             await self._set_number("remotecontrol_autorepeat_duration", 0)
             await self._press_trigger()
             return True
