@@ -134,16 +134,6 @@ async def async_backfill_hausverbrauch_stats(
         battery_entries = result.get(battery_id, [])
         grid_entries = result.get(grid_id, [])
 
-        if not pv_entries or not battery_entries or not grid_entries:
-            _LOGGER.warning(
-                "Hausverbrauch backfill skipped — missing source data "
-                "(PV=%d, Battery=%d, Grid=%d entries)",
-                len(pv_entries),
-                len(battery_entries),
-                len(grid_entries),
-            )
-            return
-
         # --- Index entries by start timestamp ---
         def _index_by_start(entries: list[dict]) -> dict[float, float]:
             indexed: dict[float, float] = {}
@@ -152,7 +142,6 @@ async def async_backfill_hausverbrauch_stats(
                 mean = e.get("mean")
                 if ts is None or mean is None:
                     continue
-                # Normalize to float timestamp
                 if isinstance(ts, str):
                     ts_float = datetime.fromisoformat(ts).timestamp()
                 else:
@@ -160,10 +149,87 @@ async def async_backfill_hausverbrauch_stats(
                 indexed[ts_float] = mean
             return indexed
 
-        pv_by_ts = _index_by_start(pv_entries)
-        pv2_by_ts = _index_by_start(pv2_entries) if pv2_entries else {}
-        battery_by_ts = _index_by_start(battery_entries)
-        grid_by_ts = _index_by_start(grid_entries)
+        use_history_fallback = (
+            not pv_entries or not battery_entries or not grid_entries
+        )
+
+        if use_history_fallback:
+            _LOGGER.info(
+                "Backfill: no long-term statistics for source sensors "
+                "(PV=%d, Battery=%d, Grid=%d), trying state history fallback",
+                len(pv_entries), len(battery_entries), len(grid_entries),
+            )
+            # --- Fallback: read short-term state history and aggregate hourly ---
+            from homeassistant.components.recorder.history import (
+                get_significant_states,
+            )
+
+            def _load_history():
+                return get_significant_states(
+                    hass, start_time, now, list(sensor_ids),
+                    significant_changes_only=False,
+                )
+
+            history = await recorder_instance.async_add_executor_job(_load_history)
+
+            def _history_to_hourly_means(
+                states: list,
+            ) -> dict[float, float]:
+                """Aggregate state history entries into hourly means."""
+                from collections import defaultdict
+                hourly: dict[float, list[float]] = defaultdict(list)
+                for state in states:
+                    try:
+                        val = float(state.state)
+                    except (ValueError, TypeError):
+                        continue
+                    # Truncate to hour
+                    ts = state.last_updated.replace(
+                        minute=0, second=0, microsecond=0
+                    )
+                    hour_ts = ts.timestamp()
+                    hourly[hour_ts].append(val)
+                result: dict[float, float] = {}
+                for hour_ts, values in hourly.items():
+                    result[hour_ts] = sum(values) / len(values)
+                return result
+
+            pv_by_ts = _history_to_hourly_means(history.get(pv_id, []))
+            pv2_by_ts = _history_to_hourly_means(
+                history.get(pv2_id, [])
+            ) if pv2_id else {}
+            battery_by_ts = _history_to_hourly_means(
+                history.get(battery_id, [])
+            )
+            grid_by_ts = _history_to_hourly_means(history.get(grid_id, []))
+
+            if not pv_by_ts or not battery_by_ts or not grid_by_ts:
+                _LOGGER.warning(
+                    "Hausverbrauch backfill skipped — no state history "
+                    "(PV=%d, Battery=%d, Grid=%d hours)",
+                    len(pv_by_ts), len(battery_by_ts), len(grid_by_ts),
+                )
+                return
+
+            # Convert W to kW for history values (statistics are already in native unit)
+            def _to_kw(by_ts: dict[float, float]) -> dict[float, float]:
+                return {ts: v / 1000.0 for ts, v in by_ts.items()}
+
+            pv_by_ts = _to_kw(pv_by_ts)
+            pv2_by_ts = _to_kw(pv2_by_ts) if pv2_by_ts else {}
+            battery_by_ts = _to_kw(battery_by_ts)
+            grid_by_ts = _to_kw(grid_by_ts)
+
+            _LOGGER.info(
+                "Backfill: loaded state history "
+                "(PV=%d, Battery=%d, Grid=%d hours)",
+                len(pv_by_ts), len(battery_by_ts), len(grid_by_ts),
+            )
+        else:
+            pv_by_ts = _index_by_start(pv_entries)
+            pv2_by_ts = _index_by_start(pv2_entries) if pv2_entries else {}
+            battery_by_ts = _index_by_start(battery_entries)
+            grid_by_ts = _index_by_start(grid_entries)
 
         # --- Calculate Hausverbrauch for each hour where all 3 have data ---
         common_timestamps = sorted(
