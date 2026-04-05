@@ -1069,6 +1069,7 @@ class EegOptimizerPanel extends HTMLElement {
       const watchList = [...(this._watchedEntities || DEFAULT_WATCHED)];
       if (this._config?.battery_soc_sensor) watchList.push(this._config.battery_soc_sensor);
       if (this._config?.pv_power_sensor) watchList.push(this._config.pv_power_sensor);
+      if (this._config?.pv_power_sensor_2) watchList.push(this._config.pv_power_sensor_2);
       if (this._config?.battery_power_sensor) watchList.push(this._config.battery_power_sensor);
       if (this._config?.grid_power_sensor) watchList.push(this._config.grid_power_sensor);
       // Watch Solcast/Forecast.Solar original sensors for PV chart updates
@@ -2627,7 +2628,10 @@ class EegOptimizerPanel extends HTMLElement {
       const unit = state?.attributes?.unit_of_measurement || "";
       return unit === "W" ? val / 1000 : val;
     };
-    const pvKw = _toKw(this._config?.pv_power_sensor || "sensor.inverter_eingangsleistung");
+    let pvKw = _toKw(this._config?.pv_power_sensor || "sensor.inverter_eingangsleistung");
+    if (this._config?.pv_power_sensor_2) {
+      pvKw += _toKw(this._config.pv_power_sensor_2);
+    }
     const batKw = _toKw(this._config?.battery_power_sensor || "sensor.batteries_lade_entladeleistung");
     const gridKw = _toKw(this._config?.grid_power_sensor || "sensor.power_meter_wirkleistung");
     const hausKw = this._readFloat("sensor.eeg_energy_optimizer_hausverbrauch") || Math.max(0, pvKw - batKw - gridKw);
