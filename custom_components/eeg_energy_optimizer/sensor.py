@@ -26,6 +26,7 @@ from .const import (
     CONF_FORECAST_SOURCE,
     CONF_FORECAST_TOMORROW_ENTITY,
     CONF_GRID_POWER_SENSOR,
+    CONF_INVERTER_TYPE,
     CONF_LOOKBACK_WEEKS,
     CONF_PV_POWER_SENSOR,
     CONF_PV_POWER_SENSOR_2,
@@ -37,6 +38,7 @@ from .const import (
     DEFAULT_UPDATE_INTERVAL_SLOW,
     DOMAIN,
     FORECAST_SOURCE_SOLCAST,
+    INVERTER_TYPE_SOLAX,
     WEEKDAY_KEYS,
 )
 from .coordinator import ConsumptionCoordinator
@@ -508,6 +510,9 @@ class HausverbrauchSensor(SensorEntity):
         self._pv_sensor_2_id = config.get(CONF_PV_POWER_SENSOR_2, "")
         self._battery_power_sensor_id = config.get(CONF_BATTERY_POWER_SENSOR, "")
         self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, "")
+        # SolaX energy dashboard sensor uses inverted battery sign convention
+        # (negative = charging, positive = discharging)
+        self._invert_battery = config.get(CONF_INVERTER_TYPE) == INVERTER_TYPE_SOLAX
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_hausverbrauch"
         self._attr_device_info = _device_info(entry.entry_id)
         self._attr_native_value: float | None = None
@@ -535,6 +540,11 @@ class HausverbrauchSensor(SensorEntity):
             pv2 = _read_power_kw(self.hass, self._pv_sensor_2_id)
             if pv2 is not None:
                 pv_power += pv2
+
+        # SolaX battery sensor: negative = charging, positive = discharging
+        # Normalize to: positive = charging, negative = discharging
+        if self._invert_battery:
+            battery_power = -battery_power
 
         # PV input - battery power - grid power
         # battery positive = charging, negative = discharging
