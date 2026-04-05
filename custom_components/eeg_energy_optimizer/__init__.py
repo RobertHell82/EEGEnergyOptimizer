@@ -13,12 +13,15 @@ import logging
 from .const import (
     DOMAIN,
     MODE_AUS,
+    CONF_INVERTER_TYPE,
     CONF_PV_POWER_SENSOR,
+    CONF_PV_POWER_SENSOR_2,
     CONF_BATTERY_POWER_SENSOR,
     CONF_GRID_POWER_SENSOR,
     CONF_LOOKBACK_WEEKS,
     CONSUMPTION_SENSOR,
     DEFAULT_LOOKBACK_WEEKS,
+    INVERTER_SIGN_CONVENTIONS,
 )
 from .inverter import create_inverter
 from .optimizer import EEGOptimizer
@@ -89,6 +92,7 @@ async def async_backfill_hausverbrauch_stats(
 
         # --- Read source sensor IDs from config ---
         pv_id = config.get(CONF_PV_POWER_SENSOR, "")
+        pv2_id = config.get(CONF_PV_POWER_SENSOR_2, "")
         battery_id = config.get(CONF_BATTERY_POWER_SENSOR, "")
         grid_id = config.get(CONF_GRID_POWER_SENSOR, "")
 
@@ -100,22 +104,33 @@ async def async_backfill_hausverbrauch_stats(
             )
             return
 
+        # Sign conventions per inverter type
+        inv_type = config.get(CONF_INVERTER_TYPE, "")
+        signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
+        battery_sign = signs.get("battery_sign", 1)
+        grid_sign = signs.get("grid_sign", 1)
+
         lookback_weeks = config.get(CONF_LOOKBACK_WEEKS, DEFAULT_LOOKBACK_WEEKS)
         start_time = now - timedelta(weeks=lookback_weeks)
 
-        # --- Load mean statistics for all 3 source sensors ---
+        # --- Load mean statistics for all source sensors ---
+        sensor_ids = {pv_id, battery_id, grid_id}
+        if pv2_id:
+            sensor_ids.add(pv2_id)
+
         result = await recorder_instance.async_add_executor_job(
             statistics_during_period,
             hass,
             start_time,
             now,
-            {pv_id, battery_id, grid_id},
+            sensor_ids,
             "hour",
             None,
             {"mean"},
         )
 
         pv_entries = result.get(pv_id, [])
+        pv2_entries = result.get(pv2_id, []) if pv2_id else []
         battery_entries = result.get(battery_id, [])
         grid_entries = result.get(grid_id, [])
 
@@ -146,6 +161,7 @@ async def async_backfill_hausverbrauch_stats(
             return indexed
 
         pv_by_ts = _index_by_start(pv_entries)
+        pv2_by_ts = _index_by_start(pv2_entries) if pv2_entries else {}
         battery_by_ts = _index_by_start(battery_entries)
         grid_by_ts = _index_by_start(grid_entries)
 
@@ -160,9 +176,10 @@ async def async_backfill_hausverbrauch_stats(
 
         statistics: list[StatisticData] = []
         for ts in common_timestamps:
-            hausverbrauch = max(
-                pv_by_ts[ts] - battery_by_ts[ts] - grid_by_ts[ts], 0.0
-            )
+            pv = pv_by_ts[ts] + pv2_by_ts.get(ts, 0.0)
+            bat = battery_by_ts[ts] * battery_sign
+            grid = grid_by_ts[ts] * grid_sign
+            hausverbrauch = max(pv - bat - grid, 0.0)
             value = round(hausverbrauch, 3)
             hour_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
             statistics.append(
