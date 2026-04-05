@@ -2247,13 +2247,14 @@ class EegOptimizerPanel extends HTMLElement {
       const icon = zustandIcon(e.zustand);
       const color = zustandColor(e.zustand);
       const reason = e.reason === "Heartbeat" ? `<span style="opacity:0.5">${e.zustand}</span>` : `<strong>${e.zustand}</strong>`;
-      const badge = e.reason === "Heartbeat" ? "" : `<span class="activity-badge" style="background:${color}">\u00C4nderung</span>`;
+      const changeBadge = e.reason === "Heartbeat" ? "" : `<span class="activity-badge" style="background:${color}">\u00C4nderung</span>`;
+      const testBadge = e.ausführung === false ? `<span class="activity-badge" style="background:var(--warning-color,#ff9800)">Testmodus</span>` : "";
       return `<div class="activity-entry">
         <div class="activity-time">${dateStr}<br>${timeStr}</div>
         <div class="activity-dot" style="background:${color}">${icon}</div>
         <div class="activity-content">
-          <div class="activity-header">${reason} ${badge}</div>
-          <div class="activity-details">SOC ${e.soc}%${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${e.min_soc}%` : ""} &middot; PV-Prognose (Rest) ${e.pv_today} kWh &middot; Gesamtbedarf ${e.bedarf} kWh${e.ausführung === false ? " &middot; Testmodus" : ""}</div>
+          <div class="activity-header">${reason} ${changeBadge} ${testBadge}</div>
+          <div class="activity-details">SOC ${e.soc}%${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${e.min_soc}%` : ""} &middot; PV-Prognose (Rest) ${e.pv_today} kWh &middot; Gesamtbedarf ${e.bedarf} kWh</div>
         </div>
       </div>`;
     }).join("");
