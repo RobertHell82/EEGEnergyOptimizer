@@ -6,6 +6,11 @@
  * consumption, optimizer params, and summary with config save.
  */
 
+// Guard against duplicate script loading (HA may reload after reconnect)
+if (customElements.get("eeg-optimizer-panel")) {
+  // Already registered — skip entire script to avoid const redeclaration errors
+} else {
+
 // Sensor suffixes matching sensor.py unique_id pattern
 const SENSOR_SUFFIXES = {
   entscheidung: "entscheidung",
@@ -3424,3 +3429,5 @@ class EegOptimizerPanel extends HTMLElement {
 }
 
 customElements.define("eeg-optimizer-panel", EegOptimizerPanel);
+
+} // end duplicate-load guard
