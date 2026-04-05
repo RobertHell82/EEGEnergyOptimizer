@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from .base import InverterBase
 from .huawei import HuaweiInverter
 from .solax import SolaXInverter
+from .solaredge import SolarEdgeInverter
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
 INVERTER_TYPES: dict[str, type[InverterBase]] = {
     "huawei_sun2000": HuaweiInverter,
     "solax_gen4": SolaXInverter,
+    "solaredge_storedge": SolarEdgeInverter,
 }
 
 
