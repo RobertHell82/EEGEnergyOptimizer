@@ -38,7 +38,7 @@ from .const import (
     DEFAULT_UPDATE_INTERVAL_SLOW,
     DOMAIN,
     FORECAST_SOURCE_SOLCAST,
-    INVERTER_TYPE_SOLAX,
+    INVERTER_SIGN_CONVENTIONS,
     WEEKDAY_KEYS,
 )
 from .coordinator import ConsumptionCoordinator
@@ -510,10 +510,11 @@ class HausverbrauchSensor(SensorEntity):
         self._pv_sensor_2_id = config.get(CONF_PV_POWER_SENSOR_2, "")
         self._battery_power_sensor_id = config.get(CONF_BATTERY_POWER_SENSOR, "")
         self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, "")
-        # SolaX energy dashboard sensors use inverted sign conventions
-        # battery: negative=charging, positive=discharging (opposite of Huawei)
-        # grid: negative=export, positive=import (opposite of Huawei)
-        self._invert_solax_signs = config.get(CONF_INVERTER_TYPE) == INVERTER_TYPE_SOLAX
+        # Sign conventions differ per inverter type (defined in const.py)
+        inv_type = config.get(CONF_INVERTER_TYPE, "")
+        signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
+        self._battery_sign = signs.get("battery_sign", 1)
+        self._grid_sign = signs.get("grid_sign", 1)
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_hausverbrauch"
         self._attr_device_info = _device_info(entry.entry_id)
         self._attr_native_value: float | None = None
@@ -542,12 +543,9 @@ class HausverbrauchSensor(SensorEntity):
             if pv2 is not None:
                 pv_power += pv2
 
-        # SolaX energy dashboard sensors use inverted sign conventions:
-        # battery: negative = charging, positive = discharging (we expect opposite)
-        # grid: negative = export, positive = import (we expect opposite)
-        if self._invert_solax_signs:
-            battery_power = -battery_power
-            grid_power = -grid_power
+        # Normalize signs: positive=charging / positive=export
+        battery_power *= self._battery_sign
+        grid_power *= self._grid_sign
 
         # PV input - battery power - grid power
         # battery positive = charging, negative = discharging

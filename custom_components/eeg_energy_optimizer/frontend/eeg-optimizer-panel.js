@@ -49,6 +49,14 @@ const WIZARD_STEPS = [
   "Zusammenfassung",
 ];
 
+// Sign conventions per inverter type (mirrors const.py INVERTER_SIGN_CONVENTIONS)
+// battery_sign: +1 = positive means charging, -1 = positive means discharging
+// grid_sign:    +1 = positive means export,   -1 = positive means import
+const INVERTER_SIGN_CONVENTIONS = {
+  huawei_sun2000: { battery_sign: 1, grid_sign: 1 },
+  solax_gen4:     { battery_sign: -1, grid_sign: -1 },
+};
+
 const WIZARD_DEFAULTS = {
   inverter_type: "huawei_sun2000",
   battery_soc_sensor: "",
@@ -2633,10 +2641,10 @@ class EegOptimizerPanel extends HTMLElement {
       pvKw += _toKw(this._config.pv_power_sensor_2);
     }
     let batKw = _toKw(this._config?.battery_power_sensor || "sensor.batteries_lade_entladeleistung");
-    // SolaX energy dashboard: inverted sign conventions for battery and grid
-    if (this._config?.inverter_type === "solax_gen4") batKw = -batKw;
+    const _signs = INVERTER_SIGN_CONVENTIONS[this._config?.inverter_type] || { battery_sign: 1, grid_sign: 1 };
+    batKw *= _signs.battery_sign;
     let gridKw = _toKw(this._config?.grid_power_sensor || "sensor.power_meter_wirkleistung");
-    if (this._config?.inverter_type === "solax_gen4") gridKw = -gridKw;
+    gridKw *= _signs.grid_sign;
     const hausKw = this._readFloat("sensor.eeg_energy_optimizer_hausverbrauch") || Math.max(0, pvKw - batKw - gridKw);
     const batLabel = batKw >= 0 ? "Ladung" : "Entladung";
     const batColor = "val-orange";

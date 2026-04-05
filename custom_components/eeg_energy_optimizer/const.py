@@ -19,6 +19,14 @@ INVERTER_PREREQUISITES = {
     "solax_gen4": "solax_modbus",
 }
 
+# Sign conventions per inverter type for battery and grid power sensors.
+# battery_sign: +1 = positive means charging (Huawei), -1 = positive means discharging (SolaX)
+# grid_sign:    +1 = positive means export (Huawei),   -1 = positive means import (SolaX)
+INVERTER_SIGN_CONVENTIONS = {
+    "huawei_sun2000": {"battery_sign": 1, "grid_sign": 1},
+    "solax_gen4":     {"battery_sign": -1, "grid_sign": -1},
+}
+
 CONF_PV_POWER_SENSOR_2 = "pv_power_sensor_2"
 
 # Phase 2: Forecast & Consumption
