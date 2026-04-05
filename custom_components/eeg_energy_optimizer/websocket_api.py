@@ -308,6 +308,7 @@ async def ws_detect_sensors(
             result["solax_remotecontrol_power_control"] = f"select.{prefix}remotecontrol_power_control"
             result["solax_remotecontrol_active_power"] = f"number.{prefix}remotecontrol_active_power"
             result["solax_remotecontrol_autorepeat_duration"] = f"number.{prefix}remotecontrol_autorepeat_duration"
+            result["solax_remotecontrol_duration"] = f"number.{prefix}remotecontrol_duration"
             result["solax_remotecontrol_trigger"] = f"button.{prefix}remotecontrol_trigger"
             result["solax_selfuse_discharge_min_soc"] = f"number.{prefix}selfuse_discharge_min_soc"
 

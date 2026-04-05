@@ -24,13 +24,13 @@ SOLAX_DOMAIN = "solax_modbus"
 
 # Entity Key -> Default Entity ID Mapping
 SOLAX_ENTITY_DEFAULTS = {
-    "remotecontrol_power_control": "select.solax_remotecontrol_power_control",
-    "remotecontrol_active_power": "number.solax_remotecontrol_active_power",
-    "remotecontrol_autorepeat_duration": "number.solax_remotecontrol_autorepeat_duration",
-    "remotecontrol_duration": "number.solax_remotecontrol_duration",
-    "remotecontrol_trigger": "button.solax_remotecontrol_trigger",
-    "selfuse_discharge_min_soc": "number.solax_selfuse_discharge_min_soc",
-    "battery_charge_max_current": "number.solax_battery_charge_max_current",
+    "remotecontrol_power_control": "select.solax_inverter_remotecontrol_power_control",
+    "remotecontrol_active_power": "number.solax_inverter_remotecontrol_active_power",
+    "remotecontrol_autorepeat_duration": "number.solax_inverter_remotecontrol_autorepeat_duration",
+    "remotecontrol_duration": "number.solax_inverter_remotecontrol_duration",
+    "remotecontrol_trigger": "button.solax_inverter_remotecontrol_trigger",
+    "selfuse_discharge_min_soc": "number.solax_inverter_selfuse_discharge_min_soc",
+    "battery_charge_max_current": "number.solax_inverter_battery_charge_max_current",
 }
 
 
