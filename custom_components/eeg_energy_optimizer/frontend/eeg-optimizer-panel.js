@@ -2633,9 +2633,10 @@ class EegOptimizerPanel extends HTMLElement {
       pvKw += _toKw(this._config.pv_power_sensor_2);
     }
     let batKw = _toKw(this._config?.battery_power_sensor || "sensor.batteries_lade_entladeleistung");
-    // SolaX energy dashboard: negative = charging, positive = discharging → invert
+    // SolaX energy dashboard: inverted sign conventions for battery and grid
     if (this._config?.inverter_type === "solax_gen4") batKw = -batKw;
-    const gridKw = _toKw(this._config?.grid_power_sensor || "sensor.power_meter_wirkleistung");
+    let gridKw = _toKw(this._config?.grid_power_sensor || "sensor.power_meter_wirkleistung");
+    if (this._config?.inverter_type === "solax_gen4") gridKw = -gridKw;
     const hausKw = this._readFloat("sensor.eeg_energy_optimizer_hausverbrauch") || Math.max(0, pvKw - batKw - gridKw);
     const batLabel = batKw >= 0 ? "Ladung" : "Entladung";
     const batColor = "val-orange";

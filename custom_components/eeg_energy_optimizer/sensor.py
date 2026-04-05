@@ -510,9 +510,10 @@ class HausverbrauchSensor(SensorEntity):
         self._pv_sensor_2_id = config.get(CONF_PV_POWER_SENSOR_2, "")
         self._battery_power_sensor_id = config.get(CONF_BATTERY_POWER_SENSOR, "")
         self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, "")
-        # SolaX energy dashboard sensor uses inverted battery sign convention
-        # (negative = charging, positive = discharging)
-        self._invert_battery = config.get(CONF_INVERTER_TYPE) == INVERTER_TYPE_SOLAX
+        # SolaX energy dashboard sensors use inverted sign conventions
+        # battery: negative=charging, positive=discharging (opposite of Huawei)
+        # grid: negative=export, positive=import (opposite of Huawei)
+        self._invert_solax_signs = config.get(CONF_INVERTER_TYPE) == INVERTER_TYPE_SOLAX
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_hausverbrauch"
         self._attr_device_info = _device_info(entry.entry_id)
         self._attr_native_value: float | None = None
@@ -541,10 +542,12 @@ class HausverbrauchSensor(SensorEntity):
             if pv2 is not None:
                 pv_power += pv2
 
-        # SolaX battery sensor: negative = charging, positive = discharging
-        # Normalize to: positive = charging, negative = discharging
-        if self._invert_battery:
+        # SolaX energy dashboard sensors use inverted sign conventions:
+        # battery: negative = charging, positive = discharging (we expect opposite)
+        # grid: negative = export, positive = import (we expect opposite)
+        if self._invert_solax_signs:
             battery_power = -battery_power
+            grid_power = -grid_power
 
         # PV input - battery power - grid power
         # battery positive = charging, negative = discharging
