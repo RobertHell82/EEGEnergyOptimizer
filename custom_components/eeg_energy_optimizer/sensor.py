@@ -525,11 +525,13 @@ class HausverbrauchSensor(SensorEntity):
         battery_power = _read_power_kw(self.hass, self._battery_power_sensor_id)
         grid_power = _read_power_kw(self.hass, self._grid_sensor_id)
 
-        if pv_power is None or battery_power is None or grid_power is None:
+        # PV sensor unavailable at night (inverter offline) → PV = 0 kW
+        if pv_power is None:
+            pv_power = 0.0
+
+        if battery_power is None or grid_power is None:
             self._attr_native_value = None
             hints = []
-            if pv_power is None:
-                hints.append(f"PV-Sensor ({self._pv_sensor_id}) nicht verfügbar")
             if battery_power is None:
                 hints.append(f"Batterie-Sensor ({self._battery_power_sensor_id}) nicht verfügbar")
             if grid_power is None:
