@@ -131,9 +131,10 @@ None yet.
 | 260326-v3v | Erweitere STORY_SOLAX_INVERTER.md + NECESSARY_SENSORS: pv_power_sensor_2 optional | 2026-03-26 | 8c25bd3 | Verified | [260326-v3v-erweitere-story-solax-inverter-md-option](./quick/260326-v3v-erweitere-story-solax-inverter-md-option/) |
 | 260327-blj | SolaX Modbus Write-Sensoren: Register, Entity-Mappings, InverterBase-Impl, Caveats in Story | 2026-03-27 | 3b5348b | Verified | [260327-blj-solax-modbus-write-sensoren-recherche-sc](./quick/260327-blj-solax-modbus-write-sensoren-recherche-sc/) |
 | 260327-fj2 | SolaX Gen4+ Inverter: SolaXInverter class, factory, WS API, Wizard UI, pv_power_sensor_2 | 2026-03-27 | 8cfa618 | Verified | [260327-fj2-solax-gen4-inverter-support-implementier](./quick/260327-fj2-solax-gen4-inverter-support-implementier/) |
+| 260405-dhe | Dashboard WebSocket Resilience: connectedCallback, watchdog, subscription recovery | 2026-04-05 | 9f4db44 | | [260405-dhe-dashboard-wird-nach-5-10-min-wei-websock](./quick/260405-dhe-dashboard-wird-nach-5-10-min-wei-websock/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-27 - Completed quick task 260327-fj2: SolaX Gen4+ Inverter Support
-Stopped at: Completed quick-260327-fj2
+Last activity: 2026-04-05 - Completed quick task 260405-dhe: Dashboard WebSocket Resilience
+Stopped at: Completed quick-260405-dhe
 Resume file: None
