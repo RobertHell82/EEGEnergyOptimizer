@@ -199,6 +199,7 @@ class ConsumptionCoordinator:
         }
 
         corrected = 0
+        discarded = 0
         for entry in entries:
             ts = entry.get("start") or entry.get("start_ts")
             mean = entry.get("mean")
@@ -219,6 +220,12 @@ class ConsumptionCoordinator:
                 mean = mean / 1000.0
                 corrected += 1
 
+            # Discard values still unrealistic after correction (e.g. from
+            # historical data with wrong sign conventions)
+            if mean > 50.0:
+                discarded += 1
+                continue
+
             # Convert kW to W (consumption sensor always reports in kW)
             value = mean * 1000.0
 
@@ -227,6 +234,8 @@ class ConsumptionCoordinator:
 
         if corrected:
             _LOGGER.info("Auto-corrected %d mean entries (W→kW)", corrected)
+        if discarded:
+            _LOGGER.info("Discarded %d unrealistic entries (>50 kW after correction)", discarded)
 
         result = self._apply_fallbacks(accum)
         self._finalize(result, len(entries), "mean")

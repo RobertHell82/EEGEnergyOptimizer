@@ -241,16 +241,23 @@ async def async_backfill_hausverbrauch_stats(
             return
 
         statistics: list[StatisticData] = []
+        skipped = 0
         for ts in common_timestamps:
             pv = pv_by_ts[ts] + pv2_by_ts.get(ts, 0.0)
             bat = battery_by_ts[ts] * battery_sign
             grid = grid_by_ts[ts] * grid_sign
             hausverbrauch = max(pv - bat - grid, 0.0)
+            # Discard unrealistic values (wrong signs in historical data)
+            if hausverbrauch > 50.0:
+                skipped += 1
+                continue
             value = round(hausverbrauch, 3)
             hour_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
             statistics.append(
                 StatisticData(start=hour_dt, mean=value, state=value)
             )
+        if skipped:
+            _LOGGER.info("Backfill: skipped %d entries > 50 kW (unrealistic)", skipped)
 
         # --- Import statistics ---
         metadata = StatisticMetaData(
