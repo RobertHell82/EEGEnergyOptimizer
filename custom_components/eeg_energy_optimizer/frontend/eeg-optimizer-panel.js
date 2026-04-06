@@ -3405,9 +3405,7 @@ class EegOptimizerPanel extends HTMLElement {
   }
 
   disconnectedCallback() {
-    console.warn("EEG [DIAG] disconnectedCallback fired, initialized=" + this._initialized);
-    // Do NOT stop the watchdog — it will detect isConnected=false and recover.
-    // Only clean up subscriptions that depend on the connection.
+    // Do NOT stop the watchdog — it detects isConnected=false and recovers.
     if (this._activityUnsub) {
       try { this._activityUnsub(); } catch (_) { /* connection already gone */ }
       this._activityUnsub = null;
@@ -3415,7 +3413,14 @@ class EegOptimizerPanel extends HTMLElement {
     if (this._onVisibilityChange) {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
     }
-    this._disconnectedAt = Date.now();
+    // Only trigger recovery if the user is still on the EEG panel page.
+    // If they navigated away, the URL won't match and no reload needed.
+    if (window.location.pathname === "/eeg-optimizer") {
+      this._disconnectedAt = Date.now();
+    } else {
+      this._disconnectedAt = null;
+      this._stopWatchdog();
+    }
   }
 
   connectedCallback() {
@@ -3441,35 +3446,34 @@ class EegOptimizerPanel extends HTMLElement {
   _startWatchdog() {
     this._stopWatchdog();
     this._watchdogInterval = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-
-      // Recovery: element was removed from DOM by HA (View Transition failure)
-      // and never re-inserted. Navigate to force HA to re-create the panel.
+      // Disconnection recovery runs ALWAYS (even in background tabs)
+      // because browsers throttle intervals and we need fast recovery.
       if (!this.isConnected && this._disconnectedAt) {
         const disconnectedFor = Date.now() - this._disconnectedAt;
         if (disconnectedFor > 3000) {
-          console.warn("EEG [DIAG] watchdog → disconnected for " +
-            Math.round(disconnectedFor / 1000) + "s, navigating to recover");
+          console.warn("EEG: panel disconnected for " +
+            Math.round(disconnectedFor / 1000) + "s — reloading page");
           this._stopWatchdog();
-          // Use HA's navigate to force panel re-creation
-          window.history.pushState(null, "", "/eeg-optimizer");
-          window.dispatchEvent(new Event("location-changed"));
+          // Full page reload — most reliable recovery method.
+          // HA's SPA navigation (location-changed) may fail during
+          // View Transition errors, but a hard reload always works.
+          window.location.replace("/eeg-optimizer");
           return;
         }
       }
 
-      if (!this._initialized) return;
+      // Remaining checks only when tab is visible
+      if (document.visibilityState !== "visible" || !this._initialized) return;
 
       // Check for missing content
-      const hasContent = this._shadow ? !!this._shadow.querySelector(".content") : false;
-      if (this._shadow && !hasContent) {
-        console.warn("EEG [DIAG] watchdog → content missing, re-rendering");
+      if (this._shadow && !this._shadow.querySelector(".content")) {
+        console.warn("EEG: content missing, re-rendering");
         this._render();
       }
 
       const elapsed = Date.now() - this._lastHassUpdate;
       if (elapsed > 120000) {
-        console.warn("EEG Optimizer: no hass update for " + Math.round(elapsed / 1000) + "s, forcing reload");
+        console.warn("EEG: no hass update for " + Math.round(elapsed / 1000) + "s, reloading config");
         this._loadConfigPending = false;
         this._loadConfigWithRetry();
       }
