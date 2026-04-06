@@ -135,9 +135,10 @@ None yet.
 | 260405-v06 | SolarEdge StorEdge Inverter: SolarEdgeInverter class, factory, auto-detect, wizard UI | 2026-04-05 | 110c0e0 | | [260405-v06-solaredge-storedge-inverter-support-impl](./quick/260405-v06-solaredge-storedge-inverter-support-impl/) |
 | 260405-vho | Fix dashboard white-screen: View Transition error filter + shadow DOM recovery | 2026-04-05 | 99e1660 | | [260405-vho-fix-dashboard-white-screen-caused-by-vie](./quick/260405-vho-fix-dashboard-white-screen-caused-by-vie/) |
 | 260406-kw7 | Forecast.Solar Anleitung im Panel auf Solcast-Detailgrad | 2026-04-06 | 8766da2 | | [260406-kw7-forecast-solar-anleitung-im-panel-auf-so](./quick/260406-kw7-forecast-solar-anleitung-im-panel-auf-so/) |
+| 260406-nv9 | Huawei Solar Anleitung inkl. Wechselrichter-Einstellungen + Solcast Azimuth Fix | 2026-04-06 | 5dbc4be | | [260406-nv9-huawei-solar-anleitung-im-panel-inkl-wec](./quick/260406-nv9-huawei-solar-anleitung-im-panel-inkl-wec/) |
 
 ## Session Continuity
 
-Last activity: 2026-04-06 - Completed quick task 260406-kw7: Forecast.Solar Anleitung
-Stopped at: Completed quick-260406-kw7
+Last activity: 2026-04-06 - Completed quick task 260406-nv9: Huawei Solar Anleitung
+Stopped at: Completed quick-260406-nv9
 Resume file: None
