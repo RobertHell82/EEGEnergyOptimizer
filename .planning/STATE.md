@@ -134,9 +134,10 @@ None yet.
 | 260405-dhe | Dashboard WebSocket Resilience: connectedCallback, watchdog, subscription recovery | 2026-04-05 | 9f4db44 | Verified | [260405-dhe-dashboard-wird-nach-5-10-min-wei-websock](./quick/260405-dhe-dashboard-wird-nach-5-10-min-wei-websock/) |
 | 260405-v06 | SolarEdge StorEdge Inverter: SolarEdgeInverter class, factory, auto-detect, wizard UI | 2026-04-05 | 110c0e0 | | [260405-v06-solaredge-storedge-inverter-support-impl](./quick/260405-v06-solaredge-storedge-inverter-support-impl/) |
 | 260405-vho | Fix dashboard white-screen: View Transition error filter + shadow DOM recovery | 2026-04-05 | 99e1660 | | [260405-vho-fix-dashboard-white-screen-caused-by-vie](./quick/260405-vho-fix-dashboard-white-screen-caused-by-vie/) |
+| 260406-kw7 | Forecast.Solar Anleitung im Panel auf Solcast-Detailgrad | 2026-04-06 | 8766da2 | | [260406-kw7-forecast-solar-anleitung-im-panel-auf-so](./quick/260406-kw7-forecast-solar-anleitung-im-panel-auf-so/) |
 
 ## Session Continuity
 
-Last activity: 2026-04-06 - Merged SolarEdge + Bugfixes, version 0.5.8
-Stopped at: Completed quick-260405-vho
+Last activity: 2026-04-06 - Completed quick task 260406-kw7: Forecast.Solar Anleitung
+Stopped at: Completed quick-260406-kw7
 Resume file: None
