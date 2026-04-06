@@ -3452,7 +3452,15 @@ class EegOptimizerPanel extends HTMLElement {
             this._stopWatchdog();
             return;
           }
-          // Still on /eeg-optimizer but element gone → reload to recover
+          // Check if HA already created a replacement panel
+          const activePanel = document.querySelector("eeg-optimizer-panel");
+          if (activePanel && activePanel.isConnected && activePanel !== this) {
+            // New panel exists — old watchdog can stop
+            this._disconnectedAt = null;
+            this._stopWatchdog();
+            return;
+          }
+          // No active panel on /eeg-optimizer → reload to recover
           console.warn("EEG: panel removed while on /eeg-optimizer — reloading");
           this._stopWatchdog();
           window.location.reload();
