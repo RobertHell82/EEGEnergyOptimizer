@@ -103,6 +103,8 @@ const WIZARD_DEFAULTS = {
   min_soc: 10,
   safety_buffer_pct: 25,
   expert_mode: false,
+  enable_simulation: false,
+  enable_manual_control: false,
 };
 
 // Solcast sensor names changed across versions — support both conventions
@@ -562,6 +564,7 @@ class EegOptimizerPanel extends HTMLElement {
     this._connectionLostSeen = false;
     this._manualControlOpen = false;
     this._simulationOpen = false;
+    this._settingsData = {};
     this._lastHassUpdate = Date.now();
 
     // Recover from network switches / long sleep when tab becomes visible
@@ -660,6 +663,21 @@ class EegOptimizerPanel extends HTMLElement {
           this._simSocOverride = parseFloat(target.value);
           return;
         }
+        if (field.startsWith("settings_")) {
+          const realField = field.replace("settings_", "");
+          const type = target.type;
+          if (type === "checkbox") {
+            this._settingsData[realField] = target.checked;
+          } else if (type === "number") {
+            this._settingsData[realField] = parseFloat(target.value) || 0;
+          } else if (type === "time") {
+            this._settingsData[realField] = target.value;
+          } else {
+            this._settingsData[realField] = target.value;
+          }
+          this._render();
+          return;
+        }
         const type = target.type;
         if (type === "number") {
           this._wizardData[field] = parseFloat(target.value) || 0;
@@ -678,12 +696,24 @@ class EegOptimizerPanel extends HTMLElement {
           this._render();
           return;
         }
+        if (field.startsWith("settings_")) {
+          const realField = field.replace("settings_", "");
+          this._settingsData[realField] = target.checked;
+          this._render();
+          return;
+        }
         if (field === "expert_mode") {
           this._wizardData[field] = target.checked;
           // Skip step 5 if leaving expert mode while on it
           if (!target.checked && this._wizardStep === 5) {
             this._wizardStep = 6;
           }
+          this._saveWizardProgress();
+          this._render();
+          return;
+        }
+        if (field === "enable_simulation" || field === "enable_manual_control") {
+          this._wizardData[field] = target.checked;
           this._saveWizardProgress();
           this._render();
           return;
@@ -707,6 +737,26 @@ class EegOptimizerPanel extends HTMLElement {
       case "open-wizard":
         this._startWizard();
         break;
+      case "open-settings":
+        this._settingsData = {...this._config};
+        this._view = "settings";
+        this._render();
+        break;
+      case "restart-wizard":
+        this._clearWizardProgress();
+        this._wizardStep = 0;
+        this._wizardData = {...WIZARD_DEFAULTS, ...this._config};
+        this._view = "wizard";
+        this._render();
+        break;
+      case "save-settings":
+        this._saveSettings();
+        break;
+      case "toggle-settings-feature": {
+        const feat = dataset?.feature;
+        if (feat) { this._settingsData[feat] = !this._settingsData[feat]; this._render(); }
+        break;
+      }
       case "back-to-dashboard":
         this._view = "dashboard";
         this._render();
@@ -1066,6 +1116,25 @@ class EegOptimizerPanel extends HTMLElement {
       this._wizardData.setup_complete = false;
       this._wizardLoading = false;
       this._render();
+    }
+  }
+
+  async _saveSettings() {
+    try {
+      const changed = {};
+      const cfg = this._config || {};
+      for (const [k, v] of Object.entries(this._settingsData)) {
+        if (JSON.stringify(v) !== JSON.stringify(cfg[k])) changed[k] = v;
+      }
+      if (Object.keys(changed).length === 0) {
+        this._view = "dashboard"; this._render(); return;
+      }
+      await this._hass.callWS({ type: "eeg_optimizer/save_config", config: changed });
+      this._view = "dashboard";
+      await this._waitForOptimizer();
+    } catch (err) {
+      console.error("Settings save error:", err);
+      alert("Fehler beim Speichern: " + err.message);
     }
   }
 
@@ -2229,7 +2298,19 @@ class EegOptimizerPanel extends HTMLElement {
       <div class="help-text" style="margin-top:8px">
         <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
         Der Expertenmodus kann jederzeit oben im Wizard-Fortschritt ein- und ausgeschaltet werden.
-      </div>`;
+      </div>
+      ${this._wizardData.expert_mode ? `
+      <div style="margin-top:24px">
+        <h3 style="margin:0 0 12px;font-size:16px">Dashboard-Bereiche</h3>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer">
+          <input type="checkbox" data-field="enable_simulation" ${this._wizardData.enable_simulation ? "checked" : ""}>
+          Simulation am Dashboard anzeigen
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" data-field="enable_manual_control" ${this._wizardData.enable_manual_control ? "checked" : ""}>
+          Manuelle Steuerung am Dashboard anzeigen
+        </label>
+      </div>` : ""}`;
   }
 
   /* ── Step 6: Zusammenfassung ──────────────────── */
@@ -2295,6 +2376,148 @@ class EegOptimizerPanel extends HTMLElement {
         ${d.expert_mode ? row("Sicherheitspuffer", d.safety_buffer_pct + " %") : ""}
         ${d.expert_mode ? row("Verbrauchsdurchschnitt", d.lookback_weeks + " Wochen") : ""}
         ${row("Expertenmodus", d.expert_mode ? "Aktiviert" : "Deaktiviert")}
+      </div>`;
+  }
+
+  /* ── Settings screen ──────────────────────────── */
+
+  _renderSettings() {
+    const d = this._settingsData;
+    const isExpert = d.expert_mode;
+    const mDelay = d.enable_morning_delay;
+    const nDischarge = d.enable_night_discharge;
+
+    const morningFields = mDelay && isExpert ? `
+      <div class="feature-params">
+        <div class="field-group">
+          <label>Batterieladung blockiert bis maximal</label>
+          <input type="time" data-field="settings_morning_end_time"
+                 value="${d.morning_end_time || "10:00"}">
+          <div class="help-text">Maximal bis zu dieser Uhrzeit wird die Batterieladung morgens blockiert.</div>
+        </div>
+      </div>` : "";
+
+    const dischargeFields = nDischarge ? `
+      <div class="feature-params">
+        ${isExpert ? `<div class="field-group">
+          <label>Startzeit der Entladung</label>
+          <input type="time" data-field="settings_discharge_start_time"
+                 value="${d.discharge_start_time || "20:00"}">
+          <div class="help-text">Ab wann abends die Batterie ins Netz entladen wird.</div>
+        </div>
+        <div class="field-group">
+          <label>Entladeleistung (kW)</label>
+          <input type="number" data-field="settings_discharge_power_kw"
+                 value="${d.discharge_power_kw || 3.0}"
+                 min="0.5" max="10.0" step="0.5">
+          <div class="help-text">Leistung der Batterieentladung ins Netz.</div>
+        </div>` : ""}
+        <div class="field-group">
+          <label>Minimaler Ladezustand (%)</label>
+          <input type="number" data-field="settings_min_soc"
+                 value="${d.min_soc || 10}"
+                 min="5" max="50">
+          <div class="help-text">Die Einspeisung sorgt daf\u00fcr, dass dieser Ladestand + der durchschnittliche Verbrauch in der Nacht + Sicherheitspuffer in der Batterie bleibt.</div>
+        </div>
+      </div>` : "";
+
+    return `
+      <div style="max-width:600px;margin:0 auto">
+        <button class="btn-secondary" data-action="restart-wizard" style="width:100%;margin-bottom:24px;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px">
+          <ha-icon icon="mdi:refresh" style="--mdc-icon-size:20px"></ha-icon> Wizard nochmal starten
+        </button>
+
+        <!-- Card 1: Expertenmodus -->
+        <div class="card" style="margin-bottom:16px">
+          <label style="display:flex;align-items:center;gap:12px;cursor:pointer">
+            <input type="checkbox" data-field="settings_expert_mode" ${isExpert ? "checked" : ""}>
+            <div>
+              <div style="font-weight:500">Expertenmodus</div>
+              <div class="help-text" style="margin-top:4px">Zeigt erweiterte Einstellungen und zus\u00e4tzliche Optionen</div>
+            </div>
+          </label>
+        </div>
+
+        <!-- Card 2: Ladung & Einspeisung -->
+        <div class="card" style="margin-bottom:16px">
+          <h3 style="margin:0 0 16px">Ladung &amp; Einspeisung</h3>
+
+          <div class="feature-toggle">
+            <div class="feature-card ${mDelay ? "selected" : ""}" data-action="toggle-settings-feature" data-feature="enable_morning_delay" style="cursor:pointer">
+              <div class="feature-card-header">
+                <ha-icon icon="mdi:weather-sunset-up"></ha-icon>
+                <div class="feature-card-text">
+                  <span class="feature-title">Verz\u00f6gerte Batterieladung</span>
+                  <span class="feature-desc">Morgens wird die Batterie nicht sofort geladen, sondern die Energie direkt ins Netz eingespeist.</span>
+                </div>
+                <div class="feature-badge ${mDelay ? "on" : "off"}">${mDelay ? "\u2705 Aktiv" : "Aus"}</div>
+              </div>
+            </div>
+            ${morningFields}
+          </div>
+
+          <div class="feature-toggle" style="margin-top:16px">
+            <div class="feature-card ${nDischarge ? "selected" : ""}" data-action="toggle-settings-feature" data-feature="enable_night_discharge" style="cursor:pointer">
+              <div class="feature-card-header">
+                <ha-icon icon="mdi:battery-arrow-down-outline"></ha-icon>
+                <div class="feature-card-text">
+                  <span class="feature-title">Nachteinspeisung</span>
+                  <span class="feature-desc">Abends wird \u00fcbersch\u00fcssige Energie aus der Batterie ins Netz entladen.</span>
+                </div>
+                <div class="feature-badge ${nDischarge ? "on" : "off"}">${nDischarge ? "\u2705 Aktiv" : "Aus"}</div>
+              </div>
+            </div>
+            ${dischargeFields}
+          </div>
+
+          ${isExpert ? `<div style="margin-top:24px">
+            <h3 style="margin:0 0 12px;font-size:16px">Allgemeine Einstellungen</h3>
+            <div class="field-group">
+              <label>Sicherheitspuffer (%)</label>
+              <input type="number" data-field="settings_safety_buffer_pct"
+                     value="${d.safety_buffer_pct || 25}"
+                     min="0" max="100" step="5">
+              <div class="help-text">Aufschlag auf den berechneten Energiebedarf. Gilt f\u00fcr beide Optimierungen.</div>
+            </div>
+          </div>` : ""}
+        </div>
+
+        <!-- Card 3: Erweiterte Einstellungen -->
+        <div class="card" style="margin-bottom:16px">
+          <h3 style="margin:0 0 16px">Erweiterte Einstellungen</h3>
+          <div class="field-group">
+            <label>Anzahl der Wochen f\u00fcr den Verbrauchsdurchschnitt</label>
+            <input type="number" data-field="settings_lookback_weeks"
+                   value="${d.lookback_weeks || 4}"
+                   min="1" max="52">
+          </div>
+          <div class="field-group">
+            <label>Schnelles Update-Intervall (Minuten)</label>
+            <input type="number" data-field="settings_update_interval_fast_min"
+                   value="${d.update_interval_fast_min || 1}"
+                   min="1" max="60">
+          </div>
+          <div class="field-group">
+            <label>Langsames Update-Intervall (Minuten)</label>
+            <input type="number" data-field="settings_update_interval_slow_min"
+                   value="${d.update_interval_slow_min || 15}"
+                   min="5" max="120">
+          </div>
+          ${isExpert ? `
+          <div style="margin-top:24px">
+            <h3 style="margin:0 0 12px;font-size:16px">Dashboard-Bereiche</h3>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer">
+              <input type="checkbox" data-field="settings_enable_simulation" ${d.enable_simulation ? "checked" : ""}>
+              Simulation am Dashboard anzeigen
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" data-field="settings_enable_manual_control" ${d.enable_manual_control ? "checked" : ""}>
+              Manuelle Steuerung am Dashboard anzeigen
+            </label>
+          </div>` : ""}
+        </div>
+
+        <button class="btn-primary" data-action="save-settings" style="width:100%;padding:12px">Speichern</button>
       </div>`;
   }
 
@@ -3134,7 +3357,7 @@ class EegOptimizerPanel extends HTMLElement {
           ${this._renderActivityTimeline()}
         </div>
 
-        ${this._config?.expert_mode ? `
+        ${this._config?.enable_manual_control ? `
         <!-- Manual Control Card -->
         <div class="card">
           <div data-action="toggle-manual-control" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
@@ -3203,9 +3426,10 @@ class EegOptimizerPanel extends HTMLElement {
           `}
           ` : ""}
         </div>
+        ` : ""}
 
+        ${this._config?.enable_simulation ? `
         <!-- Simulation Card -->
-        ${this._config?.setup_complete ? `
         <div class="card">
           <div data-action="toggle-simulation" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
             <h3 style="margin:0">
@@ -3266,7 +3490,6 @@ class EegOptimizerPanel extends HTMLElement {
           ` : ""}
         </div>
         ` : ""}
-        ` : "<!-- Expert mode disabled -->"}
 
       </div>`;
   }
@@ -3314,12 +3537,17 @@ class EegOptimizerPanel extends HTMLElement {
     let headerRight = "";
     if (this._setupComplete && this._view === "dashboard") {
       headerRight = `
-        <button data-action="open-wizard" title="Einstellungen">
+        <button data-action="open-settings" title="Einstellungen">
           <ha-icon icon="mdi:cog"></ha-icon>
+        </button>`;
+    } else if (this._view === "settings") {
+      headerRight = `
+        <button data-action="back-to-dashboard" title="Zur\u00fcck">
+          <ha-icon icon="mdi:arrow-left"></ha-icon>
         </button>`;
     } else if (this._view === "wizard") {
       headerRight = `
-        <button data-action="back-to-dashboard" title="Zurück">
+        <button data-action="back-to-dashboard" title="Zur\u00fcck">
           <ha-icon icon="mdi:arrow-left"></ha-icon>
         </button>`;
     }
@@ -3332,6 +3560,11 @@ class EegOptimizerPanel extends HTMLElement {
             ${this._renderWizard()}
           </div>
           ${this._renderDialog()}`;
+      } else if (this._view === "settings") {
+        content = `
+          <div class="content">
+            ${this._renderSettings()}
+          </div>`;
       } else if (!this._setupComplete) {
         content = `
           <div class="content">
