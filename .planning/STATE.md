@@ -139,7 +139,7 @@ None yet.
 | 260406-sel | SolarEdge HA Sensor-Check via API | 2026-04-06 | — | | [260406-sel-solaredge-ha-sensor-check-via-api](./quick/260406-sel-solaredge-ha-sensor-check-via-api/) |
 | 260406-tg6 | SolarEdge Anleitung im Panel auf Huawei-Detailgrad | 2026-04-06 | 3d647de | | [260406-tg6-solaredge-anleitung-im-panel-auf-huawei-](./quick/260406-tg6-solaredge-anleitung-im-panel-auf-huawei-/) |
 | 260406-u8h | SolaX Anleitung im Panel | 2026-04-06 | — | | [260406-u8h-solax-anleitung-im-panel](./quick/260406-u8h-solax-anleitung-im-panel/) |
-| 260406-ufh | Einstellungen-Screen statt Wizard nach Setup + Dashboard-Gating | 2026-04-06 | 1de9b07 | | [260406-ufh-einstellungen-screen-statt-wizard-nach-s](./quick/260406-ufh-einstellungen-screen-statt-wizard-nach-s/) |
+| 260406-ufh | Einstellungen-Screen statt Wizard nach Setup + Dashboard-Gating | 2026-04-06 | 1de9b07 | Verified | [260406-ufh-einstellungen-screen-statt-wizard-nach-s](./quick/260406-ufh-einstellungen-screen-statt-wizard-nach-s/) |
 
 ## Session Continuity
 
