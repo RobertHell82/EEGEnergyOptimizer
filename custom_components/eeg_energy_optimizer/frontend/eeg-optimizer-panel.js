@@ -78,6 +78,7 @@ const WIZARD_DEFAULTS = {
   solax_remotecontrol_autorepeat_duration: "",
   solax_remotecontrol_trigger: "",
   solax_selfuse_discharge_min_soc: "",
+  solaredge_storage_control_mode: "",
   solaredge_storage_command_mode: "",
   solaredge_storage_charge_limit: "",
   solaredge_storage_discharge_limit: "",

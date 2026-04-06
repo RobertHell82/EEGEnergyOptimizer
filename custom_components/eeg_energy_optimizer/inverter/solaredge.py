@@ -24,6 +24,7 @@ SOLAREDGE_DOMAIN = "solaredge_modbus_multi"
 
 # Default entity IDs (prefix varies per installation)
 SOLAREDGE_ENTITY_DEFAULTS = {
+    "storage_control_mode": "select.solaredge_storage_control_mode",
     "storage_command_mode": "select.solaredge_storage_command_mode",
     "storage_charge_limit": "number.solaredge_storage_charge_limit",
     "storage_discharge_limit": "number.solaredge_storage_discharge_limit",
@@ -35,9 +36,14 @@ SOLAREDGE_SUFFIX_VARIANTS: dict[str, list[str]] = {
     "storage_backup_reserve": ["storage_backup_reserve", "backup_reserve"],
 }
 
+# Storage control mode — master switch that must be "Remote Control"
+# before storage_command_mode and limits become available
+CONTROL_MODE_REMOTE = "Remote Control"
+CONTROL_MODE_SELF_CONSUMPTION = "Maximize Self Consumption"
+
 # Command modes (from solaredge-modbus-multi select entity)
 MODE_SELF_CONSUMPTION = "Maximize Self Consumption"
-MODE_MAXIMIZE_EXPORT = "Maximize Export"
+MODE_CHARGE_FROM_CLIPPED = "Charge from Clipped Solar Power"
 MODE_DISCHARGE_EXPORT = "Discharge to Maximize Export"
 
 
@@ -47,6 +53,7 @@ class SolarEdgeInverter(InverterBase):
     def __init__(self, hass: Any, config: dict) -> None:
         super().__init__(hass, config)
         # Store original values on init for reliable restoration
+        self._original_control_mode: str | None = None
         self._original_backup_reserve: float | None = None
         self._max_charge_power: float | None = None
         self._max_discharge_power: float | None = None
@@ -58,6 +65,12 @@ class SolarEdgeInverter(InverterBase):
         For charge/discharge limits, prefer the 'max' attribute (hardware maximum)
         over the current state value which may have been modified.
         """
+        # Save original storage_control_mode for restoration
+        control_entity = self._resolve_entity("storage_control_mode")
+        control_state = self._hass.states.get(control_entity)
+        if control_state and control_state.state not in ("unavailable", "unknown"):
+            self._original_control_mode = control_state.state
+
         for key, attr in [
             ("storage_backup_reserve", "_original_backup_reserve"),
             ("storage_charge_limit", "_max_charge_power"),
@@ -65,7 +78,7 @@ class SolarEdgeInverter(InverterBase):
         ]:
             entity_id = self._resolve_entity(key)
             state = self._hass.states.get(entity_id)
-            if state is None:
+            if state is None or state.state in ("unavailable", "unknown"):
                 continue
             try:
                 setattr(self, attr, float(state.state))
@@ -134,17 +147,36 @@ class SolarEdgeInverter(InverterBase):
             blocking=True,
         )
 
+    async def _ensure_remote_control(self) -> None:
+        """Ensure storage_control_mode is set to Remote Control.
+
+        Must be called before any storage_command_mode or limit changes —
+        those entities are unavailable unless control mode is Remote Control.
+        """
+        entity_id = self._resolve_entity("storage_control_mode")
+        state = self._hass.states.get(entity_id)
+        if state and state.state == CONTROL_MODE_REMOTE:
+            return
+        _LOGGER.info("SolarEdge: switching storage_control_mode → Remote Control")
+        await self._set_select("storage_control_mode", CONTROL_MODE_REMOTE)
+
     async def async_set_charge_limit(self, power_kw: float) -> bool:
         """Block or limit battery charging.
 
-        power_kw=0: Set command mode to "Maximize Export" (full charge block,
-                    PV surplus goes to grid for EEG morning feed-in).
+        power_kw=0: Block charging — switches to "Charge from Clipped Solar Power"
+                    so PV surplus goes to grid (EEG morning feed-in).
+                    Battery only charges from clipped solar (inverter at power limit).
         power_kw>0: Set storage_charge_limit to given power.
+
+        Sequence:
+        1. storage_control_mode → "Remote Control" (enables command entities)
+        2. storage_command_mode → "Charge from Clipped Solar Power"
         """
         try:
+            await self._ensure_remote_control()
             if power_kw == 0:
                 await self._set_select(
-                    "storage_command_mode", MODE_MAXIMIZE_EXPORT
+                    "storage_command_mode", MODE_CHARGE_FROM_CLIPPED
                 )
             else:
                 power_w = int(power_kw * 1000)
@@ -161,9 +193,15 @@ class SolarEdgeInverter(InverterBase):
 
         Sets command mode to "Discharge to Maximize Export" with power ceiling.
         target_soc sets storage_backup_reserve as discharge floor (min 0%).
-        Sets backup reserve BEFORE changing command mode per research pitfall 7.
+
+        Sequence:
+        1. storage_control_mode → "Remote Control" (enables command entities)
+        2. storage_backup_reserve → target_soc (discharge floor, before mode change)
+        3. storage_discharge_limit → power in Watts
+        4. storage_command_mode → "Discharge to Maximize Export"
         """
         try:
+            await self._ensure_remote_control()
             if target_soc is not None:
                 await self._set_number(
                     "storage_backup_reserve", max(int(target_soc), 0)
@@ -181,9 +219,16 @@ class SolarEdgeInverter(InverterBase):
     async def async_stop_forcible(self) -> bool:
         """Return to normal self-consumption mode.
 
-        Restores command mode and original limit values.
+        Restores all values to their original state.
         Critical for SolarEdge: commands persist in NVRAM — without this call,
         the battery stays in the last commanded mode indefinitely.
+
+        Sequence:
+        1. storage_command_mode → "Maximize Self Consumption"
+        2. storage_charge_limit → original max
+        3. storage_discharge_limit → original max
+        4. storage_backup_reserve → original value
+        5. storage_control_mode → original mode (typically "Maximize Self Consumption")
         """
         try:
             await self._set_select(
@@ -201,6 +246,9 @@ class SolarEdgeInverter(InverterBase):
                 await self._set_number(
                     "storage_backup_reserve", self._original_backup_reserve
                 )
+            # Restore original control mode (exit Remote Control)
+            restore_mode = self._original_control_mode or CONTROL_MODE_SELF_CONSUMPTION
+            await self._set_select("storage_control_mode", restore_mode)
             return True
         except Exception:
             _LOGGER.exception("SolarEdge: Failed to stop forcible mode")

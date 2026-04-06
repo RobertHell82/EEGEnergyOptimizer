@@ -90,7 +90,8 @@ SOLAREDGE_SENSOR_SUFFIXES: dict[str, list[str]] = {
 
 # SolarEdge control entity suffixes — tried in order per config key.
 SOLAREDGE_CONTROL_SUFFIXES: dict[str, list[tuple[str, str]]] = {
-    # (domain, suffix)
+    # (domain, suffix) — tried in order, first existing entity wins
+    "solaredge_storage_control_mode": [("select", "storage_control_mode")],
     "solaredge_storage_command_mode": [("select", "storage_command_mode")],
     "solaredge_storage_charge_limit": [("number", "storage_charge_limit")],
     "solaredge_storage_discharge_limit": [("number", "storage_discharge_limit")],
