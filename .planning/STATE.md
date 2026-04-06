@@ -137,9 +137,10 @@ None yet.
 | 260406-kw7 | Forecast.Solar Anleitung im Panel auf Solcast-Detailgrad | 2026-04-06 | 8766da2 | | [260406-kw7-forecast-solar-anleitung-im-panel-auf-so](./quick/260406-kw7-forecast-solar-anleitung-im-panel-auf-so/) |
 | 260406-nv9 | Huawei Solar Anleitung inkl. Wechselrichter-Einstellungen + Solcast Azimuth Fix | 2026-04-06 | 5dbc4be | | [260406-nv9-huawei-solar-anleitung-im-panel-inkl-wec](./quick/260406-nv9-huawei-solar-anleitung-im-panel-inkl-wec/) |
 | 260406-sel | SolarEdge HA Sensor-Check via API | 2026-04-06 | — | | [260406-sel-solaredge-ha-sensor-check-via-api](./quick/260406-sel-solaredge-ha-sensor-check-via-api/) |
+| 260406-tg6 | SolarEdge Anleitung im Panel auf Huawei-Detailgrad | 2026-04-06 | 3d647de | | [260406-tg6-solaredge-anleitung-im-panel-auf-huawei-](./quick/260406-tg6-solaredge-anleitung-im-panel-auf-huawei-/) |
 
 ## Session Continuity
 
-Last activity: 2026-04-06 - Completed quick task 260406-sel: SolarEdge HA Sensor-Check via API
+Last activity: 2026-04-06 - Completed quick task 260406-tg6: SolarEdge Anleitung + v0.7.0
 Stopped at: Completed quick-260406-nv9
 Resume file: None
