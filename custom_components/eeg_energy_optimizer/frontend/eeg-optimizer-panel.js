@@ -3405,8 +3405,7 @@ class EegOptimizerPanel extends HTMLElement {
   }
 
   disconnectedCallback() {
-    // Keep watchdog alive briefly to detect if this was an accidental removal.
-    // Record disconnect time; watchdog checks URL later (after HA updates it).
+    window.__eegPanelConnected = false;
     this._disconnectedAt = Date.now();
     if (this._activityUnsub) {
       try { this._activityUnsub(); } catch (_) { /* connection already gone */ }
@@ -3419,6 +3418,7 @@ class EegOptimizerPanel extends HTMLElement {
 
   connectedCallback() {
     this._disconnectedAt = null;
+    window.__eegPanelConnected = true;
     console.warn("EEG [DIAG] connectedCallback fired, initialized=" + this._initialized +
       " hasHass=" + !!this._hass +
       " childNodes=" + (this._shadow ? this._shadow.childNodes.length : "?") +
@@ -3452,10 +3452,8 @@ class EegOptimizerPanel extends HTMLElement {
             this._stopWatchdog();
             return;
           }
-          // Check if HA already created a replacement panel
-          const activePanel = document.querySelector("eeg-optimizer-panel");
-          if (activePanel && activePanel.isConnected && activePanel !== this) {
-            // New panel exists — old watchdog can stop
+          // Check if a new panel instance has connected in the meantime
+          if (window.__eegPanelConnected) {
             this._disconnectedAt = null;
             this._stopWatchdog();
             return;
