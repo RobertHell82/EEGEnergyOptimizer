@@ -123,15 +123,76 @@ const FORECAST_SOLAR_DEFAULTS = {
 
 const DIALOG_CONTENT = {
   huawei: {
-    title: "Huawei Solar Integration installieren",
+    title: "Huawei Solar Integration einrichten",
     content: `
+      <h3 style="margin:16px 0 8px">1. Wechselrichter vorbereiten</h3>
+      <p style="margin-bottom:8px">Modbus TCP muss am Wechselrichter aktiviert sein, damit Home Assistant zugreifen kann:</p>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Handy-WLAN mit dem Wechselrichter-Hotspot verbinden (<code>SUN2000-&lt;Seriennummer&gt;</code>)
+          <br><span style="color:var(--secondary-text-color)">Passwort steht auf dem Dongle-Aufkleber. Mobile Daten am Handy deaktivieren!</span>
+        </li>
+        <li><strong>FusionSolar App</strong> oder <strong>SUN2000 App</strong> &ouml;ffnen &rarr; <strong>Ger&auml;te-Inbetriebnahme</strong></li>
+        <li>Login als <strong>Installer</strong> mit Passwort <code>00000a</code>
+          <br><span style="color:var(--secondary-text-color)">Standard-Passwort (6 Zeichen). Falls ge&auml;ndert: aktuelles Installer-Passwort verwenden.</span>
+        </li>
+        <li><strong>Einstellungen &rarr; Kommunikationskonfiguration &rarr; Dongle-Parameter</strong></li>
+        <li>Modbus-TCP auf <strong>&ldquo;Aktivieren (uneingeschr&auml;nkt)&rdquo;</strong> setzen</li>
+      </ol>
+      <div style="background:var(--warning-color,#ff9800);color:#fff;padding:8px 12px;border-radius:8px;margin:12px 0;font-size:13px">
+        <strong>&#9888; Wichtig:</strong> Nur EINE Modbus-Verbindung gleichzeitig m&ouml;glich! FusionSolar App komplett schlie&szlig;en (nicht nur minimieren) bevor die HA-Integration gestartet wird.
+      </div>
+      <h3 style="margin:16px 0 8px">2. HACS Integration installieren</h3>
+      <p style="margin-bottom:8px;color:var(--secondary-text-color)"><strong>Voraussetzung:</strong> <a href="https://hacs.xyz/" target="_blank">HACS</a> muss installiert sein.</p>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Gehe zu <strong>HACS &rarr; Integrationen &rarr; Suche &ldquo;Huawei Solar&rdquo;</strong>
+          <br><span style="color:var(--secondary-text-color)">Repository: wlcrs/huawei_solar</span>
+        </li>
+        <li>Installiere die Integration und <strong>starte Home Assistant neu</strong></li>
+      </ol>
+      <h3 style="margin:16px 0 8px">3. Integration konfigurieren</h3>
       <ol style="padding-left:20px;line-height:1.8">
         <li>Gehe zu <strong>Einstellungen &rarr; Ger&auml;te &amp; Dienste &rarr; Integration hinzuf&uuml;gen</strong></li>
-        <li>Suche nach <strong>&lsquo;Huawei Solar&rsquo;</strong></li>
-        <li>Gib die IP-Adresse deines Wechselrichters ein</li>
-        <li>W&auml;hle <strong>&lsquo;Installer&rsquo;</strong> als Verbindungstyp f&uuml;r die Batteriesteuerung</li>
-        <li>Starte Home Assistant neu und kehre hierher zur&uuml;ck</li>
-      </ol>`,
+        <li>Suche nach <strong>&ldquo;Huawei Solar&rdquo;</strong></li>
+        <li>W&auml;hle <strong>Netzwerk</strong> als Verbindungstyp</li>
+        <li>Gib die <strong>IP-Adresse</strong> des Wechselrichters/Dongles ein</li>
+        <li>Port: <strong>6607</strong> (neuere Firmware) oder <strong>502</strong> (EMMA / &auml;ltere Firmware)</li>
+        <li>Slave ID: <strong>1</strong> (Standard, bei Problemen 0 versuchen)</li>
+        <li><strong>Elevated Permissions: MUSS aktiviert werden!</strong>
+          <br><span style="color:var(--secondary-text-color)">Ohne Elevated Permissions keine Batteriesteuerung &mdash; der EEG Optimizer kann dann nicht steuern.</span>
+        </li>
+        <li>Installer-Passwort: <code>00000a</code> eingeben</li>
+      </ol>
+      <p style="margin:8px 0;color:var(--secondary-text-color);font-size:13px"><strong>Elevated Permissions vergessen?</strong> Unter Einstellungen &rarr; Integrationen &rarr; Huawei Solar &rarr; Drei-Punkte-Men&uuml; &rarr; &ldquo;Neu konfigurieren&rdquo; nachtr&auml;glich aktivieren.</p>
+      <h3 style="margin:16px 0 8px">4. Pr&uuml;fen</h3>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Unter <strong>Einstellungen &rarr; Integrationen</strong>: Huawei Solar zeigt <strong>&ldquo;geladen&rdquo;</strong></li>
+        <li><strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: <code>sensor.battery_state_of_capacity</code> zeigt SOC (0&ndash;100%)</li>
+        <li><code>number.batteries_maximale_ladeleistung</code> existiert (= Elevated Permissions aktiv)</li>
+        <li>Kehre hierher zur&uuml;ck &mdash; der Wechselrichter wird automatisch erkannt</li>
+      </ol>
+      <h3 style="margin:16px 0 8px">H&auml;ufige Probleme</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Connection refused</strong></td>
+          <td style="padding:4px 8px">Modbus TCP nicht aktiviert &rarr; Schritt 1 wiederholen</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Connection timeout</strong></td>
+          <td style="padding:4px 8px">Port 6607 statt 502 versuchen (oder umgekehrt)</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Keine Batterie-Entities</strong></td>
+          <td style="padding:4px 8px">Elevated Permissions fehlen &rarr; neu konfigurieren</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Permission denied</strong></td>
+          <td style="padding:4px 8px">Passwort <code>00000a</code> oder <code>0000000a</code> (8 Zeichen) versuchen</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 8px"><strong>Verbindung bricht ab</strong></td>
+          <td style="padding:4px 8px">FusionSolar App komplett schlie&szlig;en, nicht nur minimieren</td>
+        </tr>
+      </table>`,
   },
   solcast: {
     title: "Solcast Solar einrichten",
@@ -156,7 +217,7 @@ const DIALOG_CONTENT = {
           <ul style="margin:4px 0;padding-left:16px">
             <li><strong>Capacity (kW)</strong> &mdash; Anlagenleistung in kWp (z.B. 10)</li>
             <li><strong>Tilt</strong> &mdash; Dachneigung in Grad (typisch 30&ndash;35&deg;)</li>
-            <li><strong>Azimuth</strong> &mdash; Ausrichtung: 0&deg;=Nord, 90&deg;=Ost, 180&deg;=S&uuml;d, -90&deg;=West</li>
+            <li><strong>Azimuth</strong> &mdash; Ausrichtung: 0&deg;=Nord, -90&deg;=Ost, &plusmn;180&deg;=S&uuml;d, 90&deg;=West</li>
           </ul>
           Auf <strong>Submit</strong> klicken.
           <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/04_Save_PV_System.png" alt="PV System speichern">
