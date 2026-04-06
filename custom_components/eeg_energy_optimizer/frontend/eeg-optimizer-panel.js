@@ -3406,7 +3406,8 @@ class EegOptimizerPanel extends HTMLElement {
 
   disconnectedCallback() {
     console.warn("EEG [DIAG] disconnectedCallback fired, initialized=" + this._initialized);
-    this._stopWatchdog();
+    // Do NOT stop the watchdog — it will detect isConnected=false and recover.
+    // Only clean up subscriptions that depend on the connection.
     if (this._activityUnsub) {
       try { this._activityUnsub(); } catch (_) { /* connection already gone */ }
       this._activityUnsub = null;
@@ -3414,9 +3415,11 @@ class EegOptimizerPanel extends HTMLElement {
     if (this._onVisibilityChange) {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
     }
+    this._disconnectedAt = Date.now();
   }
 
   connectedCallback() {
+    this._disconnectedAt = null;
     console.warn("EEG [DIAG] connectedCallback fired, initialized=" + this._initialized +
       " hasHass=" + !!this._hass +
       " childNodes=" + (this._shadow ? this._shadow.childNodes.length : "?") +
@@ -3440,35 +3443,28 @@ class EegOptimizerPanel extends HTMLElement {
     this._watchdogInterval = setInterval(() => {
       if (document.visibilityState !== "visible") return;
 
-      // Always log state for debugging
-      const hasContent = this._shadow ? !!this._shadow.querySelector(".content") : false;
-      const hostRect = this.getBoundingClientRect();
-      const hostVisible = hostRect.width > 0 && hostRect.height > 0;
-      const hostStyle = getComputedStyle(this);
-      const hostDisplay = hostStyle.display;
-      const hostVisibility = hostStyle.visibility;
-      const hostOpacity = hostStyle.opacity;
-      console.info("EEG [DIAG] watchdog: initialized=" + this._initialized +
-        " isConnected=" + this.isConnected +
-        " hasContent=" + hasContent +
-        " hostVisible=" + hostVisible + " (" + Math.round(hostRect.width) + "x" + Math.round(hostRect.height) + ")" +
-        " display=" + hostDisplay + " visibility=" + hostVisibility + " opacity=" + hostOpacity +
-        " hassAge=" + Math.round((Date.now() - this._lastHassUpdate) / 1000) + "s");
+      // Recovery: element was removed from DOM by HA (View Transition failure)
+      // and never re-inserted. Navigate to force HA to re-create the panel.
+      if (!this.isConnected && this._disconnectedAt) {
+        const disconnectedFor = Date.now() - this._disconnectedAt;
+        if (disconnectedFor > 3000) {
+          console.warn("EEG [DIAG] watchdog → disconnected for " +
+            Math.round(disconnectedFor / 1000) + "s, navigating to recover");
+          this._stopWatchdog();
+          // Use HA's navigate to force panel re-creation
+          window.history.pushState(null, "", "/eeg-optimizer");
+          window.dispatchEvent(new Event("location-changed"));
+          return;
+        }
+      }
 
       if (!this._initialized) return;
 
       // Check for missing content
+      const hasContent = this._shadow ? !!this._shadow.querySelector(".content") : false;
       if (this._shadow && !hasContent) {
         console.warn("EEG [DIAG] watchdog → content missing, re-rendering");
         this._render();
-      }
-
-      // Check for visually hidden panel (View Transition may hide via CSS)
-      if (hasContent && (!hostVisible || hostVisibility === "hidden" || hostOpacity === "0")) {
-        console.warn("EEG [DIAG] watchdog → content exists but host invisible! Forcing style reset");
-        this.style.display = "block";
-        this.style.visibility = "visible";
-        this.style.opacity = "1";
       }
 
       const elapsed = Date.now() - this._lastHassUpdate;
@@ -3477,7 +3473,7 @@ class EegOptimizerPanel extends HTMLElement {
         this._loadConfigPending = false;
         this._loadConfigWithRetry();
       }
-    }, 15000);
+    }, 5000);
   }
 
   _stopWatchdog() {
