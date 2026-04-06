@@ -30,6 +30,11 @@ SOLAREDGE_ENTITY_DEFAULTS = {
     "storage_backup_reserve": "number.solaredge_storage_backup_reserve",
 }
 
+# Suffix variants for entities with inconsistent naming (tried in order)
+SOLAREDGE_SUFFIX_VARIANTS: dict[str, list[str]] = {
+    "storage_backup_reserve": ["storage_backup_reserve", "backup_reserve"],
+}
+
 # Command modes (from solaredge-modbus-multi select entity)
 MODE_SELF_CONSUMPTION = "Maximize Self Consumption"
 MODE_MAXIMIZE_EXPORT = "Maximize Export"
@@ -76,10 +81,40 @@ class SolarEdgeInverter(InverterBase):
                         pass
 
     def _resolve_entity(self, config_key: str) -> str:
-        """Resolve entity ID from config or defaults."""
-        return self._config.get(
-            f"solaredge_{config_key}", SOLAREDGE_ENTITY_DEFAULTS[config_key]
-        )
+        """Resolve entity ID from config or defaults.
+
+        For keys with known suffix variants (e.g. backup_reserve vs
+        storage_backup_reserve), tries each variant against hass.states
+        when the config value doesn't resolve to an existing entity.
+        """
+        # 1. Check explicit config value
+        config_val = self._config.get(f"solaredge_{config_key}")
+        if config_val:
+            state = self._hass.states.get(config_val)
+            if state is not None:
+                return config_val
+
+        # 2. Check default
+        default = SOLAREDGE_ENTITY_DEFAULTS.get(config_key)
+        if default:
+            state = self._hass.states.get(default)
+            if state is not None:
+                return default
+
+        # 3. Try suffix variants (handles backup_reserve vs storage_backup_reserve)
+        variants = SOLAREDGE_SUFFIX_VARIANTS.get(config_key, [])
+        for variant_suffix in variants:
+            for state in self._hass.states.async_all():
+                if (state.entity_id.endswith(variant_suffix)
+                        and "solaredge" in state.entity_id):
+                    _LOGGER.debug(
+                        "SolarEdge: resolved %s via variant suffix → %s",
+                        config_key, state.entity_id,
+                    )
+                    return state.entity_id
+
+        # 4. Final fallback: return config value or default (may be unavailable)
+        return config_val or default or SOLAREDGE_ENTITY_DEFAULTS[config_key]
 
     async def _set_number(self, config_key: str, value: float) -> None:
         """Set a number entity value. Resolves entity from config or defaults."""

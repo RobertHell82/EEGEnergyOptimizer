@@ -1654,17 +1654,17 @@ class EegOptimizerPanel extends HTMLElement {
     const pvHelp = huaweiSelected
       ? "Aktuelle PV-Produktion in W oder kW (Huawei: sensor.inverter_eingangsleistung)."
       : solaredgeSelected
-      ? "Aktuelle PV-Produktion in W (SolarEdge: sensor.solaredge_ac_power oder sensor.solaredge_dc_power)."
+      ? "Aktuelle PV-Produktion in W (SolarEdge: sensor.solaredge_[i1_]ac_power)."
       : "Aktuelle PV-Produktion in W (SolaX: sensor.solax_energy_dashboard_solax_solar_power).";
     const batteryHelp = huaweiSelected
       ? "Lade- und Entladeleistung der Batterie in W oder kW (Huawei: sensor.batteries_lade_entladeleistung)."
       : solaredgeSelected
-      ? "Lade- und Entladeleistung der Batterie in W (SolarEdge: sensor.solaredge_b1_dc_power)."
+      ? "Lade- und Entladeleistung der Batterie in W (SolarEdge: sensor.solaredge_[i1_]b1_dc_power)."
       : "Lade- und Entladeleistung der Batterie in W (SolaX: sensor.solax_energy_dashboard_solax_battery_power).";
     const gridHelp = huaweiSelected
       ? "Wirkleistung am Netzanschluss in W oder kW (Huawei: sensor.power_meter_wirkleistung)."
       : solaredgeSelected
-      ? "Wirkleistung am Netzanschluss in W (SolarEdge: sensor.solaredge_m1_ac_power)."
+      ? "Wirkleistung am Netzanschluss in W (SolarEdge: sensor.solaredge_[i1_]m1_ac_power)."
       : "Wirkleistung am Netzanschluss in W (SolaX: sensor.solax_energy_dashboard_solax_grid_power).";
 
     return `

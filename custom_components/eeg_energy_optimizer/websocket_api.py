@@ -78,30 +78,49 @@ SOLAX_DEFAULTS: dict[str, list[str]] = {
     ],
 }
 
-SOLAREDGE_DEFAULTS: dict[str, list[str]] = {
-    CONF_BATTERY_SOC_SENSOR: [
-        "sensor.solaredge_b1_state_of_energy",
-    ],
-    CONF_PV_POWER_SENSOR: [
-        "sensor.solaredge_ac_power",
-        "sensor.solaredge_dc_power",
-    ],
-    CONF_GRID_POWER_SENSOR: [
-        "sensor.solaredge_m1_ac_power",
-    ],
-    CONF_BATTERY_POWER_SENSOR: [
-        "sensor.solaredge_b1_dc_power",
+# SolarEdge sensor suffixes — used with detected prefix to build entity IDs.
+# Each config key maps to candidate suffixes (first existing entity wins).
+SOLAREDGE_SENSOR_SUFFIXES: dict[str, list[str]] = {
+    CONF_BATTERY_SOC_SENSOR: ["b1_state_of_energy"],
+    CONF_PV_POWER_SENSOR: ["ac_power", "dc_power"],
+    CONF_GRID_POWER_SENSOR: ["m1_ac_power"],
+    CONF_BATTERY_POWER_SENSOR: ["b1_dc_power"],
+}
+
+# SolarEdge control entity suffixes — tried in order per config key.
+SOLAREDGE_CONTROL_SUFFIXES: dict[str, list[tuple[str, str]]] = {
+    # (domain, suffix)
+    "solaredge_storage_command_mode": [("select", "storage_command_mode")],
+    "solaredge_storage_charge_limit": [("number", "storage_charge_limit")],
+    "solaredge_storage_discharge_limit": [("number", "storage_discharge_limit")],
+    "solaredge_storage_backup_reserve": [
+        ("number", "storage_backup_reserve"),
+        ("number", "backup_reserve"),
     ],
 }
 
 
 def _find_solaredge_prefix(hass: HomeAssistant) -> str | None:
-    """Auto-detect the SolarEdge entity prefix by searching for storage_command_mode."""
-    for state in hass.states.async_all("select"):
-        if state.entity_id.endswith("storage_command_mode"):
-            # e.g. "select.solaredge_storage_command_mode" -> "solaredge_"
-            prefix = state.entity_id.replace("select.", "").replace("storage_command_mode", "")
-            return prefix
+    """Auto-detect the SolarEdge entity prefix by searching multiple known suffixes.
+
+    Searches sensor and select domains for well-known SolarEdge suffixes.
+    Handles varying prefixes like 'solaredge_', 'solaredge_i1_', etc.
+    """
+    # Search suffixes in order: most specific first
+    search_targets = [
+        ("select", "storage_command_mode"),
+        ("select", "storage_control_mode"),
+        ("sensor", "b1_state_of_energy"),
+        ("sensor", "ac_power"),
+        ("sensor", "m1_ac_power"),
+    ]
+    for domain, suffix in search_targets:
+        for state in hass.states.async_all(domain):
+            if state.entity_id.endswith(suffix):
+                # e.g. "sensor.solaredge_i1_ac_power" -> "solaredge_i1_"
+                prefix = state.entity_id.replace(f"{domain}.", "").replace(suffix, "")
+                if prefix.startswith("solaredge"):
+                    return prefix
     return None
 
 
@@ -347,16 +366,27 @@ async def ws_detect_sensors(
     solaredge_loaded = any(e.state.value == "loaded" for e in solaredge_entries)
 
     if solaredge_loaded:
-        sensors = {}
-        for conf_key, candidates in SOLAREDGE_DEFAULTS.items():
-            for entity_id in candidates:
-                state = hass.states.get(entity_id)
-                if state is not None:
-                    sensors[conf_key] = entity_id
-                    break
-
-        # Detect SolarEdge entity prefix for control entities
+        # Detect prefix first — used for both sensors and control entities
         prefix = _find_solaredge_prefix(hass)
+
+        # Detect read-only sensors using prefix + suffix candidates
+        sensors = {}
+        for conf_key, suffixes in SOLAREDGE_SENSOR_SUFFIXES.items():
+            for suffix in suffixes:
+                # Try prefix-based entity first (handles solaredge_i1_, etc.)
+                if prefix:
+                    entity_id = f"sensor.{prefix}{suffix}"
+                    state = hass.states.get(entity_id)
+                    if state is not None:
+                        sensors[conf_key] = entity_id
+                        break
+                # Fallback: scan all sensor states for this suffix
+                if conf_key not in sensors:
+                    for state in hass.states.async_all("sensor"):
+                        if (state.entity_id.endswith(suffix)
+                                and "solaredge" in state.entity_id):
+                            sensors[conf_key] = state.entity_id
+                            break
 
         result = {
             CONF_INVERTER_TYPE: INVERTER_TYPE_SOLAREDGE,
@@ -365,11 +395,14 @@ async def ws_detect_sensors(
         }
         if prefix:
             result["solaredge_prefix"] = prefix
-            # Pre-fill control entity IDs based on detected prefix
-            result["solaredge_storage_command_mode"] = f"select.{prefix}storage_command_mode"
-            result["solaredge_storage_charge_limit"] = f"number.{prefix}storage_charge_limit"
-            result["solaredge_storage_discharge_limit"] = f"number.{prefix}storage_discharge_limit"
-            result["solaredge_storage_backup_reserve"] = f"number.{prefix}storage_backup_reserve"
+            # Detect control entities — try suffix variants
+            for config_key, candidates in SOLAREDGE_CONTROL_SUFFIXES.items():
+                for domain, suffix in candidates:
+                    entity_id = f"{domain}.{prefix}{suffix}"
+                    state = hass.states.get(entity_id)
+                    if state is not None:
+                        result[config_key] = entity_id
+                        break
 
         connection.send_result(msg["id"], result)
         return
