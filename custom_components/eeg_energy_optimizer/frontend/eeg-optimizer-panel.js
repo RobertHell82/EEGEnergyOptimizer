@@ -172,13 +172,61 @@ const DIALOG_CONTENT = {
       </ol>`,
   },
   forecast_solar: {
-    title: "Forecast.Solar installieren",
+    title: "Forecast.Solar einrichten",
     content: `
+      <h3 style="margin:16px 0 8px">1. Integration hinzuf&uuml;gen</h3>
       <ol style="padding-left:20px;line-height:1.8">
         <li>Gehe zu <strong>Einstellungen &rarr; Ger&auml;te &amp; Dienste &rarr; Integration hinzuf&uuml;gen</strong></li>
-        <li>Suche nach <strong>&lsquo;Forecast.Solar&rsquo;</strong></li>
-        <li>Gib deine Anlagen-Daten ein (Neigung, Ausrichtung, kWp)</li>
-      </ol>`,
+        <li>Suche nach <strong>&ldquo;Forecast.Solar&rdquo;</strong></li>
+        <li>Klicke auf <strong>Forecast.Solar</strong></li>
+      </ol>
+      <h3 style="margin:16px 0 8px">2. Anlagendaten eingeben</h3>
+      <p style="margin-bottom:8px">Forecast.Solar berechnet die Prognose anhand deiner PV-Anlage:</p>
+      <table style="width:100%;border-collapse:collapse;margin:8px 0 16px;font-size:14px">
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:6px 8px"><strong>Name</strong></td>
+          <td style="padding:6px 8px">Frei w&auml;hlbar, z.B. &ldquo;PV S&uuml;d&rdquo;</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:6px 8px"><strong>API Key</strong></td>
+          <td style="padding:6px 8px">Leer lassen (kostenlos) oder dein Forecast.Solar API-Key</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:6px 8px"><strong>Latitude / Longitude</strong></td>
+          <td style="padding:6px 8px">Automatisch aus HA-Konfiguration &mdash; pr&uuml;fen, nicht &auml;ndern</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:6px 8px"><strong>Dachneigung (Declination)</strong></td>
+          <td style="padding:6px 8px">Neigung in Grad. Typisch DACH-Region: <strong>30&ndash;35&deg;</strong>, Flachdach: 0&ndash;10&deg;</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:6px 8px"><strong>Azimuth</strong></td>
+          <td style="padding:6px 8px">
+            Himmelsrichtung der Module:<br>
+            <strong>0&deg; = Nord</strong>, 90&deg; = Ost, <strong>180&deg; = S&uuml;d</strong>, 270&deg; = West<br>
+            <span style="color:var(--secondary-text-color)">Achtung: HA nutzt Kompass-Konvention (0=Nord), nicht die Forecast.Solar-Website (0=S&uuml;d)!</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px"><strong>Leistung (kWp)</strong></td>
+          <td style="padding:6px 8px">
+            Anlagenleistung <strong>in Watt</strong>, nicht kWp!<br>
+            Beispiel: 10 kWp &rarr; <strong>10000</strong> eingeben
+          </td>
+        </tr>
+      </table>
+      <p style="margin:4px 0 0;color:var(--secondary-text-color);font-size:13px"><strong>Tipp:</strong> Die h&auml;ufigsten Fehler sind falscher Azimuth (S&uuml;d = 180&deg;, nicht 0&deg;) und kWp statt Watt.</p>
+      <h3 style="margin:16px 0 8px">3. Mehrere Ausrichtungen (Ost/West)</h3>
+      <p style="margin-bottom:8px">Bei Modulen in verschiedene Richtungen die Integration <strong>mehrmals hinzuf&uuml;gen</strong> &mdash; einmal pro Ausrichtung (z.B. &ldquo;PV Ost&rdquo; mit Azimuth 90&deg; und &ldquo;PV West&rdquo; mit 270&deg;).</p>
+      <p style="color:var(--secondary-text-color);font-size:13px">Die zweite Instanz erstellt Sensoren mit <code>_2</code> Suffix (z.B. <code>sensor.energy_production_tomorrow_2</code>).</p>
+      <h3 style="margin:16px 0 8px">4. Pr&uuml;fen</h3>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Warte 1&ndash;2 Minuten nach der Einrichtung</li>
+        <li>Pr&uuml;fe unter <strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: Suche nach <code>energy_production</code></li>
+        <li>Die Sensoren <code>sensor.energy_production_today_remaining</code> und <code>sensor.energy_production_tomorrow</code> sollten kWh-Werte zeigen</li>
+        <li>Kehre hierher zur&uuml;ck &mdash; die Sensoren werden automatisch zugeordnet</li>
+      </ol>
+      <p style="margin:12px 0 4px;color:var(--secondary-text-color);font-size:13px"><strong>Kostenlose Version:</strong> 12 Abrufe/Stunde, Prognose f&uuml;r heute + morgen, 1h-Aufl&ouml;sung &mdash; vollkommen ausreichend f&uuml;r den EEG Optimizer.</p>`,
   },
   capacity_sensor: {
     title: "Huawei Akkukapazität-Sensor aktivieren",
