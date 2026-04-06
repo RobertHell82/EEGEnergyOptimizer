@@ -152,15 +152,23 @@ const DIALOG_CONTENT = {
         <li>Klicke auf <strong>&ldquo;Add your first Home PV System to get started&rdquo;</strong>.
           <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/03_Add_PV_System.png" alt="PV System hinzuf&uuml;gen">
         </li>
-        <li>Daten der PV-Anlage erfassen und auf <strong>Submit</strong> klicken.
+        <li>Daten der PV-Anlage erfassen:
+          <ul style="margin:4px 0;padding-left:16px">
+            <li><strong>Capacity (kW)</strong> &mdash; Anlagenleistung in kWp (z.B. 10)</li>
+            <li><strong>Tilt</strong> &mdash; Dachneigung in Grad (typisch 30&ndash;35&deg;)</li>
+            <li><strong>Azimuth</strong> &mdash; Ausrichtung: 0&deg;=Nord, 90&deg;=Ost, 180&deg;=S&uuml;d, -90&deg;=West</li>
+          </ul>
+          Auf <strong>Submit</strong> klicken.
           <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/04_Save_PV_System.png" alt="PV System speichern">
         </li>
+        <li><strong>Mehrere Ausrichtungen (Ost/West)?</strong> Klicke auf <strong>&ldquo;Add another PV System&rdquo;</strong> und erfasse die zweite Dachfl&auml;che separat. Beide nutzen denselben API-Key.</li>
         <li>&Ouml;ffne oben rechts das Men&uuml; neben dem Benutzernamen und klicke auf <strong>Your API Key</strong>.</li>
         <li>Kopiere den angezeigten Key f&uuml;r sp&auml;ter.
           <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/05_API_Key.png" alt="API Key kopieren">
         </li>
       </ol>
       <h3 style="margin:16px 0 8px">2. Installation der Integration</h3>
+      <p style="margin-bottom:8px;color:var(--secondary-text-color)"><strong>Voraussetzung:</strong> <a href="https://hacs.xyz/" target="_blank">HACS</a> muss installiert sein (Solcast ist eine Custom Integration, kein HA-Standard).</p>
       <ol style="padding-left:20px;line-height:1.8">
         <li>Gehe zu <strong>HACS &rarr; Integrationen &rarr; Suche &ldquo;Solcast PV Forecast&rdquo;</strong></li>
         <li>Installiere die Integration und starte Home Assistant neu.</li>
@@ -169,6 +177,13 @@ const DIALOG_CONTENT = {
         <li>Aktiviere die deaktivierten Prognose-Sensoren f&uuml;r die Tage 3 bis 7: Klicke den Sensor an, dann auf das Zahnrad und stelle ihn auf <strong>Aktiviert</strong>.
           <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/06_Prognosesensoren.png" alt="Sensoren aktivieren">
         </li>
+      </ol>
+      <h3 style="margin:16px 0 8px">3. Pr&uuml;fen</h3>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Warte 1&ndash;2 Minuten nach der Einrichtung</li>
+        <li>Pr&uuml;fe unter <strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: Suche nach <code>solcast</code></li>
+        <li>Die Sensoren <code>sensor.solcast_pv_forecast_prognose_fuer_heute</code> und <code>sensor.solcast_pv_forecast_prognose_fuer_morgen</code> sollten kWh-Werte zeigen</li>
+        <li>Kehre hierher zur&uuml;ck &mdash; die Sensoren werden automatisch zugeordnet</li>
       </ol>`,
   },
   forecast_solar: {
