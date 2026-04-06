@@ -52,46 +52,45 @@ class SolarEdgeInverter(InverterBase):
 
     def __init__(self, hass: Any, config: dict) -> None:
         super().__init__(hass, config)
-        # Store original values on init for reliable restoration
+        # Track which values we actually modified — only restore those
+        self._modified: set[str] = set()
+        # Original values captured before first modification
         self._original_control_mode: str | None = None
         self._original_backup_reserve: float | None = None
-        self._max_charge_power: float | None = None
-        self._max_discharge_power: float | None = None
-        self._read_original_values()
+        self._original_discharge_limit: float | None = None
+        self._snapshot_original_values()
 
-    def _read_original_values(self) -> None:
-        """Read and store current limit values for later restoration.
+    def _snapshot_original_values(self) -> None:
+        """Snapshot current values so we can restore only what we change."""
+        # storage_control_mode
+        entity_id = self._resolve_entity("storage_control_mode")
+        state = self._hass.states.get(entity_id)
+        if state and state.state not in ("unavailable", "unknown"):
+            self._original_control_mode = state.state
 
-        For charge/discharge limits, prefer the 'max' attribute (hardware maximum)
-        over the current state value which may have been modified.
-        """
-        # Save original storage_control_mode for restoration
-        control_entity = self._resolve_entity("storage_control_mode")
-        control_state = self._hass.states.get(control_entity)
-        if control_state and control_state.state not in ("unavailable", "unknown"):
-            self._original_control_mode = control_state.state
-
-        for key, attr in [
-            ("storage_backup_reserve", "_original_backup_reserve"),
-            ("storage_charge_limit", "_max_charge_power"),
-            ("storage_discharge_limit", "_max_discharge_power"),
-        ]:
-            entity_id = self._resolve_entity(key)
-            state = self._hass.states.get(entity_id)
-            if state is None or state.state in ("unavailable", "unknown"):
-                continue
+        # backup_reserve
+        entity_id = self._resolve_entity("storage_backup_reserve")
+        state = self._hass.states.get(entity_id)
+        if state and state.state not in ("unavailable", "unknown"):
             try:
-                setattr(self, attr, float(state.state))
+                self._original_backup_reserve = float(state.state)
             except (ValueError, TypeError):
                 pass
-            # For charge/discharge limits, prefer the max attribute (hardware max)
-            if attr in ("_max_charge_power", "_max_discharge_power"):
-                max_val = state.attributes.get("max")
-                if max_val is not None:
-                    try:
-                        setattr(self, attr, float(max_val))
-                    except (ValueError, TypeError):
-                        pass
+
+        # discharge_limit — prefer 'max' attribute (hardware maximum)
+        entity_id = self._resolve_entity("storage_discharge_limit")
+        state = self._hass.states.get(entity_id)
+        if state and state.state not in ("unavailable", "unknown"):
+            try:
+                self._original_discharge_limit = float(state.state)
+            except (ValueError, TypeError):
+                pass
+            max_val = state.attributes.get("max")
+            if max_val is not None:
+                try:
+                    self._original_discharge_limit = float(max_val)
+                except (ValueError, TypeError):
+                    pass
 
     def _resolve_entity(self, config_key: str) -> str:
         """Resolve entity ID from config or defaults.
@@ -158,6 +157,7 @@ class SolarEdgeInverter(InverterBase):
         if state and state.state == CONTROL_MODE_REMOTE:
             return
         _LOGGER.info("SolarEdge: switching storage_control_mode → Remote Control")
+        self._modified.add("storage_control_mode")
         await self._set_select("storage_control_mode", CONTROL_MODE_REMOTE)
 
     async def async_set_charge_limit(self, power_kw: float) -> bool:
@@ -174,12 +174,14 @@ class SolarEdgeInverter(InverterBase):
         """
         try:
             await self._ensure_remote_control()
+            self._modified.add("storage_command_mode")
             if power_kw == 0:
                 await self._set_select(
                     "storage_command_mode", MODE_CHARGE_FROM_CLIPPED
                 )
             else:
                 power_w = int(power_kw * 1000)
+                self._modified.add("storage_charge_limit")
                 await self._set_number("storage_charge_limit", power_w)
             return True
         except Exception:
@@ -203,11 +205,14 @@ class SolarEdgeInverter(InverterBase):
         try:
             await self._ensure_remote_control()
             if target_soc is not None:
+                self._modified.add("storage_backup_reserve")
                 await self._set_number(
                     "storage_backup_reserve", max(int(target_soc), 0)
                 )
             power_w = int(power_kw * 1000)
+            self._modified.add("storage_discharge_limit")
             await self._set_number("storage_discharge_limit", power_w)
+            self._modified.add("storage_command_mode")
             await self._set_select(
                 "storage_command_mode", MODE_DISCHARGE_EXPORT
             )
@@ -219,36 +224,35 @@ class SolarEdgeInverter(InverterBase):
     async def async_stop_forcible(self) -> bool:
         """Return to normal self-consumption mode.
 
-        Restores all values to their original state.
+        Only restores values that were actually modified by this instance.
         Critical for SolarEdge: commands persist in NVRAM — without this call,
         the battery stays in the last commanded mode indefinitely.
-
-        Sequence:
-        1. storage_command_mode → "Maximize Self Consumption"
-        2. storage_charge_limit → original max
-        3. storage_discharge_limit → original max
-        4. storage_backup_reserve → original value
-        5. storage_control_mode → original mode (typically "Maximize Self Consumption")
         """
+        if not self._modified:
+            return True
+
         try:
-            await self._set_select(
-                "storage_command_mode", MODE_SELF_CONSUMPTION
-            )
-            if self._max_charge_power is not None:
-                await self._set_number(
-                    "storage_charge_limit", self._max_charge_power
+            # 1. Restore command mode first (always modified when we take control)
+            if "storage_command_mode" in self._modified:
+                await self._set_select(
+                    "storage_command_mode", MODE_SELF_CONSUMPTION
                 )
-            if self._max_discharge_power is not None:
+            # 2. Restore discharge limit if we changed it
+            if "storage_discharge_limit" in self._modified and self._original_discharge_limit is not None:
                 await self._set_number(
-                    "storage_discharge_limit", self._max_discharge_power
+                    "storage_discharge_limit", self._original_discharge_limit
                 )
-            if self._original_backup_reserve is not None:
+            # 3. Restore backup reserve if we changed it
+            if "storage_backup_reserve" in self._modified and self._original_backup_reserve is not None:
                 await self._set_number(
                     "storage_backup_reserve", self._original_backup_reserve
                 )
-            # Restore original control mode (exit Remote Control)
-            restore_mode = self._original_control_mode or CONTROL_MODE_SELF_CONSUMPTION
-            await self._set_select("storage_control_mode", restore_mode)
+            # 4. Exit Remote Control last (disables command entities)
+            if "storage_control_mode" in self._modified:
+                restore_mode = self._original_control_mode or CONTROL_MODE_SELF_CONSUMPTION
+                await self._set_select("storage_control_mode", restore_mode)
+
+            self._modified.clear()
             return True
         except Exception:
             _LOGGER.exception("SolarEdge: Failed to stop forcible mode")
