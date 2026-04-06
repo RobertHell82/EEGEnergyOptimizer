@@ -53,6 +53,7 @@ class SolarEdgeInverter(InverterBase):
     def __init__(self, hass: Any, config: dict) -> None:
         super().__init__(hass, config)
         self._original_control_mode: str | None = None
+        self._original_charge_limit: float | None = None
         self._original_discharge_limit: float | None = None
         self._snapshot_original_values()
 
@@ -64,20 +65,24 @@ class SolarEdgeInverter(InverterBase):
         if state and state.state not in ("unavailable", "unknown"):
             self._original_control_mode = state.state
 
-        # discharge_limit — prefer 'max' attribute (hardware maximum)
-        entity_id = self._resolve_entity("storage_discharge_limit")
-        state = self._hass.states.get(entity_id)
-        if state and state.state not in ("unavailable", "unknown"):
-            try:
-                self._original_discharge_limit = float(state.state)
-            except (ValueError, TypeError):
-                pass
-            max_val = state.attributes.get("max")
-            if max_val is not None:
+        # charge/discharge limits — prefer 'max' attribute (hardware maximum)
+        for key, attr in [
+            ("storage_charge_limit", "_original_charge_limit"),
+            ("storage_discharge_limit", "_original_discharge_limit"),
+        ]:
+            entity_id = self._resolve_entity(key)
+            state = self._hass.states.get(entity_id)
+            if state and state.state not in ("unavailable", "unknown"):
                 try:
-                    self._original_discharge_limit = float(max_val)
+                    setattr(self, attr, float(state.state))
                 except (ValueError, TypeError):
                     pass
+                max_val = state.attributes.get("max")
+                if max_val is not None:
+                    try:
+                        setattr(self, attr, float(max_val))
+                    except (ValueError, TypeError):
+                        pass
 
     def _resolve_entity(self, config_key: str) -> str:
         """Resolve entity ID from config or defaults.
@@ -207,13 +212,18 @@ class SolarEdgeInverter(InverterBase):
 
         Sequence:
         1. storage_command_mode → "Maximize Self Consumption"
-        2. storage_discharge_limit → original (hardware max)
-        3. storage_control_mode → original (exit Remote Control)
+        2. storage_charge_limit → original (hardware max)
+        3. storage_discharge_limit → original (hardware max)
+        4. storage_control_mode → original (exit Remote Control)
         """
         try:
             await self._set_select(
                 "storage_command_mode", MODE_SELF_CONSUMPTION
             )
+            if self._original_charge_limit is not None:
+                await self._set_number(
+                    "storage_charge_limit", self._original_charge_limit
+                )
             if self._original_discharge_limit is not None:
                 await self._set_number(
                     "storage_discharge_limit", self._original_discharge_limit
