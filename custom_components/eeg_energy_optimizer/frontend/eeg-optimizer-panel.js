@@ -322,6 +322,80 @@ const DIALOG_CONTENT = {
       <p style="margin-top:12px;color:var(--secondary-text-color)">Der Sensor heißt typischerweise <code>sensor.batterien_akkukapazitat</code> und zeigt die Kapazität in Wh an (z.B. 15000 für 15 kWh).</p>
       <p style="margin-top:8px;color:var(--secondary-text-color)"><strong>Tipp:</strong> Wenn du den Sensor nicht findest, kannst du die Kapazität auch manuell eingeben.</p>`,
   },
+  solax: {
+    title: "SolaX Modbus einrichten",
+    content: `
+      <h3 style="margin:16px 0 8px">1. Unterst&uuml;tzte Wechselrichter</h3>
+      <p style="margin-bottom:8px">Nur <strong>Gen4, Gen5 und Gen6</strong> Wechselrichter werden unterst&uuml;tzt. &Auml;ltere Generationen (Gen2/Gen3) haben keine Remote Control Funktion.</p>
+      <h3 style="margin:16px 0 8px">2. Wechselrichter-Einstellungen</h3>
+      <p style="margin-bottom:8px">Diese Einstellungen m&uuml;ssen am Wechselrichter oder in der SolaX-App korrekt gesetzt sein:</p>
+      <table style="width:100%;border-collapse:collapse;margin:8px 0 16px;font-size:14px">
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:6px 8px"><strong>Work Mode</strong></td>
+          <td style="padding:6px 8px"><strong>Self Use</strong> (charger_use_mode = 0)</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:6px 8px"><strong>Night Charge</strong></td>
+          <td style="padding:6px 8px"><strong>Aus</strong> &mdash; sonst l&auml;dt die Batterie nachts aus dem Netz</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px"><strong>Smart Schedule / Zeitplan</strong></td>
+          <td style="padding:6px 8px"><strong>Aus</strong> &mdash; kollidiert mit der Optimizer-Steuerung</td>
+        </tr>
+      </table>
+      <div style="background:var(--warning-color,#ff9800);color:#fff;padding:8px 12px;border-radius:8px;margin:12px 0;font-size:13px">
+        <strong>&#9888; Wichtig:</strong> Der Work Mode darf <strong>NICHT</strong> auf &ldquo;Feedin Priority&rdquo; oder &ldquo;Force Time Use&rdquo; stehen! Der EEG Optimizer steuert die Batterie &uuml;ber Remote Control (Mode 1) und setzt voraus, dass der Wechselrichter im Self Use Modus l&auml;uft.
+      </div>
+      <h3 style="margin:16px 0 8px">3. HACS Integration installieren</h3>
+      <p style="margin-bottom:8px;color:var(--secondary-text-color)"><strong>Voraussetzung:</strong> <a href="https://hacs.xyz/" target="_blank">HACS</a> muss installiert sein.</p>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Gehe zu <strong>HACS &rarr; Integrationen &rarr; Suche &ldquo;SolaX Inverter Modbus&rdquo;</strong>
+          <br><span style="color:var(--secondary-text-color)">Repository: wills106/homeassistant-solax-modbus</span>
+        </li>
+        <li>Installiere die Integration und <strong>starte Home Assistant neu</strong></li>
+      </ol>
+      <h3 style="margin:16px 0 8px">4. Integration konfigurieren</h3>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Gehe zu <strong>Einstellungen &rarr; Ger&auml;te &amp; Dienste &rarr; Integration hinzuf&uuml;gen</strong></li>
+        <li>Suche nach <strong>&ldquo;SolaX Inverter Modbus&rdquo;</strong></li>
+        <li>Gib die <strong>IP-Adresse</strong> des Wechselrichters / WiFi-Dongles ein</li>
+        <li>Port: <strong>502</strong> (Standard f&uuml;r Modbus TCP)</li>
+        <li>Pr&uuml;fe, dass <strong>&ldquo;Gen4+ Inverter&rdquo;</strong> als Typ ausgew&auml;hlt ist</li>
+      </ol>
+      <h3 style="margin:16px 0 8px">5. Batterie-Kapazit&auml;t</h3>
+      <p style="margin-bottom:8px">SolaX stellt <strong>keinen Sensor f&uuml;r die Batteriekapazit&auml;t</strong> bereit. Du gibst die Kapazit&auml;t sp&auml;ter im Wizard manuell ein (z.B. 5.8 kWh f&uuml;r eine T-BAT 5.8).</p>
+      <h3 style="margin:16px 0 8px">6. Pr&uuml;fen</h3>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Unter <strong>Einstellungen &rarr; Integrationen</strong>: SolaX Inverter Modbus zeigt <strong>&ldquo;geladen&rdquo;</strong></li>
+        <li><strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: <code>sensor.solax_*battery_capacity</code> zeigt SOC (0&ndash;100%)</li>
+        <li><code>button.solax_*remotecontrol_trigger</code> existiert (= Remote Control verf&uuml;gbar)</li>
+        <li>Kehre hierher zur&uuml;ck &mdash; der Wechselrichter wird automatisch erkannt</li>
+      </ol>
+      <p style="margin:4px 0;color:var(--secondary-text-color);font-size:13px"><strong>Hinweis:</strong> Der Entity-Prefix variiert je Installation (z.B. <code>solax_inverter_</code> statt <code>solax_</code>). Der EEG Optimizer erkennt den Prefix automatisch.</p>
+      <h3 style="margin:16px 0 8px">H&auml;ufige Probleme</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Connection refused</strong></td>
+          <td style="padding:4px 8px">WiFi-Dongle nicht erreichbar &rarr; IP und Netzwerk pr&uuml;fen</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Kein remotecontrol_trigger</strong></td>
+          <td style="padding:4px 8px">Gen2/Gen3 oder X1 Fit (AC-coupled) &rarr; nicht unterst&uuml;tzt</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Kommandos ohne Wirkung</strong></td>
+          <td style="padding:4px 8px">Work Mode auf &ldquo;Self Use&rdquo; pr&uuml;fen, Night Charge und Smart Schedule aus</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Batterie l&auml;dt trotz Blockierung</strong></td>
+          <td style="padding:4px 8px">Lock State pr&uuml;fen &mdash; Passwort <code>2014</code> zum Entsperren</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 8px"><strong>Sensoren &ldquo;unavailable&rdquo; nachts</strong></td>
+          <td style="padding:4px 8px">Normal &mdash; Wechselrichter im Sleep Mode (kein PV, keine Last)</td>
+        </tr>
+      </table>`,
+  },
   solaredge: {
     title: "SolarEdge Modbus Multi einrichten",
     content: `
@@ -1761,7 +1835,7 @@ class EegOptimizerPanel extends HTMLElement {
     const inverterDefs = [
       { key: "huawei_sun2000", label: "Huawei SUN2000", subtitle: "", detected: huaweiOk, badge: huaweiBadge, dialog: "huawei",
         logo: `<img src="https://brands.home-assistant.io/huawei_solar/logo.png" alt="Huawei" style="max-width:120px;max-height:60px;height:auto" onerror="this.style.display='none'">` },
-      { key: "solax_gen4", label: "SolaX Gen4+", subtitle: "Gen4, Gen5, Gen6", detected: solaxOk, badge: solaxBadge, dialog: null,
+      { key: "solax_gen4", label: "SolaX Gen4+", subtitle: "Gen4, Gen5, Gen6", detected: solaxOk, badge: solaxBadge, dialog: "solax",
         logo: `<span style="font-size:32px">SolaX</span>` },
       { key: "solaredge_storedge", label: "SolarEdge", subtitle: "StorEdge Batteriespeicher", detected: solaredgeOk, badge: solaredgeBadge, dialog: "solaredge",
         logo: `<img src="https://brands.home-assistant.io/_/solaredge/logo.png" alt="SolarEdge" style="max-width:120px;max-height:60px;height:auto" onerror="this.outerHTML='<span style=font-size:32px>SolarEdge</span>'">` },
