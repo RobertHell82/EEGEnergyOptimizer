@@ -60,7 +60,7 @@ const WIZARD_STEPS = [
 const INVERTER_SIGN_CONVENTIONS = {
   huawei_sun2000: { battery_sign: 1, grid_sign: 1 },
   solax_gen4:     { battery_sign: -1, grid_sign: -1 },
-  solaredge_storedge: { battery_sign: 1, grid_sign: 1 },
+  solaredge_storedge: { battery_sign: 1, grid_sign: 1, pv_includes_battery: true },
 };
 
 const WIZARD_DEFAULTS = {
@@ -2929,6 +2929,10 @@ class EegOptimizerPanel extends HTMLElement {
     }
     let batKw = _toKw(this._config?.battery_power_sensor || "sensor.batteries_lade_entladeleistung");
     const _signs = INVERTER_SIGN_CONVENTIONS[this._config?.inverter_type] || { battery_sign: 1, grid_sign: 1 };
+    // SolarEdge: ac_power includes battery discharge → correct PV before sign normalization
+    if (_signs.pv_includes_battery) {
+      pvKw = pvKw + batKw;
+    }
     batKw *= _signs.battery_sign;
     let gridKw = _toKw(this._config?.grid_power_sensor || "sensor.power_meter_wirkleistung");
     gridKw *= _signs.grid_sign;

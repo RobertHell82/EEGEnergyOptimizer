@@ -24,10 +24,12 @@ INVERTER_PREREQUISITES = {
 # Sign conventions per inverter type for battery and grid power sensors.
 # battery_sign: +1 = positive means charging (Huawei), -1 = positive means discharging (SolaX)
 # grid_sign:    +1 = positive means export (Huawei),   -1 = positive means import (SolaX)
+# pv_includes_battery: True = PV sensor includes battery discharge power (SolarEdge ac_power)
+#   → real PV = pv_raw + battery_raw (before sign normalization)
 INVERTER_SIGN_CONVENTIONS = {
     "huawei_sun2000": {"battery_sign": 1, "grid_sign": 1},
     "solax_gen4":     {"battery_sign": -1, "grid_sign": -1},
-    "solaredge_storedge": {"battery_sign": 1, "grid_sign": 1},
+    "solaredge_storedge": {"battery_sign": 1, "grid_sign": 1, "pv_includes_battery": True},
 }
 
 CONF_PV_POWER_SENSOR_2 = "pv_power_sensor_2"

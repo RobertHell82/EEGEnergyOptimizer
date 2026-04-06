@@ -515,6 +515,7 @@ class HausverbrauchSensor(SensorEntity):
         signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
         self._battery_sign = signs.get("battery_sign", 1)
         self._grid_sign = signs.get("grid_sign", 1)
+        self._pv_includes_battery = signs.get("pv_includes_battery", False)
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_hausverbrauch"
         self._attr_device_info = _device_info(entry.entry_id)
         self._attr_native_value: float | None = None
@@ -545,6 +546,13 @@ class HausverbrauchSensor(SensorEntity):
             if pv2 is not None:
                 pv_power += pv2
 
+        # SolarEdge: ac_power includes battery discharge → correct to get real PV
+        # PV_real = ac_power + battery_raw (positive=charge, negative=discharge)
+        # Don't clamp here — small negative from conversion losses is expected
+        # and needed for accurate Hausverbrauch (formula simplifies to ac_power - grid)
+        if self._pv_includes_battery and battery_power is not None:
+            pv_power = pv_power + battery_power
+
         # Normalize signs: positive=charging / positive=export
         battery_power *= self._battery_sign
         grid_power *= self._grid_sign
@@ -556,7 +564,7 @@ class HausverbrauchSensor(SensorEntity):
         hausverbrauch = max(pv_power - battery_power - grid_power, 0.0)
         self._attr_native_value = round(hausverbrauch, 3)
         attrs = {
-            "pv_leistung_kw": round(pv_power, 3),
+            "pv_leistung_kw": round(max(pv_power, 0.0), 3),
             "batterie_leistung_kw": round(battery_power, 3),
             "netz_leistung_kw": round(grid_power, 3),
         }

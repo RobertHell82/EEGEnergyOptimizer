@@ -109,6 +109,7 @@ async def async_backfill_hausverbrauch_stats(
         signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
         battery_sign = signs.get("battery_sign", 1)
         grid_sign = signs.get("grid_sign", 1)
+        pv_includes_battery = signs.get("pv_includes_battery", False)
 
         lookback_weeks = config.get(CONF_LOOKBACK_WEEKS, DEFAULT_LOOKBACK_WEEKS)
         start_time = now - timedelta(weeks=lookback_weeks)
@@ -244,7 +245,12 @@ async def async_backfill_hausverbrauch_stats(
         skipped = 0
         for ts in common_timestamps:
             pv = pv_by_ts[ts] + pv2_by_ts.get(ts, 0.0)
-            bat = battery_by_ts[ts] * battery_sign
+            bat_raw = battery_by_ts[ts]
+            # SolarEdge: PV sensor includes battery discharge → correct
+            # Don't clamp — negative from conversion losses needed for accuracy
+            if pv_includes_battery:
+                pv = pv + bat_raw
+            bat = bat_raw * battery_sign
             grid = grid_by_ts[ts] * grid_sign
             hausverbrauch = max(pv - bat - grid, 0.0)
             # Discard unrealistic values (wrong signs in historical data)
