@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**EEG Energy Optimizer** (v0.3.16) — a Home Assistant custom integration for grid-friendly battery management, optimized for energy communities (Energiegemeinschaften / EEG) in the DACH region. It controls when a PV battery charges and discharges to maximize feed-in during EEG-relevant time windows (mornings and evenings).
+**EEG Energy Optimizer** (v0.7.0) — a Home Assistant custom integration for grid-friendly battery management, optimized for energy communities (Energiegemeinschaften / EEG) in the DACH region. It controls when a PV battery charges and discharges to maximize feed-in during EEG-relevant time windows (mornings and evenings).
 
 **Language**: Python (async, Home Assistant framework) + plain JS (panel)
 **Distribution**: HACS-compatible repository structure
@@ -54,6 +54,8 @@ optimizer.py: async_run_cycle(mode)
 | `websocket_api.py` | 12 WebSocket commands for panel (config, sensors, inverter control, activity log) |
 | `inverter/base.py` | Abstract inverter interface (InverterBase ABC) |
 | `inverter/huawei.py` | Huawei SUN2000 implementation via HA services |
+| `inverter/solax.py` | SolaX Gen4+ implementation via solax_modbus Mode 1 |
+| `inverter/solaredge.py` | SolarEdge StorEdge implementation via solaredge-modbus-multi |
 | `inverter/__init__.py` | Factory function `create_inverter()` |
 | `select.py` | Optimizer mode select entity (Ein/Test), restores state across restarts |
 | `const.py` | All constants, defaults, mode enums, state names |
@@ -118,7 +120,9 @@ InverterBase (ABC)
   └── is_available → bool
 
 Implementations:
-  └── HuaweiInverter — via HA huawei_solar services
+  ├── HuaweiInverter — via HA huawei_solar services
+  ├── SolaXInverter — via HA solax_modbus Mode 1
+  └── SolarEdgeInverter — via HA solaredge_modbus_multi StorEdge
 ```
 
 ### Dependencies

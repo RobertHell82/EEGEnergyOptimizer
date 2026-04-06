@@ -16,6 +16,7 @@ HACS-compatible Home Assistant integration for predictive battery management, op
 
 - **Huawei SUN2000** (via [Huawei Solar](https://github.com/wlcrs/huawei_solar) integration)
 - **SolaX Gen4+** (via [SolaX Modbus](https://github.com/wills106/homeassistant-solax-modbus) integration)
+- **SolarEdge StorEdge** (via [SolarEdge Modbus Multi](https://github.com/WillCodeForCats/solaredge-modbus-multi) integration)
 
 ## Installation
 
@@ -84,7 +85,7 @@ So wird sichergestellt, dass die Batterie am nächsten Tag wieder vollständig �
 ## Requirements
 
 - Home Assistant 2025.1.0 or newer
-- A supported inverter integration installed and configured (Huawei Solar or SolaX Modbus)
+- A supported inverter integration installed and configured (Huawei Solar, SolaX Modbus, or SolarEdge Modbus Multi)
 - A PV forecast integration (Solcast Solar or Forecast.Solar)
 
 ## License
