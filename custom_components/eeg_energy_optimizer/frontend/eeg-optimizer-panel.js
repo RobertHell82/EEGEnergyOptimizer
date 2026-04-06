@@ -1140,15 +1140,16 @@ class EegOptimizerPanel extends HTMLElement {
         forecast_solar: false,
       };
     }
-    // Auto-select inverter type based on detected integration
+    // Auto-select inverter type: first detected (alphabetically by label)
     const p = this._prerequisites;
     if (p) {
-      if (p.huawei_solar && !p.solax_modbus && !p.solaredge_modbus_multi) {
-        this._wizardData.inverter_type = "huawei_sun2000";
-      } else if (p.solax_modbus && !p.huawei_solar && !p.solaredge_modbus_multi) {
-        this._wizardData.inverter_type = "solax_gen4";
-      } else if (p.solaredge_modbus_multi && !p.huawei_solar && !p.solax_modbus) {
-        this._wizardData.inverter_type = "solaredge_storedge";
+      const detected = [
+        p.huawei_solar && { key: "huawei_sun2000", label: "Huawei" },
+        p.solax_modbus && { key: "solax_gen4", label: "SolaX" },
+        p.solaredge_modbus_multi && { key: "solaredge_storedge", label: "SolarEdge" },
+      ].filter(Boolean).sort((a, b) => a.label.localeCompare(b.label));
+      if (detected.length > 0) {
+        this._wizardData.inverter_type = detected[0].key;
       }
       // Auto-select forecast source — always prefer Solcast when installed
       if (p.solcast_solar) {
@@ -1756,35 +1757,35 @@ class EegOptimizerPanel extends HTMLElement {
       ? "Wirkleistung am Netzanschluss in W (SolarEdge: sensor.solaredge_[i1_]m1_ac_power)."
       : "Wirkleistung am Netzanschluss in W (SolaX: sensor.solax_energy_dashboard_solax_grid_power).";
 
+    // Build inverter cards, sort: detected first (alphabetically), then undetected (alphabetically)
+    const inverterDefs = [
+      { key: "huawei_sun2000", label: "Huawei SUN2000", subtitle: "", detected: huaweiOk, badge: huaweiBadge, dialog: "huawei",
+        logo: `<img src="https://brands.home-assistant.io/huawei_solar/logo.png" alt="Huawei" style="max-width:120px;max-height:60px;height:auto" onerror="this.style.display='none'">` },
+      { key: "solax_gen4", label: "SolaX Gen4+", subtitle: "Gen4, Gen5, Gen6", detected: solaxOk, badge: solaxBadge, dialog: null,
+        logo: `<span style="font-size:32px">SolaX</span>` },
+      { key: "solaredge_storedge", label: "SolarEdge", subtitle: "StorEdge Batteriespeicher", detected: solaredgeOk, badge: solaredgeBadge, dialog: "solaredge",
+        logo: `<img src="https://brands.home-assistant.io/_/solaredge/logo.png" alt="SolarEdge" style="max-width:120px;max-height:60px;height:auto" onerror="this.outerHTML='<span style=font-size:32px>SolarEdge</span>'">` },
+    ];
+    inverterDefs.sort((a, b) => {
+      if (a.detected !== b.detected) return a.detected ? -1 : 1;
+      return a.label.localeCompare(b.label);
+    });
+
+    const inverterCards = inverterDefs.map(inv => {
+      const isSel = selected === inv.key;
+      const sub = inv.subtitle ? `<p style="font-size:11px;color:var(--secondary-text-color);margin:0 0 8px">${inv.subtitle}</p>` : "";
+      const guide = inv.dialog ? `<button class="btn-secondary" style="margin-top:8px" data-action="show-dialog" data-dialog="${inv.dialog}">Anleitung</button>` : "";
+      return `<div class="card forecast-option ${isSel ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center" data-action="select-inverter" data-value="${inv.key}">
+          <div style="height:60px;display:flex;align-items:center;justify-content:center;margin-bottom:8px">${inv.logo}</div>
+          <h3 style="margin:0 0 ${inv.subtitle ? "4px" : "8px"}">${inv.label}</h3>
+          ${sub}${inv.badge}${guide}
+        </div>`;
+    }).join("\n        ");
+
     return `
       <p style="margin-bottom:12px;color:var(--secondary-text-color)">Wähle deinen Wechselrichter-Typ:</p>
       <div class="prereq-cards" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
-        <div class="card forecast-option ${huaweiSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center" data-action="select-inverter" data-value="huawei_sun2000">
-          <div style="height:60px;display:flex;align-items:center;justify-content:center;margin-bottom:8px">
-            <img src="https://brands.home-assistant.io/huawei_solar/logo.png" alt="Huawei" style="max-width:120px;max-height:60px;height:auto" onerror="this.style.display='none'">
-          </div>
-          <h3 style="margin:0 0 8px">Huawei SUN2000</h3>
-          ${huaweiBadge}
-          ${huaweiAutoDetect}
-          <button class="btn-secondary" style="margin-top:8px" data-action="show-dialog" data-dialog="huawei">Anleitung</button>
-        </div>
-        <div class="card forecast-option ${solaxSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center" data-action="select-inverter" data-value="solax_gen4">
-          <div style="height:60px;display:flex;align-items:center;justify-content:center;margin-bottom:8px">
-            <span style="font-size:32px">SolaX</span>
-          </div>
-          <h3 style="margin:0 0 4px">SolaX Gen4+</h3>
-          <p style="font-size:11px;color:var(--secondary-text-color);margin:0 0 8px">Gen4, Gen5, Gen6</p>
-          ${solaxBadge}
-        </div>
-        <div class="card forecast-option ${solaredgeSelected ? "selected" : ""}" style="padding:16px;cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center" data-action="select-inverter" data-value="solaredge_storedge">
-          <div style="height:60px;display:flex;align-items:center;justify-content:center;margin-bottom:8px">
-            <img src="https://brands.home-assistant.io/_/solaredge/logo.png" alt="SolarEdge" style="max-width:120px;max-height:60px;height:auto" onerror="this.outerHTML='<span style=font-size:32px>SolarEdge</span>'">
-          </div>
-          <h3 style="margin:0 0 4px">SolarEdge</h3>
-          <p style="font-size:11px;color:var(--secondary-text-color);margin:0 0 8px">StorEdge Batteriespeicher</p>
-          ${solaredgeBadge}
-          <button class="btn-secondary" style="margin-top:8px" data-action="show-dialog" data-dialog="solaredge">Anleitung</button>
-        </div>
+        ${inverterCards}
       </div>
       ${huaweiSelected || solaxSelected || solaredgeSelected ? `
       <div class="card" style="padding:16px;margin-bottom:16px">
