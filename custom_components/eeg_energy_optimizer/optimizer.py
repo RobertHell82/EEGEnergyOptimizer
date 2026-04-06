@@ -800,9 +800,13 @@ class EEGOptimizer:
         """Execute inverter commands based on decision.
 
         Only called when decision.ausführung is True.
-        Deduplicates against previous state.
+        Deduplicates: Huawei only sends on state change (commands persist).
+        SolaX resends active commands every cycle (commands expire via autorepeat).
         """
-        if decision.zustand == self._prev_zustand:
+        is_active_state = decision.zustand in (STATE_MORGEN_EINSPEISUNG, STATE_ABEND_ENTLADUNG)
+        needs_repeat = self._config.get("inverter_type", "") == "solax_gen4" and is_active_state
+
+        if decision.zustand == self._prev_zustand and not needs_repeat:
             return
 
         try:
