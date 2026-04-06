@@ -29,7 +29,6 @@ SOLAX_ENTITY_DEFAULTS = {
     "remotecontrol_autorepeat_duration": "number.solax_inverter_remotecontrol_autorepeat_duration",
     "remotecontrol_duration": "number.solax_inverter_remotecontrol_duration",
     "remotecontrol_trigger": "button.solax_inverter_remotecontrol_trigger",
-    "selfuse_discharge_min_soc": "number.solax_inverter_selfuse_discharge_min_soc",
     "battery_charge_max_current": "number.solax_inverter_battery_charge_max_current",
 }
 
@@ -102,13 +101,8 @@ class SolaXInverter(InverterBase):
         """Start forced battery discharge at given power.
 
         Uses "Enabled Battery Control" with negative active_power.
-        Optional target_soc sets selfuse_discharge_min_soc floor (min 10%).
         """
         try:
-            if target_soc is not None:
-                min_soc = max(int(target_soc), 10)
-                await self._set_number("selfuse_discharge_min_soc", min_soc)
-
             power_w = -abs(int(power_kw * 1000))
             await self._set_select("remotecontrol_power_control", "Enabled Battery Control")
             await self._set_number("remotecontrol_active_power", power_w)
