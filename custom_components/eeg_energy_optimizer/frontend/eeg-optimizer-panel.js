@@ -322,6 +322,94 @@ const DIALOG_CONTENT = {
       <p style="margin-top:12px;color:var(--secondary-text-color)">Der Sensor heißt typischerweise <code>sensor.batterien_akkukapazitat</code> und zeigt die Kapazität in Wh an (z.B. 15000 für 15 kWh).</p>
       <p style="margin-top:8px;color:var(--secondary-text-color)"><strong>Tipp:</strong> Wenn du den Sensor nicht findest, kannst du die Kapazität auch manuell eingeben.</p>`,
   },
+  solaredge: {
+    title: "SolarEdge Modbus Multi einrichten",
+    content: `
+      <h3 style="margin:16px 0 8px">1. Wechselrichter vorbereiten</h3>
+      <p style="margin-bottom:8px">Modbus TCP muss am Wechselrichter aktiviert sein. Je nach Modell gibt es zwei Varianten:</p>
+      <h4 style="margin:12px 0 4px">SetApp-Wechselrichter (ohne LCD-Display)</h4>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Roten <strong>DIP-Schalter</strong> am Wechselrichter kurz (< 5 Sek.) auf <strong>&ldquo;P&rdquo;</strong> stellen
+          <br><span style="color:var(--secondary-text-color)">Aktiviert den WiFi-Direct-Hotspot des Wechselrichters.</span>
+        </li>
+        <li>Handy-WLAN mit dem Wechselrichter-Hotspot verbinden (Netzwerkname steht auf dem Ger&auml;t)</li>
+        <li>Im Browser <code>http://172.16.0.1</code> &ouml;ffnen</li>
+        <li><strong>Site Communication</strong> &ouml;ffnen</li>
+        <li><strong>Modbus/TCP</strong> aktivieren</li>
+      </ol>
+      <div style="background:var(--warning-color,#ff9800);color:#fff;padding:8px 12px;border-radius:8px;margin:12px 0;font-size:13px">
+        <strong>&#9888; Zeitfenster:</strong> Die Integration muss sich <strong>innerhalb von 2 Minuten</strong> nach dem Aktivieren verbinden! Danach bleibt der Port offen. Falls zu sp&auml;t: Modbus TCP aus- und wieder einschalten.
+      </div>
+      <h4 style="margin:12px 0 4px">LCD-Wechselrichter (&auml;ltere Modelle)</h4>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li><strong>&ldquo;OK&rdquo;</strong> f&uuml;r 5 Sekunden dr&uuml;cken (Installer-Modus)</li>
+        <li>Passwort: <code>12312312</code></li>
+        <li><strong>Communications &rarr; LAN setup</strong> navigieren</li>
+        <li>Modbus/TCP Port konfigurieren</li>
+      </ol>
+      <div style="background:var(--warning-color,#ff9800);color:#fff;padding:8px 12px;border-radius:8px;margin:12px 0;font-size:13px">
+        <strong>&#9888; Wichtig:</strong> SolarEdge erlaubt nur <strong>EINE Modbus-Verbindung</strong> gleichzeitig! Andere Modbus-Integrationen m&uuml;ssen deaktiviert werden.
+      </div>
+      <h3 style="margin:16px 0 8px">2. HACS Integration installieren</h3>
+      <p style="margin-bottom:8px;color:var(--secondary-text-color)"><strong>Voraussetzung:</strong> <a href="https://hacs.xyz/" target="_blank">HACS</a> muss installiert sein.</p>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Gehe zu <strong>HACS &rarr; Integrationen &rarr; Suche &ldquo;SolarEdge Modbus Multi&rdquo;</strong>
+          <br><span style="color:var(--secondary-text-color)">Repository: WillCodeForCats/solaredge-modbus-multi</span>
+        </li>
+        <li>Installiere die Integration und <strong>starte Home Assistant neu</strong></li>
+      </ol>
+      <h3 style="margin:16px 0 8px">3. Integration konfigurieren</h3>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Gehe zu <strong>Einstellungen &rarr; Ger&auml;te &amp; Dienste &rarr; Integration hinzuf&uuml;gen</strong></li>
+        <li>Suche nach <strong>&ldquo;SolarEdge Modbus Multi&rdquo;</strong></li>
+        <li>Gib die <strong>IP-Adresse</strong> des Wechselrichters ein</li>
+        <li>Port: <strong>1502</strong> (Standard f&uuml;r SolarEdge Modbus TCP)</li>
+        <li>Device ID: <strong>1</strong></li>
+      </ol>
+      <h3 style="margin:16px 0 8px">4. Speichersteuerung aktivieren</h3>
+      <div style="background:var(--error-color,#db4437);color:#fff;padding:8px 12px;border-radius:8px;margin:0 0 12px;font-size:13px">
+        <strong>&#9888; Pflichtschritt!</strong> Ohne diesen Schritt fehlen die Steuerungs-Entities und der EEG Optimizer kann die Batterie nicht steuern.
+      </div>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Gehe zu <strong>Einstellungen &rarr; Integrationen &rarr; SolarEdge Modbus Multi</strong></li>
+        <li>Klicke auf das <strong>Drei-Punkte-Men&uuml;</strong> &rarr; <strong>&ldquo;Konfigurieren&rdquo;</strong></li>
+        <li>Aktiviere <strong>&ldquo;Allow StorEdge Control&rdquo;</strong> (Speichersteuerung)</li>
+        <li>Speichern und <strong>Integration neu laden</strong></li>
+      </ol>
+      <p style="margin:8px 0;color:var(--secondary-text-color);font-size:13px">Nach dem Neuladen sollten diese Entities erscheinen: <code>select.*storage_command_mode</code>, <code>number.*storage_charge_limit</code>, <code>number.*storage_discharge_limit</code></p>
+      <p style="margin:4px 0;color:var(--secondary-text-color);font-size:13px"><strong>Hinweis:</strong> Der EEG Optimizer setzt <code>storage_control_mode</code> bei Bedarf automatisch auf &ldquo;Remote Control&rdquo; und stellt den Originalzustand danach wieder her.</p>
+      <h3 style="margin:16px 0 8px">5. Pr&uuml;fen</h3>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Unter <strong>Einstellungen &rarr; Integrationen</strong>: SolarEdge Modbus Multi zeigt <strong>&ldquo;geladen&rdquo;</strong></li>
+        <li><strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: <code>sensor.solaredge_*_b1_state_of_energy</code> zeigt SOC (0&ndash;100%)</li>
+        <li><code>select.solaredge_*_storage_command_mode</code> existiert (= Speichersteuerung aktiv)</li>
+        <li>Kehre hierher zur&uuml;ck &mdash; der Wechselrichter wird automatisch erkannt</li>
+      </ol>
+      <p style="margin:4px 0;color:var(--secondary-text-color);font-size:13px"><strong>Hinweis:</strong> Der Entity-Prefix variiert je Installation (z.B. <code>solaredge_i1_</code> statt <code>solaredge_</code>). Der EEG Optimizer erkennt den Prefix automatisch.</p>
+      <h3 style="margin:16px 0 8px">H&auml;ufige Probleme</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Connection refused</strong></td>
+          <td style="padding:4px 8px">Modbus TCP nicht aktiviert &rarr; Schritt 1 wiederholen</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Connection timeout</strong></td>
+          <td style="padding:4px 8px">Port 1502 pr&uuml;fen. Bei SetApp: 2-Minuten-Fenster beachten</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Keine Batterie-Entities</strong></td>
+          <td style="padding:4px 8px">Options &rarr; &ldquo;Detect Batteries&rdquo; aktivieren</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Keine Storage-Entities</strong></td>
+          <td style="padding:4px 8px">&ldquo;Allow StorEdge Control&rdquo; in Options nicht aktiviert &rarr; Schritt 4</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 8px"><strong>Verbindung bricht ab</strong></td>
+          <td style="padding:4px 8px">Nur EINE Modbus-Verbindung m&ouml;glich &mdash; andere Integrationen deaktivieren</td>
+        </tr>
+      </table>`,
+  },
 };
 
 // Suppress HA-internal unhandled promise rejections that crash the panel
@@ -1695,6 +1783,7 @@ class EegOptimizerPanel extends HTMLElement {
           <h3 style="margin:0 0 4px">SolarEdge</h3>
           <p style="font-size:11px;color:var(--secondary-text-color);margin:0 0 8px">StorEdge Batteriespeicher</p>
           ${solaredgeBadge}
+          <button class="btn-secondary" style="margin-top:8px" data-action="show-dialog" data-dialog="solaredge">Anleitung</button>
         </div>
       </div>
       ${huaweiSelected || solaxSelected || solaredgeSelected ? `
