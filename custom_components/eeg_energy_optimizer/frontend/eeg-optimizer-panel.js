@@ -203,8 +203,7 @@ const DIALOG_CONTENT = {
 window.addEventListener("unhandledrejection", (e) => {
   const msg = e.reason?.message || String(e.reason || "");
   if (msg.includes("Subscription not found") ||
-      msg.includes("Transition was aborted") ||
-      msg.includes("Transition was skipped") ||
+      msg.includes("Transition was") ||
       msg.includes("message channel closed") ||
       msg.includes("asynchronous response")) {
     e.preventDefault();
@@ -1088,10 +1087,10 @@ class EegOptimizerPanel extends HTMLElement {
       pickers.forEach((p) => (p.hass = hass));
     }
 
-    // Recover from blank panel (View Transition may wipe shadow DOM content)
-    if (this._initialized && this._shadow &&
-        (!this._shadow.firstElementChild || this._shadow.childNodes.length === 0)) {
-      console.info("EEG Optimizer: shadow DOM empty while initialized, forcing re-render");
+    // Recover from blank panel (View Transition may wipe or corrupt shadow DOM)
+    // Check for the .content div — every successful render produces one.
+    if (this._initialized && this._shadow && !this._shadow.querySelector(".content")) {
+      console.info("EEG Optimizer: panel content missing, forcing re-render");
       this._render();
       return;
     }
@@ -3406,9 +3405,9 @@ class EegOptimizerPanel extends HTMLElement {
     this._stopWatchdog();
     this._watchdogInterval = setInterval(() => {
       if (document.visibilityState !== "visible" || !this._initialized) return;
-      // Check for blank panel even if hass updates are flowing
-      if (this._shadow && (!this._shadow.firstElementChild || this._shadow.childNodes.length === 0)) {
-        console.warn("EEG Optimizer: watchdog detected empty shadow DOM, forcing re-render");
+      // Check for missing content (View Transition may corrupt DOM partially)
+      if (this._shadow && !this._shadow.querySelector(".content")) {
+        console.warn("EEG Optimizer: watchdog detected missing content, forcing re-render");
         this._render();
       }
       const elapsed = Date.now() - this._lastHassUpdate;
