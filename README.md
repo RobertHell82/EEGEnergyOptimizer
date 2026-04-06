@@ -15,8 +15,8 @@ HACS-compatible Home Assistant integration for predictive battery management, op
 ## Supported Inverters
 
 - **Huawei SUN2000** (via [Huawei Solar](https://github.com/wlcrs/huawei_solar) integration)
-- **SolaX Gen4+** (via [SolaX Modbus](https://github.com/wills106/homeassistant-solax-modbus) integration)
 - **SolarEdge StorEdge** (via [SolarEdge Modbus Multi](https://github.com/WillCodeForCats/solaredge-modbus-multi) integration)
+- **SolaX Gen4+** (via [SolaX Modbus](https://github.com/wills106/homeassistant-solax-modbus) integration)
 
 ## Installation
 

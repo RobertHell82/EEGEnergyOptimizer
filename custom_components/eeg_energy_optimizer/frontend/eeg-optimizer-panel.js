@@ -2157,32 +2157,34 @@ class EegOptimizerPanel extends HTMLElement {
 
     return `
       <p style="margin-bottom:16px;color:var(--secondary-text-color)">
-        Wähle aus, welche Optimierungen aktiv sein sollen. Beide können unabhängig voneinander aktiviert werden.
+        Klicke auf eine Karte, um die jeweilige Optimierung ein- oder auszuschalten. Beide k\u00f6nnen unabh\u00e4ngig voneinander aktiviert werden.
       </p>
       <div class="feature-toggle">
-        <div class="feature-card ${mDelay ? "selected" : ""}" data-action="toggle-feature" data-feature="enable_morning_delay">
+        <div class="feature-card ${mDelay ? "selected" : ""}" data-action="toggle-feature" data-feature="enable_morning_delay" style="cursor:pointer">
           <div class="feature-card-header">
             <ha-icon icon="mdi:weather-sunset-up"></ha-icon>
             <div class="feature-card-text">
-              <span class="feature-title">Verzögerte Batterieladung</span>
-              <span class="feature-desc">Morgens wird die Batterie nicht sofort geladen, sondern die Energie direkt ins Netz und die EEG eingespeist — dort, wo sie zu dieser Zeit am dringendsten gebraucht wird. Das geschieht jedoch nur, wenn die PV-Prognose für den heutigen Tag im Verhältnis zum Verbrauch gut genug ist, damit die Batterie im Laufe des Tages sicher wieder vollgeladen wird.</span>
+              <span class="feature-title">Verz\u00f6gerte Batterieladung</span>
+              <span class="feature-desc">Morgens wird die Batterie nicht sofort geladen, sondern die Energie direkt ins Netz und die EEG eingespeist \u2014 dort, wo sie zu dieser Zeit am dringendsten gebraucht wird. Das geschieht jedoch nur, wenn die PV-Prognose f\u00fcr den heutigen Tag im Verh\u00e4ltnis zum Verbrauch gut genug ist, damit die Batterie im Laufe des Tages sicher wieder vollgeladen wird.</span>
             </div>
-            <div class="feature-badge ${mDelay ? "on" : "off"}">${mDelay ? "Aktiv" : "Aus"}</div>
+            <div class="feature-badge ${mDelay ? "on" : "off"}">${mDelay ? "\u2705 Aktiv" : "Aus"}</div>
           </div>
+          <div style="text-align:center;font-size:12px;color:var(--secondary-text-color);margin-top:4px">Zum ${mDelay ? "Deaktivieren" : "Aktivieren"} hier klicken</div>
         </div>
         ${morningFields}
       </div>
 
       <div class="feature-toggle" style="margin-top:16px">
-        <div class="feature-card ${nDischarge ? "selected" : ""}" data-action="toggle-feature" data-feature="enable_night_discharge">
+        <div class="feature-card ${nDischarge ? "selected" : ""}" data-action="toggle-feature" data-feature="enable_night_discharge" style="cursor:pointer">
           <div class="feature-card-header">
             <ha-icon icon="mdi:battery-arrow-down-outline"></ha-icon>
             <div class="feature-card-text">
               <span class="feature-title">Nachteinspeisung</span>
-              <span class="feature-desc">Abends wird überschüssige Energie aus der Batterie ins Netz entladen. Jedoch nur wenn die Prognose des morgigen Tags so gut ist, dass die Batterie morgen wieder vollgeladen werden kann. Und nur so viel, dass man die Nacht auf Basis der bekannten Verbrauchsdaten trotzdem mit dem eigenen Strom auskommt.</span>
+              <span class="feature-desc">Abends wird \u00fcbersch\u00fcssige Energie aus der Batterie ins Netz entladen. Jedoch nur wenn die Prognose des morgigen Tags so gut ist, dass die Batterie morgen wieder vollgeladen werden kann. Und nur so viel, dass man die Nacht auf Basis der bekannten Verbrauchsdaten trotzdem mit dem eigenen Strom auskommt.</span>
             </div>
-            <div class="feature-badge ${nDischarge ? "on" : "off"}">${nDischarge ? "Aktiv" : "Aus"}</div>
+            <div class="feature-badge ${nDischarge ? "on" : "off"}">${nDischarge ? "\u2705 Aktiv" : "Aus"}</div>
           </div>
+          <div style="text-align:center;font-size:12px;color:var(--secondary-text-color);margin-top:4px">Zum ${nDischarge ? "Deaktivieren" : "Aktivieren"} hier klicken</div>
         </div>
         ${dischargeFields}
       </div>

@@ -121,8 +121,8 @@ InverterBase (ABC)
 
 Implementations:
   ├── HuaweiInverter — via HA huawei_solar services
-  ├── SolaXInverter — via HA solax_modbus Mode 1
-  └── SolarEdgeInverter — via HA solaredge_modbus_multi StorEdge
+  ├── SolarEdgeInverter — via HA solaredge_modbus_multi StorEdge
+  └── SolaXInverter — via HA solax_modbus Mode 1
 ```
 
 ### Dependencies
