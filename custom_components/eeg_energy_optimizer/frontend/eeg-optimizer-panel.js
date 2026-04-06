@@ -3405,21 +3405,15 @@ class EegOptimizerPanel extends HTMLElement {
   }
 
   disconnectedCallback() {
-    // Do NOT stop the watchdog — it detects isConnected=false and recovers.
+    // Keep watchdog alive briefly to detect if this was an accidental removal.
+    // Record disconnect time; watchdog checks URL later (after HA updates it).
+    this._disconnectedAt = Date.now();
     if (this._activityUnsub) {
       try { this._activityUnsub(); } catch (_) { /* connection already gone */ }
       this._activityUnsub = null;
     }
     if (this._onVisibilityChange) {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
-    }
-    // Only trigger recovery if the user is still on the EEG panel page.
-    // If they navigated away, the URL won't match and no reload needed.
-    if (window.location.pathname === "/eeg-optimizer") {
-      this._disconnectedAt = Date.now();
-    } else {
-      this._disconnectedAt = null;
-      this._stopWatchdog();
     }
   }
 
@@ -3446,18 +3440,22 @@ class EegOptimizerPanel extends HTMLElement {
   _startWatchdog() {
     this._stopWatchdog();
     this._watchdogInterval = setInterval(() => {
-      // Disconnection recovery runs ALWAYS (even in background tabs)
-      // because browsers throttle intervals and we need fast recovery.
+      // Disconnection recovery: element was removed from DOM by HA.
+      // Check URL NOW (not at disconnect time) — HA updates the URL
+      // after removing the element, so we must wait before checking.
       if (!this.isConnected && this._disconnectedAt) {
         const disconnectedFor = Date.now() - this._disconnectedAt;
         if (disconnectedFor > 3000) {
-          console.warn("EEG: panel disconnected for " +
-            Math.round(disconnectedFor / 1000) + "s — reloading page");
+          // User navigated away → URL changed → stop watchdog, no recovery
+          if (window.location.pathname !== "/eeg-optimizer") {
+            this._disconnectedAt = null;
+            this._stopWatchdog();
+            return;
+          }
+          // Still on /eeg-optimizer but element gone → reload to recover
+          console.warn("EEG: panel removed while on /eeg-optimizer — reloading");
           this._stopWatchdog();
-          // Full page reload — most reliable recovery method.
-          // HA's SPA navigation (location-changed) may fail during
-          // View Transition errors, but a hard reload always works.
-          window.location.replace("/eeg-optimizer");
+          window.location.reload();
           return;
         }
       }
