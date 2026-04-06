@@ -347,6 +347,15 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data.pop("consumption_sensor", None)
         hass.config_entries.async_update_entry(entry, data=new_data, version=9)
 
+    if entry.version < 10:
+        new_data = {**entry.data}
+        # Preserve existing expert behavior: if expert_mode was on,
+        # enable both new features to maintain current dashboard
+        is_expert = new_data.get("expert_mode", False)
+        new_data.setdefault("enable_simulation", is_expert)
+        new_data.setdefault("enable_manual_control", is_expert)
+        hass.config_entries.async_update_entry(entry, data=new_data, version=10)
+
     return True
 
 

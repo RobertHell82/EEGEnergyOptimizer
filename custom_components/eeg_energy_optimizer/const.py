@@ -84,3 +84,5 @@ STATE_ABEND_ENTLADUNG = "Abend-Entladung"
 # Phase 4: Onboarding Panel
 CONF_SETUP_COMPLETE = "setup_complete"
 CONF_EXPERT_MODE = "expert_mode"
+CONF_ENABLE_SIMULATION = "enable_simulation"
+CONF_ENABLE_MANUAL_CONTROL = "enable_manual_control"
