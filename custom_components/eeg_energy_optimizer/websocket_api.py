@@ -85,6 +85,7 @@ SOLAREDGE_SENSOR_SUFFIXES: dict[str, list[str]] = {
     CONF_PV_POWER_SENSOR: ["ac_power", "dc_power"],
     CONF_GRID_POWER_SENSOR: ["m1_ac_power"],
     CONF_BATTERY_POWER_SENSOR: ["b1_dc_power"],
+    CONF_BATTERY_CAPACITY_SENSOR: ["b1_maximum_energy"],
 }
 
 # SolarEdge control entity suffixes — tried in order per config key.
