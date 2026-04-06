@@ -3438,19 +3438,46 @@ class EegOptimizerPanel extends HTMLElement {
   _startWatchdog() {
     this._stopWatchdog();
     this._watchdogInterval = setInterval(() => {
-      if (document.visibilityState !== "visible" || !this._initialized) return;
-      // Check for missing content (View Transition may corrupt DOM partially)
-      if (this._shadow && !this._shadow.querySelector(".content")) {
-        console.warn("EEG Optimizer: watchdog detected missing content, forcing re-render");
+      if (document.visibilityState !== "visible") return;
+
+      // Always log state for debugging
+      const hasContent = this._shadow ? !!this._shadow.querySelector(".content") : false;
+      const hostRect = this.getBoundingClientRect();
+      const hostVisible = hostRect.width > 0 && hostRect.height > 0;
+      const hostStyle = getComputedStyle(this);
+      const hostDisplay = hostStyle.display;
+      const hostVisibility = hostStyle.visibility;
+      const hostOpacity = hostStyle.opacity;
+      console.info("EEG [DIAG] watchdog: initialized=" + this._initialized +
+        " isConnected=" + this.isConnected +
+        " hasContent=" + hasContent +
+        " hostVisible=" + hostVisible + " (" + Math.round(hostRect.width) + "x" + Math.round(hostRect.height) + ")" +
+        " display=" + hostDisplay + " visibility=" + hostVisibility + " opacity=" + hostOpacity +
+        " hassAge=" + Math.round((Date.now() - this._lastHassUpdate) / 1000) + "s");
+
+      if (!this._initialized) return;
+
+      // Check for missing content
+      if (this._shadow && !hasContent) {
+        console.warn("EEG [DIAG] watchdog → content missing, re-rendering");
         this._render();
       }
+
+      // Check for visually hidden panel (View Transition may hide via CSS)
+      if (hasContent && (!hostVisible || hostVisibility === "hidden" || hostOpacity === "0")) {
+        console.warn("EEG [DIAG] watchdog → content exists but host invisible! Forcing style reset");
+        this.style.display = "block";
+        this.style.visibility = "visible";
+        this.style.opacity = "1";
+      }
+
       const elapsed = Date.now() - this._lastHassUpdate;
       if (elapsed > 120000) {
         console.warn("EEG Optimizer: no hass update for " + Math.round(elapsed / 1000) + "s, forcing reload");
         this._loadConfigPending = false;
         this._loadConfigWithRetry();
       }
-    }, 30000);
+    }, 15000);
   }
 
   _stopWatchdog() {
