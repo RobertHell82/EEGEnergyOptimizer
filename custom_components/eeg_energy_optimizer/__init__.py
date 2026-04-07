@@ -377,12 +377,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register frontend panel (always — user needs panel to complete setup)
     # Skip if already registered (e.g. during config entry reload)
     frontend_path = str(Path(__file__).parent / "frontend")
-    try:
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig(PANEL_FRONTEND_URL, frontend_path, cache_headers=False)]
-        )
-    except Exception:
-        pass  # Already registered from previous load
+    if not hass.data.get(f"{DOMAIN}_static_registered"):
+        try:
+            await hass.http.async_register_static_paths(
+                [StaticPathConfig(PANEL_FRONTEND_URL, frontend_path, cache_headers=False)]
+            )
+            hass.data[f"{DOMAIN}_static_registered"] = True
+        except Exception:
+            hass.data[f"{DOMAIN}_static_registered"] = True  # Already registered
 
     # Read version from manifest for cache-busting query parameter
     manifest_path = Path(__file__).parent / "manifest.json"
@@ -566,16 +568,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _async_update_listener(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> None:
-    """Handle config entry update — hot-reload optimizer or full restart."""
+    """Handle config entry update — hot-reload optimizer or full restart after wizard."""
     data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
     if not data:
         return
 
     config = {**entry.data, **entry.options}
 
-    # Full reload needed when setup transitions to complete (wizard finish)
-    # or when platforms haven't been loaded yet
     if not data.get("platforms_loaded"):
+        # Wizard just finished — need full reload to create platforms/sensors
         await hass.config_entries.async_reload(entry.entry_id)
         return
 
