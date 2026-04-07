@@ -506,7 +506,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             mode = select._attr_current_option if select else MODE_AUS
             # Always run cycle to update status cards; optimizer only
             # executes inverter commands when mode is "Ein"
-            decision = await optimizer.async_run_cycle(mode)
+            # Read from data dict so hot-reload picks up the new optimizer
+            current_optimizer = data.get("optimizer")
+            if not current_optimizer:
+                return
+            decision = await current_optimizer.async_run_cycle(mode)
             decision_sensor = data.get("decision_sensor")
             if decision_sensor and decision:
                 decision_sensor.update_from_decision(decision)
