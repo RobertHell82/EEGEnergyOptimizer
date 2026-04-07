@@ -576,7 +576,94 @@ class HausverbrauchSensor(SensorEntity):
 
 
 # ---------------------------------------------------------------------------
-# Sensor 14: Entscheidung (optimizer timer)
+# Sensor 14: PV-Gesamtleistung (fast, normalized total PV)
+# ---------------------------------------------------------------------------
+
+class PVLeistungSensor(SensorEntity):
+    """Total PV production from all inverters, normalized to real PV output.
+
+    Sums pv_power_sensor + optional pv_power_sensor_2 and applies the
+    pv_includes_battery correction (SolarEdge: ac_power includes battery).
+    Result clamped to >= 0.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "PV-Leistung"
+    _attr_native_unit_of_measurement = "kW"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:solar-power-variant"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: Any, entry: Any, config: dict) -> None:
+        self.hass = hass
+        self._pv_sensor_id = config.get(CONF_PV_POWER_SENSOR, "")
+        self._pv_sensor_2_id = config.get(CONF_PV_POWER_SENSOR_2, "")
+        self._battery_power_sensor_id = config.get(CONF_BATTERY_POWER_SENSOR, "")
+        inv_type = config.get(CONF_INVERTER_TYPE, "")
+        signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
+        self._pv_includes_battery = signs.get("pv_includes_battery", False)
+        self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_pv_leistung"
+        self._attr_device_info = _device_info(entry.entry_id)
+        self._attr_native_value: float | None = None
+
+    async def async_update(self) -> None:
+        pv = _read_power_kw(self.hass, self._pv_sensor_id)
+        if pv is None:
+            pv = 0.0
+
+        if self._pv_sensor_2_id:
+            pv2 = _read_power_kw(self.hass, self._pv_sensor_2_id)
+            if pv2 is not None:
+                pv += pv2
+
+        if self._pv_includes_battery:
+            bat = _read_power_kw(self.hass, self._battery_power_sensor_id)
+            if bat is not None:
+                pv += bat
+
+        self._attr_native_value = round(max(pv, 0.0), 3)
+
+
+# ---------------------------------------------------------------------------
+# Sensor 15: Netzleistung (fast, normalized grid power)
+# ---------------------------------------------------------------------------
+
+class NetzleistungSensor(SensorEntity):
+    """Normalized grid power: positive = export (Einspeisung), negative = import (Bezug).
+
+    Reads grid_power_sensor and applies the inverter-specific grid_sign convention
+    so the value is always: positive = feed-in, negative = consumption from grid.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Netzleistung"
+    _attr_native_unit_of_measurement = "kW"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:transmission-tower"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: Any, entry: Any, config: dict) -> None:
+        self.hass = hass
+        self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, "")
+        inv_type = config.get(CONF_INVERTER_TYPE, "")
+        signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
+        self._grid_sign = signs.get("grid_sign", 1)
+        self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_netzleistung"
+        self._attr_device_info = _device_info(entry.entry_id)
+        self._attr_native_value: float | None = None
+
+    async def async_update(self) -> None:
+        grid = _read_power_kw(self.hass, self._grid_sensor_id)
+        if grid is None:
+            self._attr_native_value = None
+            return
+        self._attr_native_value = round(grid * self._grid_sign, 3)
+
+
+# ---------------------------------------------------------------------------
+# Sensor 16: Entscheidung (optimizer timer)
 # ---------------------------------------------------------------------------
 
 class EntscheidungsSensor(SensorEntity):
@@ -700,15 +787,18 @@ async def async_setup_entry(
     pv_today_sensor = PVForecastTodaySensor(hass, entry, provider)
     pv_tomorrow_sensor = PVForecastTomorrowSensor(hass, entry, provider)
     hausverbrauch_sensor = HausverbrauchSensor(hass, entry, config)
+    pv_leistung_sensor = PVLeistungSensor(hass, entry, config)
+    netzleistung_sensor = NetzleistungSensor(hass, entry, config)
 
-    # Sensor 14: Entscheidungs-Sensor (updated by optimizer timer, not by fast/slow timers)
+    # Sensor 16: Entscheidungs-Sensor (updated by optimizer timer, not by fast/slow timers)
     decision_sensor = EntscheidungsSensor(entry.entry_id)
     data["decision_sensor"] = decision_sensor
 
     slow_sensors: list[SensorEntity] = [profil_sensor]
     fast_sensors: list[SensorEntity] = (
         daily_sensors
-        + [sunrise_sensor, battery_sensor, pv_today_sensor, pv_tomorrow_sensor, hausverbrauch_sensor]
+        + [sunrise_sensor, battery_sensor, pv_today_sensor, pv_tomorrow_sensor,
+           hausverbrauch_sensor, pv_leistung_sensor, netzleistung_sensor]
     )
 
     async_add_entities(slow_sensors + fast_sensors + [decision_sensor], False)

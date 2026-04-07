@@ -3300,10 +3300,10 @@ class EegOptimizerPanel extends HTMLElement {
     const gridColor = gridKw >= 0 ? "val-green" : "val-red";
     const socColor = socVal == null ? "" : socVal > 50 ? "val-green" : socVal >= 25 ? "val-orange" : "val-red";
 
-    // Entity IDs for clickable live values
-    const pvEntity = this._config?.pv_power_sensor || "";
+    // Entity IDs for clickable live values — prefer our own calculated sensors
+    const pvEntity = "sensor.eeg_energy_optimizer_pv_leistung";
     const batEntity = this._config?.battery_power_sensor || "";
-    const gridEntity = this._config?.grid_power_sensor || "";
+    const gridEntity = "sensor.eeg_energy_optimizer_netzleistung";
     const socEntity = this._config?.battery_soc_sensor || "";
     const hausEntity = "sensor.eeg_energy_optimizer_hausverbrauch";
 
