@@ -1162,8 +1162,10 @@ class EegOptimizerPanel extends HTMLElement {
         this._view = "dashboard"; this._render(); return;
       }
       await this._hass.callWS({ type: "eeg_optimizer/save_config", config: changed });
+      // Update local config immediately (no full reload anymore)
+      this._config = {...this._config, ...changed};
       this._view = "dashboard";
-      await this._waitForOptimizer();
+      this._render();
     } catch (err) {
       console.error("Settings save error:", err);
       alert("Fehler beim Speichern: " + err.message);
