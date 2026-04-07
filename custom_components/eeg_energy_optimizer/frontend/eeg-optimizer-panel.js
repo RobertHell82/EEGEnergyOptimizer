@@ -2706,7 +2706,6 @@ class EegOptimizerPanel extends HTMLElement {
       const consumption = ma.morning_consumption_kwh != null ? Number(ma.morning_consumption_kwh).toFixed(1) : "---";
       const buffer = ma.morning_buffer_kwh != null ? Number(ma.morning_buffer_kwh).toFixed(1) : "---";
       const battery = ma.morning_battery_kwh != null ? Number(ma.morning_battery_kwh).toFixed(1) : "---";
-      const pvOk = Number(ma.morning_pv_today_kwh || 0) > Number(ma.morning_threshold_kwh || 0);
       const pvLabel = (mStatus === "morgen_erwartet" || mStatus === "morgen_nicht_erwartet") ? "PV Prognose morgen" : "PV Prognose heute";
       const fensterStart = ma.morning_sunrise_tomorrow || "---";
       const fensterEnd = ma.morning_end_time || "---";
@@ -2731,7 +2730,7 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
         <div class="condition-row">
           <span>${pvLabel}</span>
-          <span>${pvVal} kWh <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}</span></span>
+          <span>${pvVal} kWh</span>
         </div>
         <div class="condition-row">
           <span>Fenster</span>
@@ -2779,14 +2778,11 @@ class EegOptimizerPanel extends HTMLElement {
       const safetyBuffer = ma.discharge_safety_buffer_kwh != null ? Number(ma.discharge_safety_buffer_kwh).toFixed(1) : "---";
       const battCharge = ma.discharge_battery_charge_needed_kwh != null ? Number(ma.discharge_battery_charge_needed_kwh).toFixed(1) : "---";
       const demandTotal = ma.discharge_demand_total_kwh != null ? Number(ma.discharge_demand_total_kwh).toFixed(1) : "---";
-      const socOk = Number(ma.discharge_soc || 0) > Number(ma.discharge_min_soc || 0);
-      const pvOk = Number(ma.discharge_pv_tomorrow_kwh || 0) >= Number(ma.discharge_demand_total_kwh || 0);
-
       dConditionsHtml = `
         <hr class="status-divider">
         <div class="condition-row">
           <span>Aktueller SOC</span>
-          <span>${soc}% <span class="${socOk ? "check" : "cross"}">${socOk ? "\u2713" : "\u2717"}</span></span>
+          <span>${soc}%</span>
         </div>
         <div class="condition-row">
           <span>Entlade-Ziel SOC (Nachtverbr.: ${overnightDemand} kWh)</span>
@@ -2811,7 +2807,7 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
         <div class="condition-row">
           <span>PV Prognose</span>
-          <span>${pvTom} kWh <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}</span></span>
+          <span>${pvTom} kWh</span>
         </div>`;
       if (dStatus === "aktiv") {
         const pw = ma.discharge_power_kw != null ? Number(ma.discharge_power_kw).toFixed(1) : "---";
