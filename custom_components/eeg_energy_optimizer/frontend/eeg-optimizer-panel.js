@@ -3965,16 +3965,19 @@ class EegOptimizerPanel extends HTMLElement {
           background: rgba(0,0,0,0.92); z-index: 1100;
           display: flex; align-items: center; justify-content: center;
           cursor: zoom-out; padding: 16px;
+          overflow: auto; touch-action: pan-x pan-y pinch-zoom;
+          -webkit-overflow-scrolling: touch;
         }
         .info-image-lightbox img {
           max-width: 100%; max-height: 100%; object-fit: contain;
         }
         .info-image-lightbox-close {
-          position: absolute; top: 12px; right: 12px;
+          position: fixed; top: 12px; right: 12px;
           background: rgba(255,255,255,0.15); border: none;
           width: 40px; height: 40px; border-radius: 50%;
           font-size: 24px; cursor: pointer; color: #fff;
           display: flex; align-items: center; justify-content: center;
+          z-index: 1101;
         }
         .info-image-lightbox-close:hover { background: rgba(255,255,255,0.3); }
         @media (max-width: 600px) {
@@ -3982,6 +3985,14 @@ class EegOptimizerPanel extends HTMLElement {
           .info-modal {
             width: 100%; height: 100%; max-height: 100%;
             border-radius: 0; padding: 16px;
+          }
+          .info-image-lightbox {
+            padding: 0; align-items: stretch; justify-content: stretch;
+          }
+          .info-image-lightbox img {
+            max-width: none; max-height: none;
+            width: 200%; min-height: 100%;
+            object-fit: contain; object-position: left top;
           }
         }
         .dashboard-grid.narrow .status-cards-row { flex-direction: column; }
