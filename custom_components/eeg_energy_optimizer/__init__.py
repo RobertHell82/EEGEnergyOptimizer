@@ -535,6 +535,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Persist activity log to disk if changed
             await _flush_activity_log()
 
+        data["_run_cycle"] = _optimizer_cycle
+
         if async_track_time_interval is not None:
             unsub = async_track_time_interval(
                 hass, _optimizer_cycle, timedelta(seconds=30)
@@ -598,6 +600,10 @@ async def _async_update_listener(
             new_optimizer._prev_zustand = optimizer._prev_zustand
             data["optimizer"] = new_optimizer
             _LOGGER.info("EEG Optimizer: Config hot-reloaded")
+            # Run cycle immediately so dashboard reflects changes
+            cycle_fn = data.get("_run_cycle")
+            if cycle_fn:
+                await cycle_fn()
 
 
 async def async_unload_entry(
