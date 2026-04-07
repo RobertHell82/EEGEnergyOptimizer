@@ -114,6 +114,28 @@ async def async_backfill_hausverbrauch_stats(
         lookback_weeks = config.get(CONF_LOOKBACK_WEEKS, DEFAULT_LOOKBACK_WEEKS)
         start_time = now - timedelta(weeks=lookback_weeks)
 
+        # --- Determine unit conversion factors for source sensors ---
+        # Statistics are stored in the sensor's native unit.
+        # If a sensor reports in W, we must divide by 1000 to get kW.
+        def _unit_factor(entity_id: str) -> float:
+            """Return 0.001 if sensor reports in W, else 1.0 (assumes kW)."""
+            state = hass.states.get(entity_id)
+            if state and hasattr(state, "attributes"):
+                unit = (state.attributes.get("unit_of_measurement") or "").strip()
+                if unit == "W":
+                    return 0.001
+            return 1.0
+
+        pv_factor = _unit_factor(pv_id)
+        pv2_factor = _unit_factor(pv2_id) if pv2_id else 1.0
+        battery_factor = _unit_factor(battery_id)
+        grid_factor = _unit_factor(grid_id)
+
+        _LOGGER.debug(
+            "Backfill unit factors: PV=%.3f, PV2=%.3f, Battery=%.3f, Grid=%.3f",
+            pv_factor, pv2_factor, battery_factor, grid_factor,
+        )
+
         # --- Load mean statistics for all source sensors ---
         sensor_ids = {pv_id, battery_id, grid_id}
         if pv2_id:
@@ -135,8 +157,8 @@ async def async_backfill_hausverbrauch_stats(
         battery_entries = result.get(battery_id, [])
         grid_entries = result.get(grid_id, [])
 
-        # --- Index entries by start timestamp ---
-        def _index_by_start(entries: list[dict]) -> dict[float, float]:
+        # --- Index entries by start timestamp, converting to kW ---
+        def _index_by_start(entries: list[dict], factor: float = 1.0) -> dict[float, float]:
             indexed: dict[float, float] = {}
             for e in entries:
                 ts = e.get("start") or e.get("start_ts")
@@ -147,7 +169,7 @@ async def async_backfill_hausverbrauch_stats(
                     ts_float = datetime.fromisoformat(ts).timestamp()
                 else:
                     ts_float = float(ts)
-                indexed[ts_float] = mean
+                indexed[ts_float] = mean * factor
             return indexed
 
         use_history_fallback = (
@@ -212,14 +234,16 @@ async def async_backfill_hausverbrauch_stats(
                 )
                 return
 
-            # Convert W to kW for history values (statistics are already in native unit)
-            def _to_kw(by_ts: dict[float, float]) -> dict[float, float]:
-                return {ts: v / 1000.0 for ts, v in by_ts.items()}
+            # Convert to kW using detected unit factors (W→kW or already kW)
+            def _apply_factor(by_ts: dict[float, float], factor: float) -> dict[float, float]:
+                if factor == 1.0:
+                    return by_ts
+                return {ts: v * factor for ts, v in by_ts.items()}
 
-            pv_by_ts = _to_kw(pv_by_ts)
-            pv2_by_ts = _to_kw(pv2_by_ts) if pv2_by_ts else {}
-            battery_by_ts = _to_kw(battery_by_ts)
-            grid_by_ts = _to_kw(grid_by_ts)
+            pv_by_ts = _apply_factor(pv_by_ts, pv_factor)
+            pv2_by_ts = _apply_factor(pv2_by_ts, pv2_factor) if pv2_by_ts else {}
+            battery_by_ts = _apply_factor(battery_by_ts, battery_factor)
+            grid_by_ts = _apply_factor(grid_by_ts, grid_factor)
 
             _LOGGER.info(
                 "Backfill: loaded state history "
@@ -227,10 +251,10 @@ async def async_backfill_hausverbrauch_stats(
                 len(pv_by_ts), len(battery_by_ts), len(grid_by_ts),
             )
         else:
-            pv_by_ts = _index_by_start(pv_entries)
-            pv2_by_ts = _index_by_start(pv2_entries) if pv2_entries else {}
-            battery_by_ts = _index_by_start(battery_entries)
-            grid_by_ts = _index_by_start(grid_entries)
+            pv_by_ts = _index_by_start(pv_entries, pv_factor)
+            pv2_by_ts = _index_by_start(pv2_entries, pv2_factor) if pv2_entries else {}
+            battery_by_ts = _index_by_start(battery_entries, battery_factor)
+            grid_by_ts = _index_by_start(grid_entries, grid_factor)
 
         # --- Calculate Hausverbrauch for each hour where all 3 have data ---
         common_timestamps = sorted(
