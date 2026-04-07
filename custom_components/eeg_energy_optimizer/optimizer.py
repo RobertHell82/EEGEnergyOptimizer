@@ -632,9 +632,10 @@ class EEGOptimizer:
         )
         # Past midnight: discharge_start points to tonight (future), but we're
         # already in the discharge window that began yesterday evening.
-        # Check if sunrise is known and we're before it → still in window.
+        # Only applies between midnight and sunrise (hour < 12 as sanity check).
         past_midnight_in_window = (
             snap.now < discharge_start
+            and snap.now.hour < 12
             and snap.sunrise is not None
             and snap.now < snap.sunrise
         )
