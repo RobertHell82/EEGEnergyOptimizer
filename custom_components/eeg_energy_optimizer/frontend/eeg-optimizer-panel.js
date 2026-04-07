@@ -699,7 +699,14 @@ class EegOptimizerPanel extends HTMLElement {
         }
         if (field.startsWith("settings_")) {
           const realField = field.replace("settings_", "");
-          this._settingsData[realField] = target.checked;
+          const type = target.type;
+          if (type === "checkbox") {
+            this._settingsData[realField] = target.checked;
+          } else if (type === "number") {
+            this._settingsData[realField] = parseFloat(target.value) || 0;
+          } else {
+            this._settingsData[realField] = target.value;
+          }
           this._render();
           return;
         }
