@@ -816,8 +816,13 @@ class EegOptimizerPanel extends HTMLElement {
         this._render();
         break;
       }
-      case "toggle-info-zoom": {
-        this._infoImageZoomed = !this._infoImageZoomed;
+      case "open-lightbox": {
+        this._infoImageZoomed = true;
+        this._render();
+        break;
+      }
+      case "close-lightbox": {
+        this._infoImageZoomed = false;
         this._render();
         break;
       }
@@ -2550,8 +2555,9 @@ class EegOptimizerPanel extends HTMLElement {
       image: "/eeg_optimizer_panel/delayed-charging.svg",
       content: `
         <p>Stellt sicher, dass PV-\u00dcbersch\u00fcsse bevorzugt am Morgen ins Netz der Energiegemeinschaft eingespeist werden \u2014 also dann, wenn die Gemeinschaft den Strom dringend braucht. Ohne diese Funktion w\u00fcrde die Batterie den PV-\u00dcberschuss sofort ab Sonnenaufgang aufladen. Die Einspeisung in die Energiegemeinschaft w\u00fcrde dann erst ab Mittag erfolgen, wenn ohnehin genug Strom vorhanden ist.</p>
-        <p><strong>Funktionsweise:</strong> Die Batterieladung wird ab einer Stunde vor Sonnenaufgang blockiert und fr\u00fchestens um die konfigurierte Endzeit (Standard: 11:00 Uhr) wieder freigegeben. Die Blockierung erfolgt nur, solange die PV-Prognose des aktuellen Tages den Gesamtbedarf \u00fcbersteigt.</p>
-        <strong>Der Gesamtbedarf setzt sich zusammen aus:</strong>
+        <strong>Funktionsweise</strong>
+        <p>Die Batterieladung wird ab einer Stunde vor Sonnenaufgang blockiert und fr\u00fchestens um die konfigurierte Endzeit (Standard: 11:00 Uhr) wieder freigegeben. Die Blockierung erfolgt nur, solange die PV-Prognose des aktuellen Tages den Gesamtbedarf \u00fcbersteigt.</p>
+        <strong>Der Gesamtbedarf setzt sich zusammen aus</strong>
         <ul>
           <li>Gesch\u00e4tzter Stromverbrauch von Sonnenaufgang bis Sonnenuntergang</li>
           <li>Sicherheitspuffer auf den Verbrauch (konfigurierbar, Standard: 25%)</li>
@@ -2564,19 +2570,20 @@ class EegOptimizerPanel extends HTMLElement {
       image: "/eeg_optimizer_panel/evening-discharge.svg",
       content: `
         <p>Speist unter Tags gewonnene Energie, die der eigene Haushalt nicht ben\u00f6tigt, um \u00fcber die Nacht zu kommen, in die Energiegemeinschaft ein. So steht Strom zu einem Zeitpunkt zur Verf\u00fcgung, an dem ansonsten keine PV-Erzeugung im Netz vorhanden ist.</p>
-        <p><strong>Funktionsweise:</strong> Ab der konfigurierten Startzeit (Standard: 20:00 Uhr) wird die Batterie mit einstellbarer Leistung entladen, bis der dynamisch berechnete Ziel-SOC erreicht ist.</p>
-        <strong>Der Ziel-SOC ergibt sich aus:</strong>
+        <strong>Funktionsweise</strong>
+        <p>Ab der konfigurierten Startzeit (Standard: 20:00 Uhr) wird die Batterie mit einstellbarer Leistung entladen, bis der dynamisch berechnete Ziel-SOC erreicht ist.</p>
+        <strong>Der Ziel-SOC ergibt sich aus</strong>
         <ul>
           <li>Konfigurierter Mindest-SOC der Batterie</li>
           <li>Gesch\u00e4tzter Stromverbrauch in der Nacht (Entladestart bis eine Stunde nach Sonnenaufgang)</li>
           <li>Sicherheitspuffer auf den Nachtverbrauch (konfigurierbar, Standard: 25%)</li>
         </ul>
-        <strong>Die Entladung erfolgt nur, wenn alle Bedingungen erf\u00fcllt sind:</strong>
+        <strong>Die Entladung erfolgt nur, wenn alle Bedingungen erf\u00fcllt sind</strong>
         <ul>
           <li>Aktueller SOC liegt \u00fcber dem berechneten Ziel-SOC</li>
           <li>Die PV-Prognose f\u00fcr morgen deckt den erwarteten Gesamtbedarf</li>
         </ul>
-        <strong>Der Gesamtbedarf f\u00fcr morgen setzt sich zusammen aus:</strong>
+        <strong>Der Gesamtbedarf f\u00fcr morgen setzt sich zusammen aus</strong>
         <ul>
           <li>Gesch\u00e4tzter Stromverbrauch von Sonnenaufgang bis Sonnenuntergang</li>
           <li>Sicherheitspuffer auf den Verbrauch (konfigurierbar, Standard: 25%)</li>
@@ -2589,14 +2596,17 @@ class EegOptimizerPanel extends HTMLElement {
       <div class="info-modal-overlay" data-action="close-info-modal">
         <div class="info-modal" @click.stop>
           <button class="info-modal-close" data-action="close-info-modal">\u00d7</button>
-          <div class="info-modal-image ${isZoomed ? "zoomed" : ""}" data-action="toggle-info-zoom">
-            <img src="${info.image}" alt="${info.title}">
-            <div class="info-modal-zoom-hint">${isZoomed ? "Verkleinern" : "Vergr\u00f6\u00dfern"}</div>
-          </div>
           <h2 class="info-modal-title">${info.title}</h2>
+          <div class="info-modal-image" data-action="open-lightbox">
+            <img src="${info.image}" alt="${info.title}">
+          </div>
           <div class="info-modal-body">${info.content}</div>
         </div>
-      </div>`;
+      </div>
+      ${isZoomed ? `<div class="info-image-lightbox" data-action="close-lightbox">
+        <button class="info-image-lightbox-close" data-action="close-lightbox">\u00d7</button>
+        <img src="${info.image}" alt="${info.title}">
+      </div>` : ""}`;
   }
 
   /* ── Dialog overlay ───────────────────────────── */
@@ -2817,7 +2827,7 @@ class EegOptimizerPanel extends HTMLElement {
           <h3 class="status-card-title" style="margin-top:0">
             <ha-icon icon="mdi:weather-sunny" style="--mdc-icon-size:20px;color:var(--warning-color,#ff9800)"></ha-icon>
             Verz\u00f6gerte Ladung
-            <span data-action="show-info" data-info="morning" style="cursor:pointer;display:inline-flex;align-items:center">
+            <span data-action="show-info" data-info="morning" style="cursor:pointer;display:inline-flex;align-items:center" title="Mehr erfahren">
               <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color)"></ha-icon>
             </span>
           </h3>
@@ -2828,7 +2838,7 @@ class EegOptimizerPanel extends HTMLElement {
           <h3 class="status-card-title" style="margin-top:0">
             <ha-icon icon="mdi:weather-night" style="--mdc-icon-size:20px;color:var(--info-color,#2196f3)"></ha-icon>
             Abend-Entladung
-            <span data-action="show-info" data-info="discharge" style="cursor:pointer;display:inline-flex;align-items:center">
+            <span data-action="show-info" data-info="discharge" style="cursor:pointer;display:inline-flex;align-items:center" title="Mehr erfahren">
               <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color)"></ha-icon>
             </span>
           </h3>
@@ -3924,9 +3934,9 @@ class EegOptimizerPanel extends HTMLElement {
         }
         .info-modal {
           background: var(--card-background-color, #fff); color: var(--primary-text-color, #212121);
-          border-radius: 16px; width: 700px; max-width: 100%;
+          border-radius: 16px; width: 850px; max-width: 100%;
           max-height: calc(100vh - 32px); overflow-y: auto;
-          padding: 24px; position: relative;
+          padding: 28px; position: relative;
           box-shadow: 0 8px 40px rgba(0,0,0,0.3);
           font-size: 14px; line-height: 1.6;
         }
@@ -3934,36 +3944,45 @@ class EegOptimizerPanel extends HTMLElement {
           position: sticky; top: 0; float: right;
           background: var(--secondary-background-color, #f5f5f5); border: none;
           width: 36px; height: 36px; border-radius: 50%;
-          font-size: 22px; cursor: pointer; z-index: 1;
+          font-size: 22px; cursor: pointer; z-index: 2;
           color: var(--primary-text-color, #212121);
           display: flex; align-items: center; justify-content: center;
         }
         .info-modal-close:hover { background: var(--divider-color, #e0e0e0); }
         .info-modal-image {
-          cursor: zoom-in; border-radius: 12px; overflow: hidden;
-          margin-bottom: 16px; background: #1a1a2e; transition: all 0.2s;
+          cursor: pointer; border-radius: 12px; overflow: hidden;
+          margin-bottom: 16px; background: #1a1a2e;
         }
-        .info-modal-image.zoomed { cursor: zoom-out; }
-        .info-modal-image img {
-          width: 100%; display: block; transition: transform 0.2s;
-        }
-        .info-modal-image.zoomed img { transform: scale(1.5); transform-origin: center; }
-        .info-modal-zoom-hint {
-          text-align: center; font-size: 11px; padding: 4px;
-          color: var(--secondary-text-color, #999); opacity: 0.7;
-        }
-        .info-modal-title { font-size: 18px; margin: 0 0 12px; }
+        .info-modal-image img { width: 100%; display: block; }
+        .info-modal-title { font-size: 18px; margin: 0 0 16px; }
         .info-modal-body strong { display: block; font-size: 14px; margin: 12px 0 6px; }
         .info-modal-body p { margin: 8px 0; }
         .info-modal-body ul { margin: 6px 0; padding-left: 20px; }
         .info-modal-body li { margin: 4px 0; }
+        /* Fullscreen image lightbox */
+        .info-image-lightbox {
+          position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(0,0,0,0.92); z-index: 1100;
+          display: flex; align-items: center; justify-content: center;
+          cursor: zoom-out; padding: 16px;
+        }
+        .info-image-lightbox img {
+          max-width: 100%; max-height: 100%; object-fit: contain;
+        }
+        .info-image-lightbox-close {
+          position: absolute; top: 12px; right: 12px;
+          background: rgba(255,255,255,0.15); border: none;
+          width: 40px; height: 40px; border-radius: 50%;
+          font-size: 24px; cursor: pointer; color: #fff;
+          display: flex; align-items: center; justify-content: center;
+        }
+        .info-image-lightbox-close:hover { background: rgba(255,255,255,0.3); }
         @media (max-width: 600px) {
           .info-modal-overlay { padding: 0; }
           .info-modal {
             width: 100%; height: 100%; max-height: 100%;
             border-radius: 0; padding: 16px;
           }
-          .info-modal-image.zoomed img { transform: scale(2); }
         }
         .dashboard-grid.narrow .status-cards-row { flex-direction: column; }
         .btn-manual-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
