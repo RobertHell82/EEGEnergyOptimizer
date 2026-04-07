@@ -41,17 +41,18 @@ except ImportError:
 
 PLATFORMS: list[str] = ["sensor", "select"]
 
-_BACKFILL_SKIP_THRESHOLD = 168  # 1 week of hourly entries
-
-
 async def async_backfill_hausverbrauch_stats(
     hass: HomeAssistant, config: dict
 ) -> None:
-    """One-time backfill of Hausverbrauch statistics from source sensors.
+    """Backfill Hausverbrauch statistics from source sensors on every startup.
 
     Calculates historical Hausverbrauch = max(PV - Battery - Grid, 0) per hour
     from the 3 source sensors and imports them into the HA recorder so that the
     ConsumptionCoordinator can build a consumption profile immediately.
+
+    Runs on every startup — async_import_statistics overwrites existing data
+    for the same timestamps, so config changes (e.g. adding a second PV sensor)
+    are automatically reflected without manual intervention.
 
     Silently returns on any error to never block integration startup.
     """
@@ -67,28 +68,8 @@ async def async_backfill_hausverbrauch_stats(
             StatisticData,
         )
 
-        # --- Check if backfill is needed ---
         now = datetime.now(tz=timezone.utc)
-        two_weeks_ago = now - timedelta(weeks=2)
         recorder_instance = get_instance(hass)
-
-        existing = await recorder_instance.async_add_executor_job(
-            statistics_during_period,
-            hass,
-            two_weeks_ago,
-            now,
-            {CONSUMPTION_SENSOR},
-            "hour",
-            None,
-            {"mean"},
-        )
-        existing_entries = existing.get(CONSUMPTION_SENSOR, [])
-        if len(existing_entries) > _BACKFILL_SKIP_THRESHOLD:
-            _LOGGER.info(
-                "Hausverbrauch backfill skipped — sufficient data (%d entries)",
-                len(existing_entries),
-            )
-            return
 
         # --- Read source sensor IDs from config ---
         pv_id = config.get(CONF_PV_POWER_SENSOR, "")
