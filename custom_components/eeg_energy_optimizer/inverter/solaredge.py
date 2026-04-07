@@ -153,6 +153,14 @@ class SolarEdgeInverter(InverterBase):
     async def _set_number(self, config_key: str, value: float) -> None:
         """Set a number entity value. Resolves entity from config or defaults."""
         entity_id = self._resolve_entity(config_key)
+        _LOGGER.info("SolarEdge: setting %s (%s) = %s", config_key, entity_id, value)
+        state = self._hass.states.get(entity_id)
+        if state is None or state.state in ("unavailable", "unknown"):
+            _LOGGER.error(
+                "SolarEdge: cannot set %s — entity %s is %s",
+                config_key, entity_id, state.state if state else "not found",
+            )
+            raise RuntimeError(f"Entity {entity_id} is not available")
         await self._hass.services.async_call(
             "number", "set_value",
             {"entity_id": entity_id, "value": value},
@@ -162,6 +170,14 @@ class SolarEdgeInverter(InverterBase):
     async def _set_select(self, config_key: str, option: str) -> None:
         """Set a select entity option. Resolves entity from config or defaults."""
         entity_id = self._resolve_entity(config_key)
+        _LOGGER.info("SolarEdge: setting %s (%s) = %s", config_key, entity_id, option)
+        state = self._hass.states.get(entity_id)
+        if state is None or state.state in ("unavailable", "unknown"):
+            _LOGGER.error(
+                "SolarEdge: cannot set %s — entity %s is %s",
+                config_key, entity_id, state.state if state else "not found",
+            )
+            raise RuntimeError(f"Entity {entity_id} is not available")
         await self._hass.services.async_call(
             "select", "select_option",
             {"entity_id": entity_id, "option": option},
