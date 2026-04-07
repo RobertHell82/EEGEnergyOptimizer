@@ -375,10 +375,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_register_websocket_commands(hass)
 
     # Register frontend panel (always — user needs panel to complete setup)
+    # Skip if already registered (e.g. during config entry reload)
     frontend_path = str(Path(__file__).parent / "frontend")
-    await hass.http.async_register_static_paths(
-        [StaticPathConfig(PANEL_FRONTEND_URL, frontend_path, cache_headers=False)]
-    )
+    try:
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(PANEL_FRONTEND_URL, frontend_path, cache_headers=False)]
+        )
+    except Exception:
+        pass  # Already registered from previous load
 
     # Read version from manifest for cache-busting query parameter
     manifest_path = Path(__file__).parent / "manifest.json"
