@@ -96,7 +96,7 @@ const WIZARD_DEFAULTS = {
   update_interval_fast_min: 1,
   update_interval_slow_min: 15,
   enable_morning_delay: true,
-  morning_end_time: "10:00",
+  morning_end_time: "11:00",
   enable_night_discharge: true,
   discharge_start_time: "20:00",
   discharge_power_kw: 3.0,
@@ -2411,7 +2411,7 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="field-group">
           <label>Batterieladung blockiert bis maximal</label>
           <input type="time" data-field="settings_morning_end_time"
-                 value="${d.morning_end_time || "10:00"}">
+                 value="${d.morning_end_time || "11:00"}">
           <div class="help-text">Maximal bis zu dieser Uhrzeit wird die Batterieladung morgens blockiert.</div>
         </div>
       </div>` : "";
@@ -2550,7 +2550,7 @@ class EegOptimizerPanel extends HTMLElement {
       image: "/eeg_optimizer_panel/delayed-charging.svg",
       content: `
         <p>Stellt sicher, dass PV-\u00dcbersch\u00fcsse bevorzugt am Morgen ins Netz der Energiegemeinschaft eingespeist werden \u2014 also dann, wenn die Gemeinschaft den Strom dringend braucht. Ohne diese Funktion w\u00fcrde die Batterie den PV-\u00dcberschuss sofort ab Sonnenaufgang aufladen. Die Einspeisung in die Energiegemeinschaft w\u00fcrde dann erst ab Mittag erfolgen, wenn ohnehin genug Strom vorhanden ist.</p>
-        <p><strong>Funktionsweise:</strong> Die Batterieladung wird ab einer Stunde vor Sonnenaufgang blockiert und fr\u00fchestens um die konfigurierte Endzeit (Standard: 10:00 Uhr) wieder freigegeben. Die Blockierung erfolgt nur, solange die PV-Prognose des aktuellen Tages den Gesamtbedarf \u00fcbersteigt.</p>
+        <p><strong>Funktionsweise:</strong> Die Batterieladung wird ab einer Stunde vor Sonnenaufgang blockiert und fr\u00fchestens um die konfigurierte Endzeit (Standard: 11:00 Uhr) wieder freigegeben. Die Blockierung erfolgt nur, solange die PV-Prognose des aktuellen Tages den Gesamtbedarf \u00fcbersteigt.</p>
         <strong>Der Gesamtbedarf setzt sich zusammen aus:</strong>
         <ul>
           <li>Gesch\u00e4tzter Stromverbrauch von Sonnenaufgang bis Sonnenuntergang</li>
