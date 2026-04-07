@@ -2225,8 +2225,8 @@ class EegOptimizerPanel extends HTMLElement {
       <div class="feature-params">
         <div class="field-group">
           <label>Batterieladung blockiert bis maximal</label>
-          <input type="time" data-field="morning_end_time"
-                 value="${this._wizardData.morning_end_time}">
+          <input type="text" data-field="morning_end_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
+                 value="${this._wizardData.morning_end_time}" style="width:80px">
           <div class="help-text">Maximal bis zu dieser Uhrzeit wird die Batterieladung morgens blockiert, damit der Strom stattdessen ins Netz eingespeist wird.</div>
         </div>
       </div>` : "";
@@ -2235,8 +2235,8 @@ class EegOptimizerPanel extends HTMLElement {
       <div class="feature-params">
         ${isExpert ? `<div class="field-group">
           <label>Startzeit der Entladung</label>
-          <input type="time" data-field="discharge_start_time"
-                 value="${this._wizardData.discharge_start_time}">
+          <input type="text" data-field="discharge_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
+                 value="${this._wizardData.discharge_start_time}" style="width:80px">
           <div class="help-text">Ab wann abends die Batterie ins Netz entladen wird.</div>
         </div>
         <div class="field-group">
@@ -2422,8 +2422,8 @@ class EegOptimizerPanel extends HTMLElement {
       <div class="feature-params">
         <div class="field-group">
           <label>Batterieladung blockiert bis maximal</label>
-          <input type="time" data-field="settings_morning_end_time"
-                 value="${d.morning_end_time || "11:00"}">
+          <input type="text" data-field="settings_morning_end_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
+                 value="${d.morning_end_time || "11:00"}" style="width:80px">
           <div class="help-text">Maximal bis zu dieser Uhrzeit wird die Batterieladung morgens blockiert.</div>
         </div>
       </div>` : "";
@@ -2432,8 +2432,8 @@ class EegOptimizerPanel extends HTMLElement {
       <div class="feature-params">
         ${isExpert ? `<div class="field-group">
           <label>Startzeit der Entladung</label>
-          <input type="time" data-field="settings_discharge_start_time"
-                 value="${d.discharge_start_time || "20:00"}">
+          <input type="text" data-field="settings_discharge_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
+                 value="${d.discharge_start_time || "20:00"}" style="width:80px">
           <div class="help-text">Ab wann abends die Batterie ins Netz entladen wird.</div>
         </div>
         <div class="field-group">
