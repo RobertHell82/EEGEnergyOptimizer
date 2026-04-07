@@ -2736,6 +2736,7 @@ class EegOptimizerPanel extends HTMLElement {
             <span class="info-popup-trigger" data-popup="morning-info">
               <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color);cursor:pointer"></ha-icon>
               <div class="info-popup">
+                <img src="/eeg_optimizer_panel/delayed-charging.svg" alt="Verz\u00f6gerte Ladung" style="width:100%;border-radius:8px;margin-bottom:12px">
                 <strong>Verz\u00f6gerte Ladung (Morgen-Einspeisung)</strong>
                 <p>Stellt sicher, dass PV-\u00dcbersch\u00fcsse bevorzugt am Morgen ins Netz der Energiegemeinschaft eingespeist werden \u2014 also dann, wenn die Gemeinschaft den Strom dringend braucht. Ohne diese Funktion w\u00fcrde die Batterie den PV-\u00dcberschuss sofort ab Sonnenaufgang aufladen. Die Einspeisung in die Energiegemeinschaft w\u00fcrde dann erst ab Mittag erfolgen, wenn ohnehin genug Strom vorhanden ist.</p>
                 <p><strong>Funktionsweise:</strong> Die Batterieladung wird ab einer Stunde vor Sonnenaufgang blockiert und fr\u00fchestens um die konfigurierte Endzeit (Standard: 10:00 Uhr) wieder freigegeben. Die Blockierung erfolgt nur, solange die PV-Prognose des aktuellen Tages den Gesamtbedarf \u00fcbersteigt.</p>
@@ -2760,6 +2761,7 @@ class EegOptimizerPanel extends HTMLElement {
             <span class="info-popup-trigger" data-popup="discharge-info">
               <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color);cursor:pointer"></ha-icon>
               <div class="info-popup">
+                <img src="/eeg_optimizer_panel/evening-discharge.svg" alt="Abend-Entladung" style="width:100%;border-radius:8px;margin-bottom:12px">
                 <strong>Abend-Entladung (Nachteinspeisung)</strong>
                 <p>Speist unter Tags gewonnene Energie, die der eigene Haushalt nicht ben\u00f6tigt, um \u00fcber die Nacht zu kommen, in die Energiegemeinschaft ein. So steht Strom zu einem Zeitpunkt zur Verf\u00fcgung, an dem ansonsten keine PV-Erzeugung im Netz vorhanden ist.</p>
                 <p><strong>Funktionsweise:</strong> Ab der konfigurierten Startzeit (Standard: 20:00 Uhr) wird die Batterie mit einstellbarer Leistung entladen, bis der dynamisch berechnete Ziel-SOC erreicht ist.</p>
