@@ -10,6 +10,7 @@ All power values converted from InverterBase kW to SolarEdge Watts.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -136,18 +137,43 @@ class SolarEdgeInverter(InverterBase):
             blocking=True,
         )
 
+    async def _wait_for_available(self, config_key: str, timeout: float = 10.0) -> bool:
+        """Wait until an entity is no longer unavailable.
+
+        After switching storage_control_mode to Remote Control, the command
+        entities (storage_command_mode, storage_discharge_limit, etc.) need
+        a few seconds to become available via Modbus polling.
+
+        Returns True if entity became available, False on timeout.
+        """
+        entity_id = self._resolve_entity(config_key)
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            state = self._hass.states.get(entity_id)
+            if state and state.state not in ("unavailable", "unknown"):
+                return True
+            await asyncio.sleep(1)
+        _LOGGER.warning(
+            "SolarEdge: %s (%s) still unavailable after %.0fs",
+            config_key, entity_id, timeout,
+        )
+        return False
+
     async def _ensure_remote_control(self) -> None:
         """Ensure storage_control_mode is set to Remote Control.
 
         Must be called before any storage_command_mode or limit changes —
         those entities are unavailable unless control mode is Remote Control.
+        After switching, waits for command entities to become available.
         """
         entity_id = self._resolve_entity("storage_control_mode")
         state = self._hass.states.get(entity_id)
         if state and state.state == CONTROL_MODE_REMOTE:
             return
-        _LOGGER.info("SolarEdge: switching storage_control_mode → Remote Control")
+        _LOGGER.info("SolarEdge: switching storage_control_mode to Remote Control")
         await self._set_select("storage_control_mode", CONTROL_MODE_REMOTE)
+        # Command entities need time to become available after mode switch
+        await self._wait_for_available("storage_command_mode")
 
     async def async_set_charge_limit(self, power_kw: float) -> bool:
         """Block or limit battery charging.
@@ -192,6 +218,7 @@ class SolarEdgeInverter(InverterBase):
         """
         try:
             await self._ensure_remote_control()
+            await self._wait_for_available("storage_discharge_limit")
             power_w = int(power_kw * 1000)
             await self._set_number("storage_discharge_limit", power_w)
             await self._set_select(
