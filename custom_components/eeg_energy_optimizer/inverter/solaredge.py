@@ -304,16 +304,14 @@ class SolarEdgeInverter(InverterBase):
         Each step needs a delay for the inverter to process via Modbus.
 
         Sequence (with delays between each step):
-        1. storage_discharge_limit → original (hardware max)
-        2. storage_command_mode → "Maximize Self Consumption"
-        3. storage_control_mode → original (exit Remote Control) — MUST be last
+        1. storage_command_mode → "Maximize Self Consumption"
+        2. storage_control_mode → original (exit Remote Control) — MUST be last
+
+        Note: discharge_limit is NOT restored — saves 1 NVRAM write.
+        The stale value has no effect because command_mode is back to
+        Self Consumption. Next discharge will set it fresh anyway.
         """
         try:
-            if self._original_discharge_limit is not None:
-                await self._set_number(
-                    "storage_discharge_limit", self._original_discharge_limit
-                )
-                await asyncio.sleep(3)
             await self._set_select(
                 "storage_command_mode", MODE_SELF_CONSUMPTION
             )
