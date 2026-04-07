@@ -663,7 +663,44 @@ class NetzleistungSensor(SensorEntity):
 
 
 # ---------------------------------------------------------------------------
-# Sensor 16: Entscheidung (optimizer timer)
+# Sensor 16: Batterieleistung (fast, normalized battery power)
+# ---------------------------------------------------------------------------
+
+class BatterieleistungSensor(SensorEntity):
+    """Normalized battery power: positive = charging, negative = discharging.
+
+    Reads battery_power_sensor and applies the inverter-specific battery_sign
+    convention so the value is always: positive = charging, negative = discharging.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Batterieleistung"
+    _attr_native_unit_of_measurement = "kW"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:battery-charging"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: Any, entry: Any, config: dict) -> None:
+        self.hass = hass
+        self._battery_sensor_id = config.get(CONF_BATTERY_POWER_SENSOR, "")
+        inv_type = config.get(CONF_INVERTER_TYPE, "")
+        signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
+        self._battery_sign = signs.get("battery_sign", 1)
+        self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_batterieleistung"
+        self._attr_device_info = _device_info(entry.entry_id)
+        self._attr_native_value: float | None = None
+
+    async def async_update(self) -> None:
+        bat = _read_power_kw(self.hass, self._battery_sensor_id)
+        if bat is None:
+            self._attr_native_value = None
+            return
+        self._attr_native_value = round(bat * self._battery_sign, 3)
+
+
+# ---------------------------------------------------------------------------
+# Sensor 17: Entscheidung (optimizer timer)
 # ---------------------------------------------------------------------------
 
 class EntscheidungsSensor(SensorEntity):
@@ -789,8 +826,9 @@ async def async_setup_entry(
     hausverbrauch_sensor = HausverbrauchSensor(hass, entry, config)
     pv_leistung_sensor = PVLeistungSensor(hass, entry, config)
     netzleistung_sensor = NetzleistungSensor(hass, entry, config)
+    batterieleistung_sensor = BatterieleistungSensor(hass, entry, config)
 
-    # Sensor 16: Entscheidungs-Sensor (updated by optimizer timer, not by fast/slow timers)
+    # Sensor 17: Entscheidungs-Sensor (updated by optimizer timer, not by fast/slow timers)
     decision_sensor = EntscheidungsSensor(entry.entry_id)
     data["decision_sensor"] = decision_sensor
 
@@ -798,7 +836,8 @@ async def async_setup_entry(
     fast_sensors: list[SensorEntity] = (
         daily_sensors
         + [sunrise_sensor, battery_sensor, pv_today_sensor, pv_tomorrow_sensor,
-           hausverbrauch_sensor, pv_leistung_sensor, netzleistung_sensor]
+           hausverbrauch_sensor, pv_leistung_sensor, netzleistung_sensor,
+           batterieleistung_sensor]
     )
 
     async_add_entities(slow_sensors + fast_sensors + [decision_sensor], False)
