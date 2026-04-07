@@ -632,12 +632,13 @@ class EEGOptimizer:
         )
         # Past midnight: discharge_start points to tonight (future), but we're
         # already in the discharge window that began yesterday evening.
-        # Only applies between midnight and sunrise (hour < 12 as sanity check).
+        # Guard: sunrise must be < 12h away — otherwise we're in the afternoon
+        # and next_rising points to tomorrow (false positive).
         past_midnight_in_window = (
             snap.now < discharge_start
-            and snap.now.hour < 8
             and snap.sunrise is not None
             and snap.now < snap.sunrise
+            and (snap.sunrise - snap.now).total_seconds() < 12 * 3600
         )
         if snap.now < discharge_start and not past_midnight_in_window:
             reasons.append(f"Startzeit {self._discharge_start_h:02d}:{self._discharge_start_m:02d} noch nicht erreicht")
