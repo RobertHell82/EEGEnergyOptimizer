@@ -2334,7 +2334,7 @@ class EegOptimizerPanel extends HTMLElement {
       </div>
       ${this._wizardData.expert_mode ? `
       <div style="margin-top:24px">
-        <h3 style="margin:0 0 12px;font-size:16px">Dashboard-Bereiche</h3>
+        <h3 style="margin:0 0 12px;font-size:16px">Test- und Simulation</h3>
         <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer">
           <input type="checkbox" data-field="enable_simulation" ${this._wizardData.enable_simulation ? "checked" : ""}>
           Simulation am Dashboard anzeigen
@@ -2538,7 +2538,7 @@ class EegOptimizerPanel extends HTMLElement {
           </div>
           ${isExpert ? `
           <div style="margin-top:24px">
-            <h3 style="margin:0 0 12px;font-size:16px">Dashboard-Bereiche</h3>
+            <h3 style="margin:0 0 12px;font-size:16px">Test- und Simulation</h3>
             <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer">
               <input type="checkbox" data-field="settings_enable_simulation" ${d.enable_simulation ? "checked" : ""}>
               Simulation am Dashboard anzeigen
