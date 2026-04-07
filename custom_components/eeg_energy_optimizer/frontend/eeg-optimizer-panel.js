@@ -2149,7 +2149,7 @@ class EegOptimizerPanel extends HTMLElement {
     // Auto-select capacity mode: if sensor was detected, pick "sensor"; else "manual"
     // Re-evaluate after detection (don't cache stale pre-detection default)
     // SolaX has no capacity sensor — always default to manual
-    if ((this._wizardData.inverter_type === "solax_gen4" || this._wizardData.inverter_type === "solaredge_storedge") && !this._capacityModeUserSet) {
+    if (this._wizardData.inverter_type === "solax_gen4" && !this._capacityModeUserSet) {
       this._capacityMode = "manual";
     } else if (!this._capacityMode || (detected && !this._capacityModeUserSet)) {
       this._capacityMode = this._wizardData.battery_capacity_sensor ? "sensor" : "manual";
