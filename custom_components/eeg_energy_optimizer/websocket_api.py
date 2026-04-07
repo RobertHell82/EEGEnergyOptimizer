@@ -126,6 +126,27 @@ def _find_solaredge_prefix(hass: HomeAssistant) -> str | None:
     return None
 
 
+def _find_solaredge_additional_inverters(
+    hass: HomeAssistant, primary_prefix: str
+) -> list[str]:
+    """Find additional SolarEdge inverter prefixes beyond the primary one.
+
+    Searches for other solaredge_iN_ac_power sensors to detect multi-inverter setups.
+    Returns list of additional prefixes (e.g. ['solaredge_i2_']).
+    """
+    additional: list[str] = []
+    for state in hass.states.async_all("sensor"):
+        eid = state.entity_id
+        if (eid.endswith("ac_power")
+                and "solaredge" in eid
+                and not eid.endswith("m1_ac_power")
+                and not eid.endswith("m2_ac_power")):
+            prefix = eid.replace("sensor.", "").replace("ac_power", "")
+            if prefix.startswith("solaredge") and prefix != primary_prefix:
+                additional.append(prefix)
+    return sorted(additional)
+
+
 def _find_solax_prefix(hass: HomeAssistant) -> str | None:
     """Auto-detect the SolaX entity prefix by searching for remotecontrol_power_control."""
     for state in hass.states.async_all("select"):
@@ -405,6 +426,15 @@ async def ws_detect_sensors(
                     if state is not None:
                         result[config_key] = entity_id
                         break
+
+            # Detect additional inverters (multi-inverter setups)
+            extra_inverters = _find_solaredge_additional_inverters(hass, prefix)
+            if extra_inverters:
+                # Use the first additional inverter's ac_power as second PV sensor
+                pv2_id = f"sensor.{extra_inverters[0]}ac_power"
+                state = hass.states.get(pv2_id)
+                if state is not None:
+                    sensors[CONF_PV_POWER_SENSOR_2] = pv2_id
 
         connection.send_result(msg["id"], result)
         return
