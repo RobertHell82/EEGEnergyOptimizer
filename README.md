@@ -45,7 +45,7 @@ Das Sidebar-Panel (`/eeg-optimizer`) führt durch die Einrichtung:
 
 ### Verzögerte Ladung (Morgen-Einspeisung)
 
-<img src="docs/delayed-charging.svg" alt="Verzögerte Batterieladung" width="500">
+<img src="https://raw.githubusercontent.com/RobertHell82/EEGEnergyOptimizer/main/docs/delayed-charging.svg" alt="Verzögerte Batterieladung" width="500">
 
 Die verzögerte Ladung stellt sicher, dass PV-Überschüsse bevorzugt am Morgen in das Netz der Energiegemeinschaft eingespeist werden — also dann, wenn die Gemeinschaft den Strom dringend braucht. Ohne diese Funktion würde die Batterie den PV-Überschuss sofort ab Sonnenaufgang aufladen. Die Einspeisung in die Energiegemeinschaft würde dann erst ab Mittag erfolgen, wenn ohnehin genug Strom vorhanden ist.
 
@@ -62,7 +62,7 @@ Reicht die PV-Prognose nicht aus, um den Gesamtbedarf zu decken, wird die Batter
 
 ### Abend-Entladung (Nachteinspeisung)
 
-<img src="docs/evening-discharge.svg" alt="Abend-Entladung" width="500">
+<img src="https://raw.githubusercontent.com/RobertHell82/EEGEnergyOptimizer/main/docs/evening-discharge.svg" alt="Abend-Entladung" width="500">
 
 Die Abend-Entladung speist unter Tags gewonnene Energie, die der eigene Haushalt nicht benötigt, um über die Nacht zu kommen, in die Energiegemeinschaft ein. So steht Strom zu einem Zeitpunkt zur Verfügung, an dem ansonsten keine PV-Erzeugung im Netz vorhanden ist.
 
