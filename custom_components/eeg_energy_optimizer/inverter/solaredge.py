@@ -84,11 +84,13 @@ class SolarEdgeInverter(InverterBase):
                         pass
 
     def _resolve_entity(self, config_key: str) -> str:
-        """Resolve entity ID from config or defaults.
+        """Resolve entity ID from config, defaults, or suffix scan.
 
-        For keys with known suffix variants (e.g. backup_reserve vs
-        storage_backup_reserve), tries each variant against hass.states
-        when the config value doesn't resolve to an existing entity.
+        Resolution order:
+        1. Explicit config value (from panel detection/wizard)
+        2. Default entity ID (without inverter prefix)
+        3. Suffix variants (e.g. backup_reserve vs storage_backup_reserve)
+        4. Generic suffix scan (finds solaredge_i1_*, solaredge_i2_*, etc.)
         """
         # 1. Check explicit config value
         config_val = self._config.get(f"solaredge_{config_key}")
@@ -97,7 +99,7 @@ class SolarEdgeInverter(InverterBase):
             if state is not None:
                 return config_val
 
-        # 2. Check default
+        # 2. Check default (works for installations without prefix like solaredge_i1_)
         default = SOLAREDGE_ENTITY_DEFAULTS.get(config_key)
         if default:
             state = self._hass.states.get(default)
@@ -111,12 +113,28 @@ class SolarEdgeInverter(InverterBase):
                 if (state.entity_id.endswith(variant_suffix)
                         and "solaredge" in state.entity_id):
                     _LOGGER.debug(
-                        "SolarEdge: resolved %s via variant suffix → %s",
+                        "SolarEdge: resolved %s via variant suffix -> %s",
                         config_key, state.entity_id,
                     )
                     return state.entity_id
 
-        # 4. Final fallback: return config value or default (may be unavailable)
+        # 4. Generic suffix scan — handles prefixed entities (solaredge_i1_, etc.)
+        #    Extract suffix from default (e.g. "select.solaredge_storage_control_mode"
+        #    → suffix "storage_control_mode") and scan all matching entities
+        if default:
+            suffix = default.split("solaredge_", 1)[-1] if "solaredge_" in default else ""
+            if suffix:
+                domain = default.split(".")[0]
+                for state in self._hass.states.async_all(domain):
+                    if (state.entity_id.endswith(suffix)
+                            and "solaredge" in state.entity_id):
+                        _LOGGER.info(
+                            "SolarEdge: resolved %s via suffix scan -> %s",
+                            config_key, state.entity_id,
+                        )
+                        return state.entity_id
+
+        # 5. Final fallback: return config value or default (may be unavailable)
         return config_val or default or SOLAREDGE_ENTITY_DEFAULTS[config_key]
 
     async def _set_number(self, config_key: str, value: float) -> None:
