@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**EEG Energy Optimizer** (v0.7.0) — a Home Assistant custom integration for grid-friendly battery management, optimized for energy communities (Energiegemeinschaften / EEG) in the DACH region. It controls when a PV battery charges and discharges to maximize feed-in during EEG-relevant time windows (mornings and evenings).
+**EEG Energy Optimizer** (v0.7.5) — a Home Assistant custom integration for grid-friendly battery management, optimized for energy communities (Energiegemeinschaften / EEG) in the DACH region. It controls when a PV battery charges and discharges to maximize feed-in during EEG-relevant time windows (mornings and evenings).
 
 **Language**: Python (async, Home Assistant framework) + plain JS (panel)
 **Distribution**: HACS-compatible repository structure
@@ -131,6 +131,8 @@ Implementations:
 - **sun** — sunrise/sunset calculations
 - **http**, **frontend**, **websocket_api** — onboarding panel
 - **huawei_solar** (after_dependency) — Huawei inverter control
+- **solax_modbus** (after_dependency) — SolaX inverter control
+- **solaredge_modbus_multi** (after_dependency) — SolarEdge inverter control
 - **solcast_solar**, **forecast_solar** (after_dependency) — PV forecasts
 
 ## Key Domain Concepts
@@ -154,7 +156,7 @@ The config flow is a single-click setup that creates a config entry with `setup_
 6. Inverter connection test
 7. Live dashboard with energy flow, charts, manual controls, activity log
 
-Config entry version: 9 (migrations in `__init__.py`)
+Config entry version: 10 (migrations in `__init__.py`)
 
 ## Development Notes
 

@@ -447,7 +447,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         from homeassistant.helpers.storage import Store
         ACTIVITY_STORE_KEY = f"{DOMAIN}_{entry.entry_id}_activity"
         activity_store = Store(hass, 1, ACTIVITY_STORE_KEY)
-        activity_log = collections.deque(maxlen=2500)
+        activity_log = collections.deque(maxlen=5000)
         data["activity_log"] = activity_log
         activity_dirty = [False]
 

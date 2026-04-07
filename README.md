@@ -1,45 +1,45 @@
 # EEG Energy Optimizer
 
-HACS-compatible Home Assistant integration for predictive battery management, optimized for energy communities (Energiegemeinschaften / EEG) in the DACH region.
+HACS-kompatible Home Assistant Integration für vorausschauendes Batteriemanagement, optimiert für Energiegemeinschaften (EEG) im DACH-Raum.
 
-## Features
+## Funktionen
 
-- **Morning feed-in priority** — blocks battery charging so PV surplus feeds into the EEG grid
-- **Evening battery discharge** — discharges battery during peak community demand hours
-- **Dynamic Min-SOC** — automatically reserves enough battery for overnight household consumption
-- **PV forecast integration** — Solcast Solar and Forecast.Solar support with 7-day outlook
-- **Consumption profiling** — learns your hourly usage patterns per weekday from HA recorder data
-- **Live dashboard** — sidebar panel with energy flow diagram, charts, manual inverter controls, and activity log
-- **Guided setup wizard** — step-by-step onboarding with auto-detection of sensors
+- **Morgen-Einspeisung** — blockiert die Batterieladung, damit PV-Überschüsse ins EEG-Netz eingespeist werden
+- **Abend-Entladung** — entlädt die Batterie während der Spitzenverbrauchszeiten der Gemeinschaft
+- **Dynamischer Min-SOC** — reserviert automatisch genug Batterie für den Nachtverbrauch des Haushalts
+- **PV-Prognose** — Solcast Solar und Forecast.Solar Unterstützung mit 7-Tage-Ausblick
+- **Verbrauchsprofil** — lernt stündliche Verbrauchsmuster pro Wochentag aus den HA-Recorder-Daten
+- **Live-Dashboard** — Sidebar-Panel mit Energiefluss, Diagrammen, manueller Wechselrichtersteuerung und Aktivitätsprotokoll
+- **Einrichtungsassistent** — schrittweises Onboarding mit automatischer Sensorerkennung
 
-## Supported Inverters
+## Unterstützte Wechselrichter
 
-- **Huawei SUN2000** (via [Huawei Solar](https://github.com/wlcrs/huawei_solar) integration)
-- **SolarEdge StorEdge** (via [SolarEdge Modbus Multi](https://github.com/WillCodeForCats/solaredge-modbus-multi) integration)
-- **SolaX Gen4+** (via [SolaX Modbus](https://github.com/wills106/homeassistant-solax-modbus) integration)
+- **Huawei SUN2000** (via [Huawei Solar](https://github.com/wlcrs/huawei_solar) Integration)
+- **SolarEdge StorEdge** (via [SolarEdge Modbus Multi](https://github.com/WillCodeForCats/solaredge-modbus-multi) Integration)
+- **SolaX Gen4+** (via [SolaX Modbus](https://github.com/wills106/homeassistant-solax-modbus) Integration)
 
 ## Installation
 
-1. Open HACS in Home Assistant
-2. Click the three dots in the top right corner
-3. Select "Custom repositories"
-4. Add the repository URL and select "Integration" as the category
-5. Click "Add" and then install "EEG Energy Optimizer"
-6. Restart Home Assistant
+1. HACS in Home Assistant öffnen
+2. Oben rechts auf die drei Punkte klicken
+3. "Benutzerdefinierte Repositories" auswählen
+4. Repository-URL eingeben und als Kategorie "Integration" wählen
+5. "Hinzufügen" klicken und "EEG Energy Optimizer" installieren
+6. Home Assistant neu starten
 
-## Configuration
+## Konfiguration
 
-After installation, add the integration via:
+Nach der Installation die Integration hinzufügen:
 
-**Settings > Devices & Services > Add Integration > EEG Energy Optimizer**
+**Einstellungen > Geräte & Dienste > Integration hinzufügen > EEG Energy Optimizer**
 
-The sidebar panel (`/eeg-optimizer`) will guide you through:
-1. Prerequisite checks
-2. Inverter type selection + automatic sensor detection
-3. Battery & PV sensor mapping
-4. Forecast source selection (Solcast / Forecast.Solar)
-5. Optimizer settings (morning window, discharge time, min-SOC, safety buffer)
-6. Inverter connection test
+Das Sidebar-Panel (`/eeg-optimizer`) führt durch die Einrichtung:
+1. Voraussetzungsprüfung
+2. Wechselrichtertyp wählen + automatische Sensorerkennung
+3. Batterie- & PV-Sensoren zuordnen
+4. Prognosequelle wählen (Solcast / Forecast.Solar)
+5. Optimizer-Einstellungen (Morgenfenster, Entladezeit, Min-SOC, Sicherheitspuffer)
+6. Wechselrichter-Verbindungstest
 
 ## Funktionsweise
 
@@ -82,12 +82,12 @@ Der Stromverbrauch wird jeweils anhand des durchschnittlichen Verbrauchs desselb
 
 So wird sichergestellt, dass die Batterie am nächsten Tag wieder vollständig über PV geladen werden kann und der Haushalt versorgt ist.
 
-## Requirements
+## Voraussetzungen
 
-- Home Assistant 2025.1.0 or newer
-- A supported inverter integration installed and configured (Huawei Solar, SolaX Modbus, or SolarEdge Modbus Multi)
-- A PV forecast integration (Solcast Solar or Forecast.Solar)
+- Home Assistant 2025.1.0 oder neuer
+- Eine unterstützte Wechselrichter-Integration installiert und konfiguriert (Huawei Solar, SolaX Modbus oder SolarEdge Modbus Multi)
+- Eine PV-Prognose-Integration (Solcast Solar oder Forecast.Solar)
 
-## License
+## Lizenz
 
 MIT
