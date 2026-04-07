@@ -53,6 +53,8 @@ class SolarEdgeInverter(InverterBase):
 
     def __init__(self, hass: Any, config: dict) -> None:
         super().__init__(hass, config)
+        # Primary inverter prefix (e.g. "solaredge_i1_") for entity resolution
+        self._prefix = config.get("solaredge_prefix", "")
         self._original_control_mode: str | None = None
         self._original_discharge_limit: float | None = None
         self._snapshot_original_values()
@@ -84,13 +86,14 @@ class SolarEdgeInverter(InverterBase):
                         pass
 
     def _resolve_entity(self, config_key: str) -> str:
-        """Resolve entity ID from config, defaults, or suffix scan.
+        """Resolve entity ID from config, prefix, or suffix scan.
 
         Resolution order:
         1. Explicit config value (from panel detection/wizard)
-        2. Default entity ID (without inverter prefix)
-        3. Suffix variants (e.g. backup_reserve vs storage_backup_reserve)
-        4. Generic suffix scan (finds solaredge_i1_*, solaredge_i2_*, etc.)
+        2. Primary prefix + suffix (e.g. solaredge_i1_ + storage_control_mode)
+        3. Default entity ID (without inverter prefix)
+        4. Suffix variants (e.g. backup_reserve vs storage_backup_reserve)
+        5. Generic suffix scan (prefers available entities, skips unavailable)
         """
         # 1. Check explicit config value
         config_val = self._config.get(f"solaredge_{config_key}")
@@ -99,42 +102,52 @@ class SolarEdgeInverter(InverterBase):
             if state is not None:
                 return config_val
 
-        # 2. Check default (works for installations without prefix like solaredge_i1_)
+        # 2. Try primary prefix (detected inverter, e.g. solaredge_i1_)
         default = SOLAREDGE_ENTITY_DEFAULTS.get(config_key)
+        if self._prefix and default:
+            domain = default.split(".")[0]
+            suffix = default.split("solaredge_", 1)[-1] if "solaredge_" in default else ""
+            if suffix:
+                prefixed = f"{domain}.{self._prefix}{suffix}"
+                state = self._hass.states.get(prefixed)
+                if state is not None:
+                    return prefixed
+
+        # 3. Check default (works for installations without prefix)
         if default:
             state = self._hass.states.get(default)
             if state is not None:
                 return default
 
-        # 3. Try suffix variants (handles backup_reserve vs storage_backup_reserve)
+        # 4. Try suffix variants (handles backup_reserve vs storage_backup_reserve)
         variants = SOLAREDGE_SUFFIX_VARIANTS.get(config_key, [])
         for variant_suffix in variants:
             for state in self._hass.states.async_all():
                 if (state.entity_id.endswith(variant_suffix)
-                        and "solaredge" in state.entity_id):
+                        and "solaredge" in state.entity_id
+                        and state.state not in ("unavailable", "unknown")):
                     _LOGGER.debug(
                         "SolarEdge: resolved %s via variant suffix -> %s",
                         config_key, state.entity_id,
                     )
                     return state.entity_id
 
-        # 4. Generic suffix scan — handles prefixed entities (solaredge_i1_, etc.)
-        #    Extract suffix from default (e.g. "select.solaredge_storage_control_mode"
-        #    → suffix "storage_control_mode") and scan all matching entities
+        # 5. Generic suffix scan — skip unavailable entities
         if default:
             suffix = default.split("solaredge_", 1)[-1] if "solaredge_" in default else ""
             if suffix:
                 domain = default.split(".")[0]
                 for state in self._hass.states.async_all(domain):
                     if (state.entity_id.endswith(suffix)
-                            and "solaredge" in state.entity_id):
+                            and "solaredge" in state.entity_id
+                            and state.state not in ("unavailable", "unknown")):
                         _LOGGER.info(
                             "SolarEdge: resolved %s via suffix scan -> %s",
                             config_key, state.entity_id,
                         )
                         return state.entity_id
 
-        # 5. Final fallback: return config value or default (may be unavailable)
+        # 6. Final fallback: return config value or default (may be unavailable)
         return config_val or default or SOLAREDGE_ENTITY_DEFAULTS[config_key]
 
     async def _set_number(self, config_key: str, value: float) -> None:
