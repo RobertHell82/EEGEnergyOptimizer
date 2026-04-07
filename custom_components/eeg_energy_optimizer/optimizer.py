@@ -635,7 +635,7 @@ class EEGOptimizer:
         # Only applies between midnight and sunrise (hour < 12 as sanity check).
         past_midnight_in_window = (
             snap.now < discharge_start
-            and snap.now.hour < 12
+            and snap.now.hour < 8
             and snap.sunrise is not None
             and snap.now < snap.sunrise
         )
