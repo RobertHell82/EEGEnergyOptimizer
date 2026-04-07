@@ -280,7 +280,7 @@ async def async_backfill_hausverbrauch_stats(
             unit_of_measurement="kW",
         )
 
-        async_import_statistics(hass, metadata, statistics)
+        async_import_statistics(hass, metadata, statistics, mean_type="arithmetic")
 
         start_date = datetime.fromtimestamp(
             common_timestamps[0], tz=timezone.utc
