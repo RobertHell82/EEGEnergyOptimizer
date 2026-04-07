@@ -803,6 +803,15 @@ class EegOptimizerPanel extends HTMLElement {
         this._activityShowAll = !this._activityShowAll;
         this._render();
         break;
+      case "show-entity": {
+        const entityId = dataset.entity;
+        if (entityId) {
+          const event = new Event("hass-more-info", { composed: true, bubbles: true });
+          event.detail = { entityId };
+          this._shadow.host.dispatchEvent(event);
+        }
+        break;
+      }
       case "toggle-mode": {
         const modeState = this._readState(this._entityIds?.select || "select.eeg_energy_optimizer_optimizer");
         const currentMode = modeState ? modeState.state : "Test";
@@ -3243,6 +3252,13 @@ class EegOptimizerPanel extends HTMLElement {
     const gridColor = gridKw >= 0 ? "val-green" : "val-red";
     const socColor = socVal == null ? "" : socVal > 50 ? "val-green" : socVal >= 25 ? "val-orange" : "val-red";
 
+    // Entity IDs for clickable live values
+    const pvEntity = this._config?.pv_power_sensor || "";
+    const batEntity = this._config?.battery_power_sensor || "";
+    const gridEntity = this._config?.grid_power_sensor || "";
+    const socEntity = this._config?.battery_soc_sensor || "";
+    const hausEntity = "sensor.eeg_energy_optimizer_hausverbrauch";
+
     const fmtTime = (isoStr) => {
       if (!isoStr) return "---";
       try { return new Date(isoStr).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
@@ -3271,11 +3287,11 @@ class EegOptimizerPanel extends HTMLElement {
             Aktueller Status
           </h3>
           <div class="header-grid">
-            <div class="hlv"><span class="hlv-label">PV</span><span class="hlv-val val-green">${pvKw.toFixed(2)} kW</span></div>
-            <div class="hlv"><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${Math.abs(batKw).toFixed(2)} kW <small>(${batLabel})</small></span></div>
-            <div class="hlv"><span class="hlv-label">SOC</span><span class="hlv-val ${socColor}">${socText}%</span></div>
-            <div class="hlv"><span class="hlv-label">Netz</span><span class="hlv-val ${gridColor}">${Math.abs(gridKw).toFixed(2)} kW <small>(${gridLabel})</small></span></div>
-            <div class="hlv"><span class="hlv-label">Haus</span><span class="hlv-val val-blue">${hausKw.toFixed(2)} kW</span></div>
+            <div class="hlv${pvEntity ? " hlv-clickable" : ""}" ${pvEntity ? `data-action="show-entity" data-entity="${pvEntity}"` : ""}><span class="hlv-label">PV</span><span class="hlv-val val-green">${pvKw.toFixed(2)} kW</span></div>
+            <div class="hlv${batEntity ? " hlv-clickable" : ""}" ${batEntity ? `data-action="show-entity" data-entity="${batEntity}"` : ""}><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${Math.abs(batKw).toFixed(2)} kW <small>(${batLabel})</small></span></div>
+            <div class="hlv${socEntity ? " hlv-clickable" : ""}" ${socEntity ? `data-action="show-entity" data-entity="${socEntity}"` : ""}><span class="hlv-label">SOC</span><span class="hlv-val ${socColor}">${socText}%</span></div>
+            <div class="hlv${gridEntity ? " hlv-clickable" : ""}" ${gridEntity ? `data-action="show-entity" data-entity="${gridEntity}"` : ""}><span class="hlv-label">Netz</span><span class="hlv-val ${gridColor}">${Math.abs(gridKw).toFixed(2)} kW <small>(${gridLabel})</small></span></div>
+            <div class="hlv hlv-clickable" data-action="show-entity" data-entity="${hausEntity}"><span class="hlv-label">Haus</span><span class="hlv-val val-blue">${hausKw.toFixed(2)} kW</span></div>
             <div class="hlv header-toggle-cell">
               <div class="mode-toggle ${modeToggleClass}" data-action="toggle-mode">
                 <div class="toggle-knob"></div>
@@ -3837,6 +3853,8 @@ class EegOptimizerPanel extends HTMLElement {
         .header-card { padding: 16px; }
         .header-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
         .hlv { display: flex; flex-direction: column; gap: 2px; }
+        .hlv-clickable { cursor: pointer; border-radius: 8px; padding: 4px 6px; margin: -4px -6px; transition: background 0.15s; }
+        .hlv-clickable:hover { background: var(--secondary-background-color, rgba(0,0,0,0.05)); }
         .hlv-label { font-size: 11px; color: var(--secondary-text-color, #999); text-transform: uppercase; letter-spacing: 0.5px; }
         .hlv-val { font-size: 15px; font-weight: 600; }
         .hlv-val small { font-weight: 400; font-size: 12px; opacity: 0.7; }
