@@ -566,8 +566,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _async_update_listener(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> None:
-    """Handle config entry update."""
-    await hass.config_entries.async_reload(entry.entry_id)
+    """Handle config entry update — hot-reload optimizer without full restart."""
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if not data:
+        return
+
+    config = {**entry.data, **entry.options}
+    data["config"] = config
+
+    optimizer = data.get("optimizer")
+    if optimizer:
+        # Re-create optimizer with updated config
+        inverter = data.get("inverter")
+        coordinator = data.get("coordinator")
+        provider = data.get("provider")
+        if inverter and coordinator and provider:
+            new_optimizer = EEGOptimizer(
+                hass, entry.entry_id, config, inverter, coordinator, provider
+            )
+            # Preserve previous state for deduplication
+            new_optimizer._prev_zustand = optimizer._prev_zustand
+            data["optimizer"] = new_optimizer
+            _LOGGER.info("EEG Optimizer: Config hot-reloaded")
 
 
 async def async_unload_entry(
