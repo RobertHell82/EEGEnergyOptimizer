@@ -802,31 +802,13 @@ class EEGOptimizer:
         """Execute inverter commands based on decision.
 
         Only called when decision.ausführung is True.
-        Repeat behavior per inverter type:
-        - Huawei: only on state change (commands persist indefinitely)
-        - SolaX: every cycle / 30s (commands expire via autorepeat)
-        - SolarEdge: every 10min (commands expire via storage_command_timeout)
+        Deduplicates: only sends commands on state change, except:
+        - SolaX: resends every cycle (commands expire via autorepeat)
+        - SolarEdge: sets command_timeout high to avoid flash wear
         """
         is_active_state = decision.zustand in (STATE_MORGEN_EINSPEISUNG, STATE_ABEND_ENTLADUNG)
         inv_type = self._config.get("inverter_type", "")
-
-        if inv_type == "solax_gen4":
-            needs_repeat = is_active_state  # every 30s cycle
-        elif inv_type == "solaredge_storedge":
-            # Repeat every 10min (20 cycles × 30s) to prevent command timeout
-            self._solaredge_repeat_counter = getattr(self, "_solaredge_repeat_counter", 0)
-            if decision.zustand != self._prev_zustand:
-                self._solaredge_repeat_counter = 0
-                needs_repeat = False  # will execute below as state change
-            elif is_active_state:
-                self._solaredge_repeat_counter += 1
-                needs_repeat = self._solaredge_repeat_counter >= 20  # 20 × 30s = 10min
-                if needs_repeat:
-                    self._solaredge_repeat_counter = 0
-            else:
-                needs_repeat = False
-        else:
-            needs_repeat = False  # Huawei: only on state change
+        needs_repeat = inv_type == "solax_gen4" and is_active_state
 
         if decision.zustand == self._prev_zustand and not needs_repeat:
             return

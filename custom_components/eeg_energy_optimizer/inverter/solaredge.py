@@ -30,7 +30,14 @@ SOLAREDGE_ENTITY_DEFAULTS = {
     "storage_charge_limit": "number.solaredge_storage_charge_limit",
     "storage_discharge_limit": "number.solaredge_storage_discharge_limit",
     "storage_backup_reserve": "number.solaredge_storage_backup_reserve",
+    "storage_command_timeout": "number.solaredge_storage_command_timeout",
 }
+
+# Command timeout in seconds — set high enough to cover the longest
+# possible discharge/charge-blocking window. Prevents the inverter from
+# reverting to default mode mid-operation. Avoids periodic re-sends
+# that would wear out the flash memory (NVRAM).
+COMMAND_TIMEOUT_SECONDS = 14400  # 4 hours
 
 # Suffix variants for entities with inconsistent naming (tried in order)
 SOLAREDGE_SUFFIX_VARIANTS: dict[str, list[str]] = {
@@ -57,6 +64,7 @@ class SolarEdgeInverter(InverterBase):
         self._prefix = config.get("solaredge_prefix", "")
         self._original_control_mode: str | None = None
         self._original_discharge_limit: float | None = None
+        self._original_command_timeout: float | None = None
         self._snapshot_original_values()
 
     def _snapshot_original_values(self) -> None:
@@ -67,9 +75,10 @@ class SolarEdgeInverter(InverterBase):
         if state and state.state not in ("unavailable", "unknown"):
             self._original_control_mode = state.state
 
-        # discharge_limit — prefer 'max' attribute (hardware maximum)
+        # discharge_limit and command_timeout — prefer 'max' attribute for discharge
         for key, attr in [
             ("storage_discharge_limit", "_original_discharge_limit"),
+            ("storage_command_timeout", "_original_command_timeout"),
         ]:
             entity_id = self._resolve_entity(key)
             state = self._hass.states.get(entity_id)
@@ -211,7 +220,8 @@ class SolarEdgeInverter(InverterBase):
 
         Must be called before any storage_command_mode or limit changes —
         those entities are unavailable unless control mode is Remote Control.
-        After switching, waits for command entities to become available.
+        After switching, waits for command entities to become available,
+        then sets command_timeout high enough to cover the full operation.
         """
         entity_id = self._resolve_entity("storage_control_mode")
         state = self._hass.states.get(entity_id)
@@ -221,6 +231,13 @@ class SolarEdgeInverter(InverterBase):
         await self._set_select("storage_control_mode", CONTROL_MODE_REMOTE)
         # Command entities need time to become available after mode switch
         await self._wait_for_available("storage_command_mode")
+        # Set command timeout high to avoid mid-operation revert (reduces flash wear)
+        try:
+            await self._wait_for_available("storage_command_timeout")
+            await self._set_number("storage_command_timeout", COMMAND_TIMEOUT_SECONDS)
+            await asyncio.sleep(2)
+        except Exception:
+            _LOGGER.warning("SolarEdge: could not set command_timeout (non-critical)")
 
     async def async_set_charge_limit(self, power_kw: float) -> bool:
         """Block or limit battery charging.
@@ -293,6 +310,11 @@ class SolarEdgeInverter(InverterBase):
             if self._original_discharge_limit is not None:
                 await self._set_number(
                     "storage_discharge_limit", self._original_discharge_limit
+                )
+                await asyncio.sleep(2)
+            if self._original_command_timeout is not None:
+                await self._set_number(
+                    "storage_command_timeout", self._original_command_timeout
                 )
                 await asyncio.sleep(2)
             await self._set_select(
