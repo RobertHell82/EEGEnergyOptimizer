@@ -64,7 +64,7 @@ class SolarEdgeInverter(InverterBase):
         self._prefix = config.get("solaredge_prefix", "")
         self._original_control_mode: str | None = None
         self._original_discharge_limit: float | None = None
-        self._original_command_timeout: float | None = None
+        self._timeout_set = False
         self._snapshot_original_values()
 
     def _snapshot_original_values(self) -> None:
@@ -75,10 +75,9 @@ class SolarEdgeInverter(InverterBase):
         if state and state.state not in ("unavailable", "unknown"):
             self._original_control_mode = state.state
 
-        # discharge_limit and command_timeout — prefer 'max' attribute for discharge
+        # discharge_limit — prefer 'max' attribute (hardware maximum)
         for key, attr in [
             ("storage_discharge_limit", "_original_discharge_limit"),
-            ("storage_command_timeout", "_original_command_timeout"),
         ]:
             entity_id = self._resolve_entity(key)
             state = self._hass.states.get(entity_id)
@@ -221,6 +220,7 @@ class SolarEdgeInverter(InverterBase):
         Must be called before any storage_command_mode or limit changes —
         those entities are unavailable unless control mode is Remote Control.
         After switching, waits for command entities to become available.
+        On first activation, sets command_timeout to 4h (once per integration lifetime).
         """
         entity_id = self._resolve_entity("storage_control_mode")
         state = self._hass.states.get(entity_id)
@@ -231,6 +231,15 @@ class SolarEdgeInverter(InverterBase):
         # Command entities need time to become available after mode switch
         await self._wait_for_available("storage_command_mode")
         await asyncio.sleep(3)
+        # Set command timeout once — persists in NVRAM, no need to repeat or restore
+        if not self._timeout_set:
+            try:
+                await self._wait_for_available("storage_command_timeout")
+                await self._set_number("storage_command_timeout", COMMAND_TIMEOUT_SECONDS)
+                self._timeout_set = True
+                await asyncio.sleep(3)
+            except Exception:
+                _LOGGER.warning("SolarEdge: could not set command_timeout (non-critical)")
 
     async def async_set_charge_limit(self, power_kw: float) -> bool:
         """Block or limit battery charging.
@@ -241,15 +250,11 @@ class SolarEdgeInverter(InverterBase):
         power_kw>0: Set storage_charge_limit to given power.
 
         Sequence (3s delay between each Modbus write):
-        1. storage_control_mode → "Remote Control" (enables command entities)
-        2. storage_command_timeout → 14400s (prevents mid-operation revert)
-        3. storage_command_mode → "Charge from Clipped Solar Power"
+        1. storage_control_mode → "Remote Control" + command_timeout (once)
+        2. storage_command_mode → "Charge from Clipped Solar Power"
         """
         try:
             await self._ensure_remote_control()
-            await self._wait_for_available("storage_command_timeout")
-            await self._set_number("storage_command_timeout", COMMAND_TIMEOUT_SECONDS)
-            await asyncio.sleep(3)
             if power_kw == 0:
                 await self._set_select(
                     "storage_command_mode", MODE_CHARGE_FROM_CLIPPED
@@ -273,16 +278,12 @@ class SolarEdgeInverter(InverterBase):
         stays at the user's configured default.
 
         Sequence (3s delay between each Modbus write):
-        1. storage_control_mode → "Remote Control" (enables command entities)
-        2. storage_command_timeout → 14400s (prevents mid-operation revert)
-        3. storage_discharge_limit → power in Watts
-        4. storage_command_mode → "Discharge to Maximize Export"
+        1. storage_control_mode → "Remote Control" + command_timeout (once)
+        2. storage_discharge_limit → power in Watts
+        3. storage_command_mode → "Discharge to Maximize Export"
         """
         try:
             await self._ensure_remote_control()
-            await self._wait_for_available("storage_command_timeout")
-            await self._set_number("storage_command_timeout", COMMAND_TIMEOUT_SECONDS)
-            await asyncio.sleep(3)
             await self._wait_for_available("storage_discharge_limit")
             power_w = int(power_kw * 1000)
             await self._set_number("storage_discharge_limit", power_w)
@@ -311,11 +312,6 @@ class SolarEdgeInverter(InverterBase):
             if self._original_discharge_limit is not None:
                 await self._set_number(
                     "storage_discharge_limit", self._original_discharge_limit
-                )
-                await asyncio.sleep(3)
-            if self._original_command_timeout is not None:
-                await self._set_number(
-                    "storage_command_timeout", self._original_command_timeout
                 )
                 await asyncio.sleep(3)
             await self._set_select(
