@@ -15,7 +15,7 @@ HACS-kompatible Home Assistant Integration für vorausschauendes Batteriemanagem
 ## Unterstützte Wechselrichter
 
 - **Huawei SUN2000** (via [Huawei Solar](https://github.com/wlcrs/huawei_solar) Integration)
-- **SolarEdge StorEdge** (via [SolarEdge Modbus Multi](https://github.com/WillCodeForCats/solaredge-modbus-multi) Integration)
+- **SolarEdge StorEdge** (via [SolarEdge Modbus Multi](https://github.com/WillCodeForCats/solaredge-modbus-multi) Integration) — max. 2 Wechselrichter
 - **SolaX Gen4+** (via [SolaX Modbus](https://github.com/wills106/homeassistant-solax-modbus) Integration)
 
 ## Installation

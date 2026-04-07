@@ -239,6 +239,7 @@ class SolarEdgeInverter(InverterBase):
             await self._wait_for_available("storage_discharge_limit")
             power_w = int(power_kw * 1000)
             await self._set_number("storage_discharge_limit", power_w)
+            await asyncio.sleep(2)
             await self._set_select(
                 "storage_command_mode", MODE_DISCHARGE_EXPORT
             )
@@ -252,20 +253,23 @@ class SolarEdgeInverter(InverterBase):
 
         Always restores the same three values regardless of which command
         was active. Critical for SolarEdge: commands persist in NVRAM.
+        Each step needs a delay for the inverter to process via Modbus.
 
-        Sequence:
-        1. storage_command_mode → "Maximize Self Consumption"
-        2. storage_discharge_limit → original (hardware max)
-        3. storage_control_mode → original (exit Remote Control)
+        Sequence (with delays between each step):
+        1. storage_discharge_limit → original (hardware max)
+        2. storage_command_mode → "Maximize Self Consumption"
+        3. storage_control_mode → original (exit Remote Control) — MUST be last
         """
         try:
-            await self._set_select(
-                "storage_command_mode", MODE_SELF_CONSUMPTION
-            )
             if self._original_discharge_limit is not None:
                 await self._set_number(
                     "storage_discharge_limit", self._original_discharge_limit
                 )
+                await asyncio.sleep(2)
+            await self._set_select(
+                "storage_command_mode", MODE_SELF_CONSUMPTION
+            )
+            await asyncio.sleep(2)
             restore_mode = self._original_control_mode or CONTROL_MODE_SELF_CONSUMPTION
             await self._set_select("storage_control_mode", restore_mode)
             return True
