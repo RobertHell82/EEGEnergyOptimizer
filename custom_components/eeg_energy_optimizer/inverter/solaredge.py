@@ -220,8 +220,7 @@ class SolarEdgeInverter(InverterBase):
 
         Must be called before any storage_command_mode or limit changes —
         those entities are unavailable unless control mode is Remote Control.
-        After switching, waits for command entities to become available,
-        then sets command_timeout high enough to cover the full operation.
+        After switching, waits for command entities to become available.
         """
         entity_id = self._resolve_entity("storage_control_mode")
         state = self._hass.states.get(entity_id)
@@ -231,13 +230,7 @@ class SolarEdgeInverter(InverterBase):
         await self._set_select("storage_control_mode", CONTROL_MODE_REMOTE)
         # Command entities need time to become available after mode switch
         await self._wait_for_available("storage_command_mode")
-        # Set command timeout high to avoid mid-operation revert (reduces flash wear)
-        try:
-            await self._wait_for_available("storage_command_timeout")
-            await self._set_number("storage_command_timeout", COMMAND_TIMEOUT_SECONDS)
-            await asyncio.sleep(2)
-        except Exception:
-            _LOGGER.warning("SolarEdge: could not set command_timeout (non-critical)")
+        await asyncio.sleep(3)
 
     async def async_set_charge_limit(self, power_kw: float) -> bool:
         """Block or limit battery charging.
@@ -247,12 +240,16 @@ class SolarEdgeInverter(InverterBase):
                     Battery only charges from clipped solar (inverter at power limit).
         power_kw>0: Set storage_charge_limit to given power.
 
-        Sequence:
+        Sequence (3s delay between each Modbus write):
         1. storage_control_mode → "Remote Control" (enables command entities)
-        2. storage_command_mode → "Charge from Clipped Solar Power"
+        2. storage_command_timeout → 14400s (prevents mid-operation revert)
+        3. storage_command_mode → "Charge from Clipped Solar Power"
         """
         try:
             await self._ensure_remote_control()
+            await self._wait_for_available("storage_command_timeout")
+            await self._set_number("storage_command_timeout", COMMAND_TIMEOUT_SECONDS)
+            await asyncio.sleep(3)
             if power_kw == 0:
                 await self._set_select(
                     "storage_command_mode", MODE_CHARGE_FROM_CLIPPED
@@ -275,17 +272,21 @@ class SolarEdgeInverter(InverterBase):
         and stops calling discharge when SOC is reached. backup_reserve
         stays at the user's configured default.
 
-        Sequence:
+        Sequence (3s delay between each Modbus write):
         1. storage_control_mode → "Remote Control" (enables command entities)
-        2. storage_discharge_limit → power in Watts
-        3. storage_command_mode → "Discharge to Maximize Export"
+        2. storage_command_timeout → 14400s (prevents mid-operation revert)
+        3. storage_discharge_limit → power in Watts
+        4. storage_command_mode → "Discharge to Maximize Export"
         """
         try:
             await self._ensure_remote_control()
+            await self._wait_for_available("storage_command_timeout")
+            await self._set_number("storage_command_timeout", COMMAND_TIMEOUT_SECONDS)
+            await asyncio.sleep(3)
             await self._wait_for_available("storage_discharge_limit")
             power_w = int(power_kw * 1000)
             await self._set_number("storage_discharge_limit", power_w)
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
             await self._set_select(
                 "storage_command_mode", MODE_DISCHARGE_EXPORT
             )
@@ -311,16 +312,16 @@ class SolarEdgeInverter(InverterBase):
                 await self._set_number(
                     "storage_discharge_limit", self._original_discharge_limit
                 )
-                await asyncio.sleep(2)
+                await asyncio.sleep(3)
             if self._original_command_timeout is not None:
                 await self._set_number(
                     "storage_command_timeout", self._original_command_timeout
                 )
-                await asyncio.sleep(2)
+                await asyncio.sleep(3)
             await self._set_select(
                 "storage_command_mode", MODE_SELF_CONSUMPTION
             )
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
             restore_mode = self._original_control_mode or CONTROL_MODE_SELF_CONSUMPTION
             await self._set_select("storage_control_mode", restore_mode)
             return True
