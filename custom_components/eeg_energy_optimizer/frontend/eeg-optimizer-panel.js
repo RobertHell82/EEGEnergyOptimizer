@@ -1394,6 +1394,21 @@ class EegOptimizerPanel extends HTMLElement {
             }
           }
         }
+        // SolarEdge control entity detection
+        if (this._detectedSensors.solaredge_prefix) {
+          const solaredgeKeys = [
+            "solaredge_storage_control_mode",
+            "solaredge_storage_command_mode",
+            "solaredge_storage_charge_limit",
+            "solaredge_storage_discharge_limit",
+            "solaredge_storage_backup_reserve",
+          ];
+          for (const key of solaredgeKeys) {
+            if (this._detectedSensors[key] && !this._wizardData[key]) {
+              this._wizardData[key] = this._detectedSensors[key];
+            }
+          }
+        }
       }
     } catch (err) {
       console.error("Failed to detect sensors:", err);
