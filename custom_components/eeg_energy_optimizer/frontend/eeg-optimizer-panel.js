@@ -497,17 +497,10 @@ window.addEventListener("unhandledrejection", (e) => {
       msg.includes("asynchronous response")) {
     e.preventDefault();
     if (msg.includes("Transition")) {
-      console.warn("EEG [DIAG] suppressed Transition error:", msg);
       // Force panel recovery after View Transition failure
       const panel = document.querySelector("eeg-optimizer-panel");
       if (panel && panel._initialized && panel._shadow) {
-        const hasContent = panel._shadow.querySelector(".content");
-        console.warn("EEG [DIAG] panel state: initialized=" + panel._initialized +
-          " hasContent=" + !!hasContent +
-          " childNodes=" + panel._shadow.childNodes.length +
-          " isConnected=" + panel.isConnected);
-        if (!hasContent) {
-          console.warn("EEG [DIAG] → triggering recovery render");
+        if (!panel._shadow.querySelector(".content")) {
           panel._render();
         }
       }
@@ -1472,15 +1465,7 @@ class EegOptimizerPanel extends HTMLElement {
     // Recover from blank panel (View Transition may wipe or corrupt shadow DOM)
     // Check for the .content div — every successful render produces one.
     if (this._initialized && this._shadow) {
-      const hasContent = this._shadow.querySelector(".content");
-      if (!hasContent) {
-        const nodes = Array.from(this._shadow.childNodes).map(n =>
-          n.nodeType === 1 ? "<" + n.tagName.toLowerCase() + (n.className ? "." + n.className.split(" ")[0] : "") + ">" : "#text"
-        );
-        console.warn("EEG [DIAG] content missing! isConnected=" + this.isConnected +
-          " childNodes=" + this._shadow.childNodes.length +
-          " nodes=" + JSON.stringify(nodes) +
-          " innerHTML.length=" + (this._shadow.innerHTML || "").length);
+      if (!this._shadow.querySelector(".content")) {
         this._render();
         return;
       }
@@ -3516,9 +3501,6 @@ class EegOptimizerPanel extends HTMLElement {
     try {
       this._renderInner();
       // Verify render succeeded
-      if (this._initialized && this._shadow && !this._shadow.querySelector(".content")) {
-        console.error("EEG [DIAG] render completed but .content still missing!");
-      }
     } catch (outerErr) {
       console.error("EEG Optimizer fatal render error:", outerErr);
       try {
@@ -3965,10 +3947,6 @@ class EegOptimizerPanel extends HTMLElement {
   connectedCallback() {
     this._disconnectedAt = null;
     window.__eegPanelConnected = true;
-    console.warn("EEG [DIAG] connectedCallback fired, initialized=" + this._initialized +
-      " hasHass=" + !!this._hass +
-      " childNodes=" + (this._shadow ? this._shadow.childNodes.length : "?") +
-      " hasContent=" + !!(this._shadow && this._shadow.querySelector(".content")));
     // Re-register visibilitychange listener (disconnectedCallback removes it)
     if (this._onVisibilityChange) {
       document.addEventListener("visibilitychange", this._onVisibilityChange);
