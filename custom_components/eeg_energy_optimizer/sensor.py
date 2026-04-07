@@ -583,7 +583,8 @@ class PVLeistungSensor(SensorEntity):
     """Total PV production from all inverters, normalized to real PV output.
 
     Sums pv_power_sensor + optional pv_power_sensor_2 and applies the
-    pv_includes_battery correction (SolarEdge: ac_power includes battery).
+    pv_includes_battery correction per inverter (SolarEdge: ac_power includes
+    battery discharge, so we must subtract each inverter's battery to get real PV).
     Result clamped to >= 0.
     """
 
@@ -603,6 +604,13 @@ class PVLeistungSensor(SensorEntity):
         inv_type = config.get(CONF_INVERTER_TYPE, "")
         signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
         self._pv_includes_battery = signs.get("pv_includes_battery", False)
+        # For multi-inverter SolarEdge: derive second battery from second PV prefix
+        # e.g. sensor.solaredge_i2_ac_power → sensor.solaredge_i2_b1_dc_power
+        self._battery_2_sensor_id = ""
+        if self._pv_includes_battery and self._pv_sensor_2_id:
+            self._battery_2_sensor_id = self._pv_sensor_2_id.replace(
+                "ac_power", "b1_dc_power"
+            )
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_pv_leistung"
         self._attr_device_info = _device_info(entry.entry_id)
         self._attr_native_value: float | None = None
@@ -617,10 +625,15 @@ class PVLeistungSensor(SensorEntity):
             if pv2 is not None:
                 pv += pv2
 
+        # pv_includes_battery: correct each inverter's ac_power by its battery
         if self._pv_includes_battery:
             bat = _read_power_kw(self.hass, self._battery_power_sensor_id)
             if bat is not None:
                 pv += bat
+            if self._battery_2_sensor_id:
+                bat2 = _read_power_kw(self.hass, self._battery_2_sensor_id)
+                if bat2 is not None:
+                    pv += bat2
 
         self._attr_native_value = round(max(pv, 0.0), 3)
 
@@ -667,10 +680,11 @@ class NetzleistungSensor(SensorEntity):
 # ---------------------------------------------------------------------------
 
 class BatterieleistungSensor(SensorEntity):
-    """Normalized battery power: positive = charging, negative = discharging.
+    """Normalized total battery power: positive = charging, negative = discharging.
 
-    Reads battery_power_sensor and applies the inverter-specific battery_sign
-    convention so the value is always: positive = charging, negative = discharging.
+    Sums battery power from all inverters and applies the inverter-specific
+    battery_sign convention. For multi-inverter SolarEdge, the second battery
+    is derived from the second PV sensor prefix.
     """
 
     _attr_has_entity_name = True
@@ -687,6 +701,11 @@ class BatterieleistungSensor(SensorEntity):
         inv_type = config.get(CONF_INVERTER_TYPE, "")
         signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
         self._battery_sign = signs.get("battery_sign", 1)
+        # Derive second battery from second PV sensor prefix (multi-inverter)
+        pv2_id = config.get(CONF_PV_POWER_SENSOR_2, "")
+        self._battery_2_sensor_id = ""
+        if pv2_id and "ac_power" in pv2_id:
+            self._battery_2_sensor_id = pv2_id.replace("ac_power", "b1_dc_power")
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_batterieleistung"
         self._attr_device_info = _device_info(entry.entry_id)
         self._attr_native_value: float | None = None
@@ -696,7 +715,12 @@ class BatterieleistungSensor(SensorEntity):
         if bat is None:
             self._attr_native_value = None
             return
-        self._attr_native_value = round(bat * self._battery_sign, 3)
+        total = bat * self._battery_sign
+        if self._battery_2_sensor_id:
+            bat2 = _read_power_kw(self.hass, self._battery_2_sensor_id)
+            if bat2 is not None:
+                total += bat2 * self._battery_sign
+        self._attr_native_value = round(total, 3)
 
 
 # ---------------------------------------------------------------------------
