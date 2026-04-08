@@ -871,6 +871,11 @@ class EegOptimizerPanel extends HTMLElement {
         const invValue = dataset?.value;
         if (invValue && invValue !== this._wizardData.inverter_type) {
           this._wizardData.inverter_type = invValue;
+          // SolarEdge: enforce minimum discharge power of 4 kW
+          if (invValue === "solaredge_storedge") {
+            const cur = parseFloat(this._wizardData.discharge_power_kw) || 3.0;
+            if (cur < 4.0) this._wizardData.discharge_power_kw = 4.0;
+          }
           // Clear sensor fields so auto-detection can re-fill them
           const sensorKeys = [
             "pv_power_sensor", "battery_power_sensor", "grid_power_sensor",
@@ -2253,8 +2258,8 @@ class EegOptimizerPanel extends HTMLElement {
           <label>Entladeleistung (kW)</label>
           <input type="number" data-field="discharge_power_kw"
                  value="${this._wizardData.discharge_power_kw}"
-                 min="0.5" max="10.0" step="0.5">
-          <div class="help-text">Leistung der Batterieentladung ins Netz.</div>
+                 min="${this._wizardData.inverter_type === "solaredge_storedge" ? "4.0" : "0.5"}" max="10.0" step="0.5">
+          <div class="help-text">Leistung der Batterieentladung ins Netz.${this._wizardData.inverter_type === "solaredge_storedge" ? " Bei SolarEdge min. 4 kW." : ""}</div>
         </div>
         <div class="field-group">
           <label>Minimaler Ladezustand (%)</label>
@@ -2450,8 +2455,8 @@ class EegOptimizerPanel extends HTMLElement {
           <label>Entladeleistung (kW)</label>
           <input type="number" data-field="settings_discharge_power_kw"
                  value="${d.discharge_power_kw || 3.0}"
-                 min="0.5" max="10.0" step="0.5">
-          <div class="help-text">Leistung der Batterieentladung ins Netz.</div>
+                 min="${d.inverter_type === "solaredge_storedge" ? "4.0" : "0.5"}" max="10.0" step="0.5">
+          <div class="help-text">Leistung der Batterieentladung ins Netz.${d.inverter_type === "solaredge_storedge" ? " Bei SolarEdge min. 4 kW." : ""}</div>
         </div>
         <div class="field-group">
           <label>Minimaler Ladezustand (%)</label>

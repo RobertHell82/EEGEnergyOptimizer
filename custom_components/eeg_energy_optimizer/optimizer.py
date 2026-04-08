@@ -21,6 +21,8 @@ from .const import (
     CONF_DISCHARGE_START_TIME,
     CONF_ENABLE_MORNING_DELAY,
     CONF_ENABLE_NIGHT_DISCHARGE,
+    CONF_GRID_POWER_SENSOR,
+    CONF_INVERTER_TYPE,
     CONF_MIN_SOC,
     CONF_MORNING_END_TIME,
     CONF_SAFETY_BUFFER_PCT,
@@ -29,6 +31,7 @@ from .const import (
     DEFAULT_MIN_SOC,
     DEFAULT_MORNING_END_TIME,
     DEFAULT_SAFETY_BUFFER_PCT,
+    INVERTER_SIGN_CONVENTIONS,
     MODE_EIN,
     MODE_TEST,
     STATE_ABEND_ENTLADUNG,
@@ -169,6 +172,14 @@ class EEGOptimizer:
         self._discharge_power_kw = config.get(
             CONF_DISCHARGE_POWER_KW, DEFAULT_DISCHARGE_POWER_KW
         )
+        # SolarEdge: enforce minimum discharge power of 4 kW
+        inv_type_cfg = config.get(CONF_INVERTER_TYPE, "")
+        if inv_type_cfg == "solaredge_storedge" and self._discharge_power_kw < 4.0:
+            _LOGGER.warning(
+                "SolarEdge: Entladeleistung %.1f kW unter Minimum 4 kW — auf 4 kW angehoben",
+                self._discharge_power_kw,
+            )
+            self._discharge_power_kw = 4.0
         self._min_soc = config.get(CONF_MIN_SOC, DEFAULT_MIN_SOC)
         self._safety_buffer_pct = config.get(
             CONF_SAFETY_BUFFER_PCT, DEFAULT_SAFETY_BUFFER_PCT
@@ -179,6 +190,16 @@ class EEGOptimizer:
         # Inverter deduplication
         self._prev_zustand: str | None = None
         self._last_decision: Decision | None = None
+
+        # Grid import watchdog during discharge
+        # If grid import > 1 kW persists for > 5 minutes, abort discharge for the day
+        self._grid_import_since: datetime | None = None
+        self._discharge_aborted_date: str | None = None  # ISO date "YYYY-MM-DD"
+
+        # Grid sensor for watchdog
+        self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, "")
+        inv_type = config.get(CONF_INVERTER_TYPE, "")
+        self._grid_sign = INVERTER_SIGN_CONVENTIONS.get(inv_type, {}).get("grid_sign", 1)
 
     # ------------------------------------------------------------------
     # Snapshot gathering
@@ -663,6 +684,11 @@ class EEGOptimizer:
                 f"PV-Prognose morgen ({pv_tomorrow:.1f} kWh) < Bedarf ({tomorrow_demand:.1f} kWh)"
             )
 
+        # Grid import watchdog: if discharge was aborted today, block it
+        today_str = snap.now.strftime("%Y-%m-%d")
+        if self._discharge_aborted_date == today_str:
+            reasons.append("Entladung heute wegen Netzbezug abgebrochen")
+
         return (len(reasons) == 0, min_soc, reasons)
 
     def _evaluate(self, snap: Snapshot, mode: str) -> Decision:
@@ -828,17 +854,86 @@ class EEGOptimizer:
         except Exception:
             _LOGGER.exception("Inverter command failed for state %s", decision.zustand)
 
+    def _check_grid_import_watchdog(self, decision: Decision, snap: Snapshot) -> Decision:
+        """Check for sustained grid import during discharge and abort if needed.
+
+        During active discharge, monitors the grid power sensor. If grid import
+        exceeds 1 kW for more than 5 consecutive minutes, the discharge is
+        aborted for the rest of the day to prevent wasteful grid import.
+
+        Returns the (possibly modified) decision.
+        """
+        now = snap.now
+
+        # Only monitor during active discharge
+        if decision.zustand != STATE_ABEND_ENTLADUNG:
+            self._grid_import_since = None
+            return decision
+
+        # Read grid power (normalized: positive = export, negative = import)
+        grid_raw = _read_float(self._hass, self._grid_sensor_id)
+        if grid_raw is None:
+            self._grid_import_since = None
+            return decision
+        grid_kw = grid_raw * self._grid_sign
+        # _read_float returns raw value; normalize with _grid_sign
+        # grid_kw > 0 = export, < 0 = import
+        # Check unit — if sensor reports W, convert
+        state = self._hass.states.get(self._grid_sensor_id)
+        if state:
+            unit = (state.attributes.get("unit_of_measurement") or "").strip()
+            if unit == "W":
+                grid_kw = grid_kw / 1000.0
+
+        # grid_kw < -1.0 means importing > 1 kW from grid
+        if grid_kw < -1.0:
+            if self._grid_import_since is None:
+                self._grid_import_since = now
+                _LOGGER.warning(
+                    "Netzbezug-Watchdog: Netzbezug %.1f kW während Entladung erkannt, Timer gestartet",
+                    abs(grid_kw),
+                )
+            elif (now - self._grid_import_since).total_seconds() >= 300:
+                # 5 minutes of sustained grid import — abort discharge for today
+                self._discharge_aborted_date = now.strftime("%Y-%m-%d")
+                self._grid_import_since = None
+                _LOGGER.error(
+                    "Netzbezug-Watchdog: Netzbezug > 1 kW seit > 5 Min — "
+                    "Entladung für heute (%s) abgebrochen",
+                    self._discharge_aborted_date,
+                )
+                # Override decision to Normal
+                decision.zustand = STATE_NORMAL
+                decision.entladung_aktiv = False
+                decision.entladeleistung_kw = 0.0
+                decision.nächste_aktion = "Entladung abgebrochen (Netzbezug)"
+                decision.discharge_reasons.append(
+                    "Entladung heute wegen Netzbezug > 1 kW für > 5 Min abgebrochen"
+                )
+        else:
+            # Grid import below threshold — reset timer
+            if self._grid_import_since is not None:
+                _LOGGER.info("Netzbezug-Watchdog: Netzbezug unter 1 kW, Timer zurückgesetzt")
+            self._grid_import_since = None
+
+        return decision
+
     async def async_run_cycle(self, mode: str) -> Decision:
         """Run one optimizer cycle.
 
         1. Gather snapshot
         2. Evaluate -> Decision
-        3. Execute (if mode == Ein)
-        4. Return Decision
+        3. Grid import watchdog (may override decision)
+        4. Execute (if mode == Ein)
+        5. Return Decision
         """
         try:
             snap = self._gather_snapshot()
             decision = self._evaluate(snap, mode)
+
+            # Grid import watchdog — may abort discharge
+            if mode == MODE_EIN:
+                decision = self._check_grid_import_watchdog(decision, snap)
 
             if mode == MODE_EIN:
                 await self._execute(decision, snap)

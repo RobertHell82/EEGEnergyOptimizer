@@ -62,9 +62,19 @@ class SolarEdgeInverter(InverterBase):
         super().__init__(hass, config)
         # Primary inverter prefix (e.g. "solaredge_i1_") for entity resolution
         self._prefix = config.get("solaredge_prefix", "")
+        # Additional inverter prefixes for multi-inverter setups
+        self._extra_prefixes: list[str] = []
+        pv2_id = config.get("pv_power_sensor_2", "")
+        if pv2_id and "solaredge" in pv2_id and "ac_power" in pv2_id:
+            extra_prefix = pv2_id.replace("sensor.", "").replace("ac_power", "")
+            if extra_prefix != self._prefix:
+                self._extra_prefixes.append(extra_prefix)
         self._original_control_mode: str | None = None
         self._original_discharge_limit: float | None = None
+        self._extra_original_control_modes: dict[str, str] = {}
+        self._extra_original_discharge_limits: dict[str, float] = {}
         self._timeout_set = False
+        self._extra_timeout_set: set[str] = set()
         self._snapshot_original_values()
 
     def _snapshot_original_values(self) -> None:
@@ -92,6 +102,40 @@ class SolarEdgeInverter(InverterBase):
                         setattr(self, attr, float(max_val))
                     except (ValueError, TypeError):
                         pass
+
+        # Snapshot extra inverters
+        for prefix in self._extra_prefixes:
+            eid = self._resolve_entity_for_prefix(prefix, "storage_control_mode")
+            st = self._hass.states.get(eid)
+            if st and st.state not in ("unavailable", "unknown"):
+                self._extra_original_control_modes[prefix] = st.state
+
+            eid = self._resolve_entity_for_prefix(prefix, "storage_discharge_limit")
+            st = self._hass.states.get(eid)
+            if st and st.state not in ("unavailable", "unknown"):
+                try:
+                    self._extra_original_discharge_limits[prefix] = float(st.state)
+                except (ValueError, TypeError):
+                    pass
+                max_val = st.attributes.get("max")
+                if max_val is not None:
+                    try:
+                        self._extra_original_discharge_limits[prefix] = float(max_val)
+                    except (ValueError, TypeError):
+                        pass
+
+    def _resolve_entity_for_prefix(self, prefix: str, config_key: str) -> str:
+        """Resolve entity ID for a specific inverter prefix (e.g. solaredge_i2_)."""
+        default = SOLAREDGE_ENTITY_DEFAULTS.get(config_key)
+        if default:
+            domain = default.split(".")[0]
+            suffix = default.split("solaredge_", 1)[-1] if "solaredge_" in default else ""
+            if suffix:
+                entity_id = f"{domain}.{prefix}{suffix}"
+                state = self._hass.states.get(entity_id)
+                if state is not None:
+                    return entity_id
+        return default or SOLAREDGE_ENTITY_DEFAULTS.get(config_key, "")
 
     def _resolve_entity(self, config_key: str) -> str:
         """Resolve entity ID from config, prefix, or suffix scan.
@@ -158,9 +202,12 @@ class SolarEdgeInverter(InverterBase):
         # 6. Final fallback: return config value or default (may be unavailable)
         return config_val or default or SOLAREDGE_ENTITY_DEFAULTS[config_key]
 
-    async def _set_number(self, config_key: str, value: float) -> None:
+    async def _set_number(self, config_key: str, value: float, *, prefix: str | None = None) -> None:
         """Set a number entity value. Resolves entity from config or defaults."""
-        entity_id = self._resolve_entity(config_key)
+        entity_id = (
+            self._resolve_entity_for_prefix(prefix, config_key)
+            if prefix else self._resolve_entity(config_key)
+        )
         _LOGGER.info("SolarEdge: setting %s (%s) = %s", config_key, entity_id, value)
         state = self._hass.states.get(entity_id)
         if state is None or state.state in ("unavailable", "unknown"):
@@ -176,9 +223,12 @@ class SolarEdgeInverter(InverterBase):
         )
         self.register_writes += 1
 
-    async def _set_select(self, config_key: str, option: str) -> None:
+    async def _set_select(self, config_key: str, option: str, *, prefix: str | None = None) -> None:
         """Set a select entity option. Resolves entity from config or defaults."""
-        entity_id = self._resolve_entity(config_key)
+        entity_id = (
+            self._resolve_entity_for_prefix(prefix, config_key)
+            if prefix else self._resolve_entity(config_key)
+        )
         _LOGGER.info("SolarEdge: setting %s (%s) = %s", config_key, entity_id, option)
         state = self._hass.states.get(entity_id)
         if state is None or state.state in ("unavailable", "unknown"):
@@ -194,7 +244,7 @@ class SolarEdgeInverter(InverterBase):
         )
         self.register_writes += 1
 
-    async def _wait_for_available(self, config_key: str, timeout: float = 10.0) -> bool:
+    async def _wait_for_available(self, config_key: str, timeout: float = 10.0, *, prefix: str | None = None) -> bool:
         """Wait until an entity is no longer unavailable.
 
         After switching storage_control_mode to Remote Control, the command
@@ -203,7 +253,10 @@ class SolarEdgeInverter(InverterBase):
 
         Returns True if entity became available, False on timeout.
         """
-        entity_id = self._resolve_entity(config_key)
+        entity_id = (
+            self._resolve_entity_for_prefix(prefix, config_key)
+            if prefix else self._resolve_entity(config_key)
+        )
         deadline = asyncio.get_event_loop().time() + timeout
         while asyncio.get_event_loop().time() < deadline:
             state = self._hass.states.get(entity_id)
@@ -243,6 +296,25 @@ class SolarEdgeInverter(InverterBase):
             except Exception:
                 _LOGGER.warning("SolarEdge: could not set command_timeout (non-critical)")
 
+    async def _ensure_remote_control_extra(self, prefix: str) -> None:
+        """Ensure an additional inverter is in Remote Control mode."""
+        entity_id = self._resolve_entity_for_prefix(prefix, "storage_control_mode")
+        state = self._hass.states.get(entity_id)
+        if state and state.state == CONTROL_MODE_REMOTE:
+            return
+        _LOGGER.info("SolarEdge: switching %s storage_control_mode to Remote Control", prefix)
+        await self._set_select("storage_control_mode", CONTROL_MODE_REMOTE, prefix=prefix)
+        await self._wait_for_available("storage_command_mode", prefix=prefix)
+        await asyncio.sleep(3)
+        if prefix not in self._extra_timeout_set:
+            try:
+                await self._wait_for_available("storage_command_timeout", prefix=prefix)
+                await self._set_number("storage_command_timeout", COMMAND_TIMEOUT_SECONDS, prefix=prefix)
+                self._extra_timeout_set.add(prefix)
+                await asyncio.sleep(3)
+            except Exception:
+                _LOGGER.warning("SolarEdge: could not set command_timeout on %s (non-critical)", prefix)
+
     async def async_set_charge_limit(self, power_kw: float) -> bool:
         """Block or limit battery charging.
 
@@ -251,19 +323,29 @@ class SolarEdgeInverter(InverterBase):
                     Battery only charges from clipped solar (inverter at power limit).
         power_kw>0: Set storage_charge_limit to given power.
 
-        Sequence (3s delay between each Modbus write):
+        Multi-inverter: sets all inverters to the same command mode.
+
+        Sequence per inverter (3s delay between each Modbus write):
         1. storage_control_mode → "Remote Control" + command_timeout (once)
         2. storage_command_mode → "Charge from Clipped Solar Power"
         """
         try:
             await self._ensure_remote_control()
+            for prefix in self._extra_prefixes:
+                await self._ensure_remote_control_extra(prefix)
             if power_kw == 0:
                 await self._set_select(
                     "storage_command_mode", MODE_CHARGE_FROM_CLIPPED
                 )
+                for prefix in self._extra_prefixes:
+                    await self._set_select(
+                        "storage_command_mode", MODE_CHARGE_FROM_CLIPPED, prefix=prefix
+                    )
             else:
                 power_w = int(power_kw * 1000)
                 await self._set_number("storage_charge_limit", power_w)
+                for prefix in self._extra_prefixes:
+                    await self._set_number("storage_charge_limit", power_w, prefix=prefix)
             return True
         except Exception:
             _LOGGER.exception("SolarEdge: Failed to set charge limit")
@@ -279,20 +361,33 @@ class SolarEdgeInverter(InverterBase):
         and stops calling discharge when SOC is reached. backup_reserve
         stays at the user's configured default.
 
-        Sequence (3s delay between each Modbus write):
+        Multi-inverter: sets all inverters to same mode and discharge limit.
+
+        Sequence per inverter (3s delay between each Modbus write):
         1. storage_control_mode → "Remote Control" + command_timeout (once)
         2. storage_discharge_limit → power in Watts
         3. storage_command_mode → "Discharge to Maximize Export"
         """
         try:
             await self._ensure_remote_control()
+            for prefix in self._extra_prefixes:
+                await self._ensure_remote_control_extra(prefix)
+
             await self._wait_for_available("storage_discharge_limit")
             power_w = int(power_kw * 1000)
             await self._set_number("storage_discharge_limit", power_w)
+            for prefix in self._extra_prefixes:
+                await self._wait_for_available("storage_discharge_limit", prefix=prefix)
+                await self._set_number("storage_discharge_limit", power_w, prefix=prefix)
+
             await asyncio.sleep(3)
             await self._set_select(
                 "storage_command_mode", MODE_DISCHARGE_EXPORT
             )
+            for prefix in self._extra_prefixes:
+                await self._set_select(
+                    "storage_command_mode", MODE_DISCHARGE_EXPORT, prefix=prefix
+                )
             return True
         except Exception:
             _LOGGER.exception("SolarEdge: Failed to set discharge")
@@ -301,25 +396,49 @@ class SolarEdgeInverter(InverterBase):
     async def async_stop_forcible(self) -> bool:
         """Return to normal self-consumption mode.
 
-        Always restores the same three values regardless of which command
+        Always restores the same values regardless of which command
         was active. Critical for SolarEdge: commands persist in NVRAM.
         Each step needs a delay for the inverter to process via Modbus.
 
-        Sequence (with delays between each step):
-        1. storage_command_mode → "Maximize Self Consumption"
-        2. storage_control_mode → original (exit Remote Control) — MUST be last
+        Multi-inverter: restores all inverters.
 
-        Note: discharge_limit is NOT restored — saves 1 NVRAM write.
-        The stale value has no effect because command_mode is back to
-        Self Consumption. Next discharge will set it fresh anyway.
+        Sequence per inverter (with delays between each step):
+        1. storage_command_mode → "Maximize Self Consumption"
+        2. storage_discharge_limit → original max value
+        3. storage_control_mode → original (exit Remote Control) — MUST be last
         """
         try:
+            # Primary inverter
             await self._set_select(
                 "storage_command_mode", MODE_SELF_CONSUMPTION
             )
             await asyncio.sleep(3)
+            if self._original_discharge_limit is not None:
+                await self._set_number(
+                    "storage_discharge_limit", self._original_discharge_limit
+                )
+                await asyncio.sleep(3)
             restore_mode = self._original_control_mode or CONTROL_MODE_SELF_CONSUMPTION
             await self._set_select("storage_control_mode", restore_mode)
+
+            # Extra inverters
+            for prefix in self._extra_prefixes:
+                await asyncio.sleep(3)
+                await self._set_select(
+                    "storage_command_mode", MODE_SELF_CONSUMPTION, prefix=prefix
+                )
+                await asyncio.sleep(3)
+                orig_discharge = self._extra_original_discharge_limits.get(prefix)
+                if orig_discharge is not None:
+                    await self._set_number(
+                        "storage_discharge_limit", orig_discharge, prefix=prefix
+                    )
+                    await asyncio.sleep(3)
+                orig_mode = self._extra_original_control_modes.get(
+                    prefix, CONTROL_MODE_SELF_CONSUMPTION
+                )
+                await self._set_select("storage_control_mode", orig_mode, prefix=prefix)
+
             return True
         except Exception:
             _LOGGER.exception("SolarEdge: Failed to stop forcible mode")
