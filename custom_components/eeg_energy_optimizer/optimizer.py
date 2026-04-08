@@ -25,11 +25,13 @@ from .const import (
     CONF_INVERTER_TYPE,
     CONF_MIN_SOC,
     CONF_MORNING_END_TIME,
+    CONF_MORNING_START_OFFSET,
     CONF_SAFETY_BUFFER_PCT,
     DEFAULT_DISCHARGE_POWER_KW,
     DEFAULT_DISCHARGE_START_TIME,
     DEFAULT_MIN_SOC,
     DEFAULT_MORNING_END_TIME,
+    DEFAULT_MORNING_START_OFFSET,
     DEFAULT_SAFETY_BUFFER_PCT,
     INVERTER_SIGN_CONVENTIONS,
     MODE_EIN,
@@ -157,6 +159,9 @@ class EEGOptimizer:
         self._provider = provider
 
         # Config values
+        self._morning_start_offset_h = config.get(
+            CONF_MORNING_START_OFFSET, DEFAULT_MORNING_START_OFFSET
+        )
         morning_end = config.get(CONF_MORNING_END_TIME, DEFAULT_MORNING_END_TIME)
         parts = morning_end.split(":")
         self._morning_end_hour = int(parts[0])
@@ -445,7 +450,7 @@ class EEGOptimizer:
         # Check if in morning window (use today's actual sunrise, not next_rising)
         in_window = False
         if snap.sunrise_today is not None:
-            window_start = snap.sunrise_today - timedelta(hours=1)
+            window_start = snap.sunrise_today - timedelta(hours=self._morning_start_offset_h)
             morning_end = snap.now.replace(
                 hour=self._morning_end_hour,
                 minute=self._morning_end_min,
@@ -588,7 +593,7 @@ class EEGOptimizer:
         if snap.sunrise_today is None:
             return False
 
-        window_start = snap.sunrise_today - timedelta(hours=1)
+        window_start = snap.sunrise_today - timedelta(hours=self._morning_start_offset_h)
         morning_end = snap.now.replace(
             hour=self._morning_end_hour,
             minute=self._morning_end_min,

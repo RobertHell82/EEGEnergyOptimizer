@@ -57,6 +57,7 @@ WEEKDAY_KEYS = ["mo", "di", "mi", "do", "fr", "sa", "so"]
 CONF_ENABLE_MORNING_DELAY = "enable_morning_delay"
 CONF_ENABLE_NIGHT_DISCHARGE = "enable_night_discharge"
 CONF_ÜBERSCHUSS_SCHWELLE = "ueberschuss_schwelle"  # legacy config key, do not rename string
+CONF_MORNING_START_OFFSET = "morning_start_offset"
 CONF_MORNING_END_TIME = "morning_end_time"
 CONF_DISCHARGE_START_TIME = "discharge_start_time"
 CONF_DISCHARGE_POWER_KW = "discharge_power_kw"
@@ -64,6 +65,7 @@ CONF_MIN_SOC = "min_soc"
 CONF_SAFETY_BUFFER_PCT = "safety_buffer_pct"
 
 DEFAULT_UEBERSCHUSS_SCHWELLE = 1.25
+DEFAULT_MORNING_START_OFFSET = 0
 DEFAULT_MORNING_END_TIME = "11:00"
 DEFAULT_DISCHARGE_START_TIME = "20:00"
 DEFAULT_DISCHARGE_POWER_KW = 3.0

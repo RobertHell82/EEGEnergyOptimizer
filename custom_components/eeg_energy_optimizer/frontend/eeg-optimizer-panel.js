@@ -88,6 +88,7 @@ const WIZARD_DEFAULTS = {
   update_interval_fast_min: 1,
   update_interval_slow_min: 15,
   enable_morning_delay: true,
+  morning_start_offset: 0,
   morning_end_time: "11:00",
   enable_night_discharge: true,
   discharge_start_time: "20:00",
@@ -2267,6 +2268,13 @@ class EegOptimizerPanel extends HTMLElement {
     const morningFields = mDelay ? `
       <div class="feature-params">
         <div class="field-group">
+          <label>Vorlaufzeit vor Sonnenaufgang (Std.)</label>
+          <input type="number" data-field="morning_start_offset"
+                 value="${this._wizardData.morning_start_offset ?? 0}"
+                 min="0" max="3" step="0.5" style="width:80px">
+          <div class="help-text">So viele Stunden vor Sonnenaufgang beginnt die Ladeblockierung. 0 = ab Sonnenaufgang.</div>
+        </div>
+        <div class="field-group">
           <label>Batterieladung blockiert bis maximal</label>
           <input type="text" data-field="morning_end_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${this._wizardData.morning_end_time}" style="width:80px">
@@ -2432,6 +2440,7 @@ class EegOptimizerPanel extends HTMLElement {
       <div class="summary-section">
         <h3>Verzögerte Batterieladung</h3>
         ${row("Status", d.enable_morning_delay ? "Aktiv" : "Deaktiviert")}
+        ${d.enable_morning_delay ? row("Vorlaufzeit", (d.morning_start_offset || 0) + " Std. vor Sonnenaufgang") : ""}
         ${d.enable_morning_delay ? row("Blockiert bis", d.morning_end_time) : ""}
       </div>
 
@@ -2463,6 +2472,13 @@ class EegOptimizerPanel extends HTMLElement {
 
     const morningFields = mDelay ? `
       <div class="feature-params">
+        <div class="field-group">
+          <label>Vorlaufzeit vor Sonnenaufgang (Std.)</label>
+          <input type="number" data-field="settings_morning_start_offset"
+                 value="${d.morning_start_offset ?? 0}"
+                 min="0" max="3" step="0.5" style="width:80px">
+          <div class="help-text">So viele Stunden vor Sonnenaufgang beginnt die Ladeblockierung. 0 = ab Sonnenaufgang.</div>
+        </div>
         <div class="field-group">
           <label>Batterieladung blockiert bis maximal</label>
           <input type="text" data-field="settings_morning_end_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
