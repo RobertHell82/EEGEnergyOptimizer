@@ -376,11 +376,12 @@ class SolarEdgeInverter(InverterBase):
                 await self._ensure_remote_control_extra(prefix)
 
             await self._wait_for_available("storage_discharge_limit")
-            power_w = int(power_kw * 1000)
-            await self._set_number("storage_discharge_limit", power_w)
+            num_inverters = 1 + len(self._extra_prefixes)
+            power_per_inv_w = int(power_kw * 1000 / num_inverters)
+            await self._set_number("storage_discharge_limit", power_per_inv_w)
             for prefix in self._extra_prefixes:
                 await self._wait_for_available("storage_discharge_limit", prefix=prefix)
-                await self._set_number("storage_discharge_limit", power_w, prefix=prefix)
+                await self._set_number("storage_discharge_limit", power_per_inv_w, prefix=prefix)
 
             await asyncio.sleep(3)
             await self._set_select(
