@@ -887,10 +887,11 @@ class EegOptimizerPanel extends HTMLElement {
         const invValue = dataset?.value;
         if (invValue && invValue !== this._wizardData.inverter_type) {
           this._wizardData.inverter_type = invValue;
-          // SolarEdge: enforce minimum discharge power of 4 kW
+          // SolarEdge: default 5 kW, minimum 4 kW
           if (invValue === "solaredge_storedge") {
-            const cur = parseFloat(this._wizardData.discharge_power_kw) || 3.0;
-            if (cur < 4.0) this._wizardData.discharge_power_kw = 4.0;
+            this._wizardData.discharge_power_kw = 5.0;
+          } else {
+            this._wizardData.discharge_power_kw = 3.0;
           }
           // Clear sensor fields so auto-detection can re-fill them
           const sensorKeys = [
