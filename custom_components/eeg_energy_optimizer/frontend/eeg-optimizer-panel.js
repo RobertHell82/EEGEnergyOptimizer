@@ -3333,7 +3333,7 @@ class EegOptimizerPanel extends HTMLElement {
             <ha-icon icon="mdi:pulse" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4)"></ha-icon>
             Aktueller Status
             <span style="cursor:pointer;display:inline-flex;align-items:center"
-              title="NVRAM-Schreibvorg\u00e4nge: ${this._readFloat("sensor.eeg_energy_optimizer_register_schreibvorgaenge") ?? 0} seit Installation">
+              title="NVRAM-Schreibvorg\u00e4nge: ${this._readFloat("sensor.eeg_energy_optimizer_register_schreibvorgange") ?? 0} seit Installation">
               <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color)"></ha-icon>
             </span>
           </h3>
