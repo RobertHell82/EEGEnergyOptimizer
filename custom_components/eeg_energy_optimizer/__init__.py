@@ -445,6 +445,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
     hass.data[DOMAIN][entry.entry_id]["inverter"] = inverter
 
+    # Restore persisted register write counter
+    from homeassistant.helpers.storage import Store as _Store
+    writes_store = _Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_register_writes")
+    try:
+        stored_writes = await writes_store.async_load()
+        if stored_writes and isinstance(stored_writes, int):
+            inverter.register_writes = stored_writes
+            _LOGGER.debug("Restored register write counter: %d", stored_writes)
+    except Exception:
+        pass
+    hass.data[DOMAIN][entry.entry_id]["writes_store"] = writes_store
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     hass.data[DOMAIN][entry.entry_id]["platforms_loaded"] = True
 
@@ -542,6 +554,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             # Persist activity log to disk if changed
             await _flush_activity_log()
+
+            # Persist register write counter (only if changed)
+            _ws = data.get("writes_store")
+            if _ws and inverter.register_writes > 0:
+                try:
+                    await _ws.async_save(inverter.register_writes)
+                except Exception:
+                    pass
 
         data["_run_cycle"] = _optimizer_cycle
 

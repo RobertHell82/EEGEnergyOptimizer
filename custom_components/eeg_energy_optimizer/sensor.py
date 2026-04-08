@@ -724,7 +724,38 @@ class BatterieleistungSensor(SensorEntity):
 
 
 # ---------------------------------------------------------------------------
-# Sensor 17: Entscheidung (optimizer timer)
+# Sensor 17: Register-Schreibvorgänge (inverter write counter)
+# ---------------------------------------------------------------------------
+
+class RegisterWritesSensor(SensorEntity):
+    """Counts Modbus/service register writes to the inverter.
+
+    Tracks NVRAM-relevant writes for SolarEdge (and potentially other
+    inverters in the future). Uses state_class=total_increasing so HA
+    tracks the cumulative total across restarts via long-term statistics.
+    The sensor reads the counter from the inverter object every fast update.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Register-Schreibvorgänge"
+    _attr_native_unit_of_measurement = "Writes"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:database-edit-outline"
+
+    def __init__(self, hass: Any, entry: Any, inverter: Any) -> None:
+        self.hass = hass
+        self._inverter = inverter
+        self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_register_writes"
+        self._attr_device_info = _device_info(entry.entry_id)
+        self._attr_native_value: int = 0
+
+    async def async_update(self) -> None:
+        if self._inverter is not None:
+            self._attr_native_value = self._inverter.register_writes
+
+
+# ---------------------------------------------------------------------------
+# Sensor 18: Entscheidung (optimizer timer)
 # ---------------------------------------------------------------------------
 
 class EntscheidungsSensor(SensorEntity):
@@ -852,7 +883,11 @@ async def async_setup_entry(
     netzleistung_sensor = NetzleistungSensor(hass, entry, config)
     batterieleistung_sensor = BatterieleistungSensor(hass, entry, config)
 
-    # Sensor 17: Entscheidungs-Sensor (updated by optimizer timer, not by fast/slow timers)
+    # Register writes sensor — reads counter from inverter object
+    inverter = data.get("inverter")
+    register_writes_sensor = RegisterWritesSensor(hass, entry, inverter)
+
+    # Sensor 18: Entscheidungs-Sensor (updated by optimizer timer, not by fast/slow timers)
     decision_sensor = EntscheidungsSensor(entry.entry_id)
     data["decision_sensor"] = decision_sensor
 
@@ -861,7 +896,7 @@ async def async_setup_entry(
         daily_sensors
         + [sunrise_sensor, battery_sensor, pv_today_sensor, pv_tomorrow_sensor,
            hausverbrauch_sensor, pv_leistung_sensor, netzleistung_sensor,
-           batterieleistung_sensor]
+           batterieleistung_sensor, register_writes_sensor]
     )
 
     async_add_entities(slow_sensors + fast_sensors + [decision_sensor], False)

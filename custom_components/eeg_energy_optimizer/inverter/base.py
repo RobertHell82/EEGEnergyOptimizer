@@ -25,6 +25,7 @@ class InverterBase(ABC):
         """
         self._hass = hass
         self._config = config
+        self.register_writes: int = 0
 
     @abstractmethod
     async def async_set_charge_limit(self, power_kw: float) -> bool:

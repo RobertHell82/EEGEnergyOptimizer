@@ -174,6 +174,7 @@ class SolarEdgeInverter(InverterBase):
             {"entity_id": entity_id, "value": value},
             blocking=True,
         )
+        self.register_writes += 1
 
     async def _set_select(self, config_key: str, option: str) -> None:
         """Set a select entity option. Resolves entity from config or defaults."""
@@ -191,6 +192,7 @@ class SolarEdgeInverter(InverterBase):
             {"entity_id": entity_id, "option": option},
             blocking=True,
         )
+        self.register_writes += 1
 
     async def _wait_for_available(self, config_key: str, timeout: float = 10.0) -> bool:
         """Wait until an entity is no longer unavailable.
