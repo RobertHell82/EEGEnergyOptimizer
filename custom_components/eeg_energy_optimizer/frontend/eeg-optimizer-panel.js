@@ -666,7 +666,13 @@ class EegOptimizerPanel extends HTMLElement {
             this._settingsData[realField] = target.checked;
             this._render();
           } else if (type === "number") {
-            this._settingsData[realField] = parseFloat(target.value) || 0;
+            let numVal = parseFloat(target.value) || 0;
+            // SolarEdge: enforce minimum discharge power of 4 kW
+            if (realField === "discharge_power_kw" && this._config?.inverter_type === "solaredge_storedge" && numVal < 4.0) {
+              numVal = 4.0;
+              target.value = "4.0";
+            }
+            this._settingsData[realField] = numVal;
           } else {
             this._settingsData[realField] = target.value;
           }
@@ -674,7 +680,12 @@ class EegOptimizerPanel extends HTMLElement {
         }
         const type = target.type;
         if (type === "number") {
-          this._wizardData[field] = parseFloat(target.value) || 0;
+          let numVal = parseFloat(target.value) || 0;
+          if (field === "discharge_power_kw" && this._wizardData.inverter_type === "solaredge_storedge" && numVal < 4.0) {
+            numVal = 4.0;
+            target.value = "4.0";
+          }
+          this._wizardData[field] = numVal;
         } else {
           this._wizardData[field] = target.value;
         }
@@ -696,7 +707,12 @@ class EegOptimizerPanel extends HTMLElement {
           if (type === "checkbox") {
             this._settingsData[realField] = target.checked;
           } else if (type === "number") {
-            this._settingsData[realField] = parseFloat(target.value) || 0;
+            let numVal = parseFloat(target.value) || 0;
+            if (realField === "discharge_power_kw" && this._config?.inverter_type === "solaredge_storedge" && numVal < 4.0) {
+              numVal = 4.0;
+              target.value = "4.0";
+            }
+            this._settingsData[realField] = numVal;
           } else {
             this._settingsData[realField] = target.value;
           }
@@ -1158,6 +1174,17 @@ class EegOptimizerPanel extends HTMLElement {
 
   async _saveSettings() {
     try {
+      // Re-read all settings inputs to catch values not yet captured by events
+      for (const el of this._shadow.querySelectorAll("[data-field^='settings_']")) {
+        const realField = el.dataset.field.replace("settings_", "");
+        if (el.type === "checkbox") {
+          this._settingsData[realField] = el.checked;
+        } else if (el.type === "number") {
+          this._settingsData[realField] = parseFloat(el.value) || 0;
+        } else {
+          this._settingsData[realField] = el.value;
+        }
+      }
       const changed = {};
       const cfg = this._config || {};
       for (const [k, v] of Object.entries(this._settingsData)) {

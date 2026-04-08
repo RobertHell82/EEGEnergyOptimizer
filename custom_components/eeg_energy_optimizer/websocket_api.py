@@ -283,6 +283,13 @@ async def ws_save_config(
 
     entry = entries[0]
     new_data = {**entry.data, **msg["config"]}
+
+    # SolarEdge: enforce minimum discharge power of 4 kW
+    if new_data.get("inverter_type") == INVERTER_TYPE_SOLAREDGE:
+        discharge_kw = new_data.get("discharge_power_kw")
+        if discharge_kw is not None and float(discharge_kw) < 4.0:
+            new_data["discharge_power_kw"] = 4.0
+
     hass.config_entries.async_update_entry(entry, data=new_data)
     connection.send_result(msg["id"], {"success": True})
 
