@@ -77,6 +77,22 @@ class SolarEdgeInverter(InverterBase):
         self._extra_timeout_set: set[str] = set()
         self._snapshot_original_values()
 
+    def _read_max_discharge_power(self, prefix: str | None = None) -> float | None:
+        """Read hardware max discharge power from b1_max_discharge_power sensor.
+
+        This sensor is always available (doesn't require Remote Control mode).
+        Returns value in Watts, or None if not found.
+        """
+        pfx = prefix or self._prefix
+        entity_id = f"sensor.{pfx}b1_max_discharge_power"
+        state = self._hass.states.get(entity_id)
+        if state and state.state not in ("unavailable", "unknown"):
+            try:
+                return float(state.state)
+            except (ValueError, TypeError):
+                pass
+        return None
+
     def _snapshot_original_values(self) -> None:
         """Snapshot current values so we can restore them in async_stop_forcible."""
         # storage_control_mode
@@ -85,23 +101,11 @@ class SolarEdgeInverter(InverterBase):
         if state and state.state not in ("unavailable", "unknown"):
             self._original_control_mode = state.state
 
-        # discharge_limit — prefer 'max' attribute (hardware maximum)
-        for key, attr in [
-            ("storage_discharge_limit", "_original_discharge_limit"),
-        ]:
-            entity_id = self._resolve_entity(key)
-            state = self._hass.states.get(entity_id)
-            if state and state.state not in ("unavailable", "unknown"):
-                try:
-                    setattr(self, attr, float(state.state))
-                except (ValueError, TypeError):
-                    pass
-                max_val = state.attributes.get("max")
-                if max_val is not None:
-                    try:
-                        setattr(self, attr, float(max_val))
-                    except (ValueError, TypeError):
-                        pass
+        # discharge_limit — read from b1_max_discharge_power sensor (always available)
+        max_discharge = self._read_max_discharge_power()
+        if max_discharge is not None:
+            self._original_discharge_limit = max_discharge
+            _LOGGER.debug("SolarEdge: primary max discharge power = %.0f W", max_discharge)
 
         # Snapshot extra inverters
         for prefix in self._extra_prefixes:
@@ -110,19 +114,10 @@ class SolarEdgeInverter(InverterBase):
             if st and st.state not in ("unavailable", "unknown"):
                 self._extra_original_control_modes[prefix] = st.state
 
-            eid = self._resolve_entity_for_prefix(prefix, "storage_discharge_limit")
-            st = self._hass.states.get(eid)
-            if st and st.state not in ("unavailable", "unknown"):
-                try:
-                    self._extra_original_discharge_limits[prefix] = float(st.state)
-                except (ValueError, TypeError):
-                    pass
-                max_val = st.attributes.get("max")
-                if max_val is not None:
-                    try:
-                        self._extra_original_discharge_limits[prefix] = float(max_val)
-                    except (ValueError, TypeError):
-                        pass
+            max_discharge = self._read_max_discharge_power(prefix)
+            if max_discharge is not None:
+                self._extra_original_discharge_limits[prefix] = max_discharge
+                _LOGGER.debug("SolarEdge: %s max discharge power = %.0f W", prefix, max_discharge)
 
     def _resolve_entity_for_prefix(self, prefix: str, config_key: str) -> str:
         """Resolve entity ID for a specific inverter prefix (e.g. solaredge_i2_)."""
