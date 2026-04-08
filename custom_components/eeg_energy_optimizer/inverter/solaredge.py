@@ -53,6 +53,7 @@ CONTROL_MODE_SELF_CONSUMPTION = "Maximize Self Consumption"
 MODE_SELF_CONSUMPTION = "Maximize Self Consumption"
 MODE_CHARGE_FROM_CLIPPED = "Charge from Clipped Solar Power"
 MODE_DISCHARGE_EXPORT = "Discharge to Maximize Export"
+MODE_DISCHARGE_MINIMIZE_IMPORT = "Discharge to Minimize Import"
 
 
 class SolarEdgeInverter(InverterBase):
@@ -337,16 +338,16 @@ class SolarEdgeInverter(InverterBase):
     async def async_set_charge_limit(self, power_kw: float) -> bool:
         """Block or limit battery charging.
 
-        power_kw=0: Block charging — switches to "Charge from Clipped Solar Power"
+        power_kw=0: Block charging — switches to "Discharge to Minimize Import"
                     so PV surplus goes to grid (EEG morning feed-in).
-                    Battery only charges from clipped solar (inverter at power limit).
+                    Battery still discharges to cover household demand.
         power_kw>0: Set storage_charge_limit to given power.
 
         Multi-inverter: sets all inverters to the same command mode.
 
         Sequence per inverter (3s delay between each Modbus write):
         1. storage_control_mode → "Remote Control" + command_timeout (once)
-        2. storage_command_mode → "Charge from Clipped Solar Power"
+        2. storage_command_mode → "Discharge to Minimize Import"
         """
         try:
             await self._ensure_remote_control()
@@ -354,11 +355,11 @@ class SolarEdgeInverter(InverterBase):
                 await self._ensure_remote_control_extra(prefix)
             if power_kw == 0:
                 await self._set_select(
-                    "storage_command_mode", MODE_CHARGE_FROM_CLIPPED
+                    "storage_command_mode", MODE_DISCHARGE_MINIMIZE_IMPORT
                 )
                 for prefix in self._extra_prefixes:
                     await self._set_select(
-                        "storage_command_mode", MODE_CHARGE_FROM_CLIPPED, prefix=prefix
+                        "storage_command_mode", MODE_DISCHARGE_MINIMIZE_IMPORT, prefix=prefix
                     )
             else:
                 power_w = int(power_kw * 1000)
