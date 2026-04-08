@@ -401,30 +401,26 @@ class SolarEdgeInverter(InverterBase):
         Multi-inverter: restores all inverters.
 
         Sequence per inverter (with delays between each step):
-        1. storage_command_mode → "Maximize Self Consumption"
-        2. storage_discharge_limit → original max value
+        1. storage_discharge_limit → original max value (while still in Remote Control)
+        2. storage_command_mode → "Maximize Self Consumption"
         3. storage_control_mode → original (exit Remote Control) — MUST be last
         """
         try:
-            # Primary inverter
-            await self._set_select(
-                "storage_command_mode", MODE_SELF_CONSUMPTION
-            )
-            await asyncio.sleep(3)
+            # Primary inverter — discharge_limit first (needs Remote Control)
             if self._original_discharge_limit is not None:
                 await self._set_number(
                     "storage_discharge_limit", self._original_discharge_limit
                 )
                 await asyncio.sleep(3)
+            await self._set_select(
+                "storage_command_mode", MODE_SELF_CONSUMPTION
+            )
+            await asyncio.sleep(3)
             restore_mode = self._original_control_mode or CONTROL_MODE_SELF_CONSUMPTION
             await self._set_select("storage_control_mode", restore_mode)
 
-            # Extra inverters
+            # Extra inverters — same order: limit first, then modes
             for prefix in self._extra_prefixes:
-                await asyncio.sleep(3)
-                await self._set_select(
-                    "storage_command_mode", MODE_SELF_CONSUMPTION, prefix=prefix
-                )
                 await asyncio.sleep(3)
                 orig_discharge = self._extra_original_discharge_limits.get(prefix)
                 if orig_discharge is not None:
@@ -432,6 +428,10 @@ class SolarEdgeInverter(InverterBase):
                         "storage_discharge_limit", orig_discharge, prefix=prefix
                     )
                     await asyncio.sleep(3)
+                await self._set_select(
+                    "storage_command_mode", MODE_SELF_CONSUMPTION, prefix=prefix
+                )
+                await asyncio.sleep(3)
                 orig_mode = self._extra_original_control_modes.get(
                     prefix, CONTROL_MODE_SELF_CONSUMPTION
                 )
