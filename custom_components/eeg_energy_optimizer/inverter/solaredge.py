@@ -62,6 +62,11 @@ class SolarEdgeInverter(InverterBase):
         super().__init__(hass, config)
         # Primary inverter prefix (e.g. "solaredge_i1_") for entity resolution
         self._prefix = config.get("solaredge_prefix", "")
+        # Fallback: derive prefix from pv_power_sensor (e.g. sensor.solaredge_i1_ac_power)
+        if not self._prefix:
+            pv_id = config.get("pv_power_sensor", "")
+            if pv_id and "solaredge" in pv_id and "ac_power" in pv_id:
+                self._prefix = pv_id.replace("sensor.", "").replace("ac_power", "")
         # Additional inverter prefixes for multi-inverter setups
         self._extra_prefixes: list[str] = []
         pv2_id = config.get("pv_power_sensor_2", "")
@@ -82,24 +87,41 @@ class SolarEdgeInverter(InverterBase):
 
         This sensor is always available (doesn't require Remote Control mode).
         Returns value in Watts, or None if not found.
+        Falls back to suffix scan if prefix-based lookup fails.
         """
         pfx = prefix or self._prefix
-        entity_id = f"sensor.{pfx}b1_max_discharge_power"
-        state = self._hass.states.get(entity_id)
-        if state and state.state not in ("unavailable", "unknown"):
-            try:
-                return float(state.state)
-            except (ValueError, TypeError):
-                pass
+        # Try direct prefix-based lookup first
+        if pfx:
+            entity_id = f"sensor.{pfx}b1_max_discharge_power"
+            state = self._hass.states.get(entity_id)
+            if state and state.state not in ("unavailable", "unknown"):
+                try:
+                    return float(state.state)
+                except (ValueError, TypeError):
+                    pass
+        # Fallback: scan all sensors for b1_max_discharge_power
+        for state in self._hass.states.async_all("sensor"):
+            if (state.entity_id.endswith("b1_max_discharge_power")
+                    and "solaredge" in state.entity_id
+                    and state.state not in ("unavailable", "unknown")):
+                # If looking for a specific prefix, check it matches
+                if pfx and pfx not in state.entity_id:
+                    continue
+                try:
+                    return float(state.state)
+                except (ValueError, TypeError):
+                    pass
         return None
 
     def _snapshot_original_values(self) -> None:
         """Snapshot current values so we can restore them in async_stop_forcible."""
-        # storage_control_mode
+        # storage_control_mode — never store "Remote Control" as original
+        # (if integration restarts during active control, we'd restore the wrong mode)
         entity_id = self._resolve_entity("storage_control_mode")
         state = self._hass.states.get(entity_id)
         if state and state.state not in ("unavailable", "unknown"):
-            self._original_control_mode = state.state
+            if state.state != CONTROL_MODE_REMOTE:
+                self._original_control_mode = state.state
 
         # discharge_limit — read from b1_max_discharge_power sensor (always available)
         max_discharge = self._read_max_discharge_power()
