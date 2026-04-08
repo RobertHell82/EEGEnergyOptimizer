@@ -2231,7 +2231,7 @@ class EegOptimizerPanel extends HTMLElement {
     const nDischarge = this._wizardData.enable_night_discharge;
 
     const isExpert = this._wizardData.expert_mode;
-    const morningFields = mDelay && isExpert ? `
+    const morningFields = mDelay ? `
       <div class="feature-params">
         <div class="field-group">
           <label>Batterieladung blockiert bis maximal</label>
@@ -2243,7 +2243,7 @@ class EegOptimizerPanel extends HTMLElement {
 
     const dischargeFields = nDischarge ? `
       <div class="feature-params">
-        ${isExpert ? `<div class="field-group">
+        <div class="field-group">
           <label>Startzeit der Entladung</label>
           <input type="text" data-field="discharge_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${this._wizardData.discharge_start_time}" style="width:80px">
@@ -2255,7 +2255,7 @@ class EegOptimizerPanel extends HTMLElement {
                  value="${this._wizardData.discharge_power_kw}"
                  min="0.5" max="10.0" step="0.5">
           <div class="help-text">Leistung der Batterieentladung ins Netz.</div>
-        </div>` : ""}
+        </div>
         <div class="field-group">
           <label>Minimaler Ladezustand (%)</label>
           <input type="number" data-field="min_soc"
@@ -2399,15 +2399,15 @@ class EegOptimizerPanel extends HTMLElement {
       <div class="summary-section">
         <h3>Verzögerte Batterieladung</h3>
         ${row("Status", d.enable_morning_delay ? "Aktiv" : "Deaktiviert")}
-        ${d.enable_morning_delay && d.expert_mode ? row("Blockiert bis", d.morning_end_time) : ""}
+        ${d.enable_morning_delay ? row("Blockiert bis", d.morning_end_time) : ""}
       </div>
 
       <div class="summary-section">
         <h3>Nachteinspeisung</h3>
         ${row("Status", d.enable_night_discharge ? "Aktiv" : "Deaktiviert")}
         ${d.enable_night_discharge ? `
-          ${d.expert_mode ? row("Startzeit", d.discharge_start_time) : ""}
-          ${d.expert_mode ? row("Leistung", d.discharge_power_kw + " kW") : ""}
+          ${row("Startzeit", d.discharge_start_time)}
+          ${row("Leistung", d.discharge_power_kw + " kW")}
           ${row("Min SOC", d.min_soc + " %")}
         ` : ""}
       </div>
@@ -2428,7 +2428,7 @@ class EegOptimizerPanel extends HTMLElement {
     const mDelay = d.enable_morning_delay;
     const nDischarge = d.enable_night_discharge;
 
-    const morningFields = mDelay && isExpert ? `
+    const morningFields = mDelay ? `
       <div class="feature-params">
         <div class="field-group">
           <label>Batterieladung blockiert bis maximal</label>
@@ -2440,7 +2440,7 @@ class EegOptimizerPanel extends HTMLElement {
 
     const dischargeFields = nDischarge ? `
       <div class="feature-params">
-        ${isExpert ? `<div class="field-group">
+        <div class="field-group">
           <label>Startzeit der Entladung</label>
           <input type="text" data-field="settings_discharge_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${d.discharge_start_time || "20:00"}" style="width:80px">
@@ -2452,7 +2452,7 @@ class EegOptimizerPanel extends HTMLElement {
                  value="${d.discharge_power_kw || 3.0}"
                  min="0.5" max="10.0" step="0.5">
           <div class="help-text">Leistung der Batterieentladung ins Netz.</div>
-        </div>` : ""}
+        </div>
         <div class="field-group">
           <label>Minimaler Ladezustand (%)</label>
           <input type="number" data-field="settings_min_soc"
