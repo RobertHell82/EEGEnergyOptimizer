@@ -20,14 +20,9 @@ HACS-kompatible Home Assistant Integration für vorausschauendes Batteriemanagem
 
 ### Hinweis zu SolarEdge NVRAM-Schreibvorgängen
 
-Die SolarEdge-Steuerung verwendet 4 Modbus-Register (`storage_control_mode`, `storage_command_mode`, `storage_discharge_limit`, `storage_command_timeout`), die im Flash-Speicher (NVRAM) des Wechselrichters persistiert werden. Flash-Speicher hat eine begrenzte Anzahl Schreibzyklen (typisch 100.000+).
+Die SolarEdge-Steuerung schreibt Modbus-Register, die im Flash-Speicher (NVRAM) des Wechselrichters persistiert werden. Flash-Speicher hat eine begrenzte Anzahl Schreibzyklen (typisch 100.000+).
 
-Die Integration ist darauf optimiert, die Schreibvorgänge zu minimieren:
-- **Max. ~10 Writes pro Tag** im Worst Case (Morgen-Blockierung + Abend-Entladung)
-- `storage_command_timeout` wird nur einmalig gesetzt (bleibt auf 4h)
-- `storage_discharge_limit` wird beim Stoppen nicht zurückgesetzt (unnötig, da command_mode auf Self Consumption zurückgesetzt wird)
-- In der Praxis sind es deutlich weniger: An bewölkten Tagen oder im Winter wird weder Ladungsblockierung noch Entladung aktiv — **0 Writes**. Realistisch sind im Jahresdurchschnitt ~5 Writes/Tag.
-- Bei 100.000 Zyklen und 10 Writes/Tag: **~27 Jahre**. Bei realistischen 5 Writes/Tag: **~55 Jahre**
+Die Integration minimiert Schreibvorgänge: Im Worst Case (jeden Tag Morgen-Blockierung + Abend-Entladung) sind es **max. ~10 Writes pro Tag**. An bewölkten Tagen oder im Winter 0 Writes. Realistisch im Jahresdurchschnitt ~5 Writes/Tag — das ergibt bei 100.000 Zyklen **~55 Jahre Lebensdauer**.
 
 ## Installation
 
