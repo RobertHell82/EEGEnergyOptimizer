@@ -448,7 +448,7 @@ const DIALOG_CONTENT = {
       <p style="margin:8px 0;color:var(--secondary-text-color);font-size:13px">Nach dem Neuladen sollten diese Entities erscheinen: <code>select.*storage_command_mode</code>, <code>number.*storage_charge_limit</code>, <code>number.*storage_discharge_limit</code></p>
       <p style="margin:4px 0;color:var(--secondary-text-color);font-size:13px"><strong>Hinweis:</strong> Der EEG Energy Optimizer setzt <code>storage_control_mode</code> bei Bedarf automatisch auf &ldquo;Remote Control&rdquo; und stellt den Originalzustand danach wieder her.</p>
       <div style="background:var(--info-color,#039be5);color:#fff;padding:8px 12px;border-radius:8px;margin:8px 0 12px;font-size:13px">
-        <strong>&#9432; NVRAM-Schreibvorg&auml;nge:</strong> SolarEdge speichert Modbus-Register&auml;nderungen im Flash-Speicher (NVRAM). Der EEG Energy Optimizer minimiert Schreibvorg&auml;nge: max. ~10 Writes/Tag (Worst Case), an bew&ouml;lkten Tagen oder im Winter 0 Writes. Realistisch ~5 Writes/Tag im Jahresdurchschnitt &rarr; ~55 Jahre bei 100.000 Flash-Zyklen.
+        <strong>&#9432; NVRAM-Schreibvorg&auml;nge:</strong> SolarEdge speichert Modbus-Register&auml;nderungen im Flash-Speicher (NVRAM). Der EEG Energy Optimizer minimiert Schreibvorg&auml;nge: max. ~12 Writes/Tag (Worst Case), an bew&ouml;lkten Tagen oder im Winter 0 Writes. Realistisch ~7 Writes/Tag im Jahresdurchschnitt &rarr; ~39 Jahre bei 100.000 Flash-Zyklen.
       </div>
       <h3 style="margin:16px 0 8px">5. Pr&uuml;fen</h3>
       <ol style="padding-left:20px;line-height:1.8">

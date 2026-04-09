@@ -22,7 +22,7 @@ HACS-kompatible Home Assistant Integration für vorausschauendes Batteriemanagem
 
 Die SolarEdge-Steuerung schreibt Modbus-Register, die im Flash-Speicher (NVRAM) des Wechselrichters persistiert werden. Flash-Speicher hat eine begrenzte Anzahl Schreibzyklen (typisch 100.000+).
 
-Die Integration minimiert Schreibvorgänge: Im Worst Case (jeden Tag Morgen-Blockierung + Abend-Entladung) sind es **max. ~10 Writes pro Tag**. An bewölkten Tagen oder im Winter 0 Writes. Realistisch im Jahresdurchschnitt ~5 Writes/Tag — das ergibt bei 100.000 Zyklen **~55 Jahre Lebensdauer**.
+Die Integration minimiert Schreibvorgänge: Im Worst Case (jeden Tag Morgen-Blockierung + Abend-Entladung) sind es **max. ~12 Writes pro Tag**. An bewölkten Tagen oder im Winter 0 Writes. Realistisch im Jahresdurchschnitt ~7 Writes/Tag — das ergibt bei 100.000 Zyklen **~39 Jahre Lebensdauer**.
 
 ## Installation
 
