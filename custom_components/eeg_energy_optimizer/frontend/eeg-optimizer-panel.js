@@ -668,10 +668,10 @@ class EegOptimizerPanel extends HTMLElement {
             this._render();
           } else if (type === "number") {
             let numVal = parseFloat(target.value) || 0;
-            // SolarEdge: enforce minimum discharge power of 4 kW
-            if (realField === "discharge_power_kw" && this._config?.inverter_type === "solaredge_storedge" && numVal < 4.0) {
-              numVal = 4.0;
-              target.value = "4.0";
+            // SolarEdge: enforce minimum discharge power of 5 kW
+            if (realField === "discharge_power_kw" && this._config?.inverter_type === "solaredge_storedge" && numVal < 5.0) {
+              numVal = 5.0;
+              target.value = "5.0";
             }
             this._settingsData[realField] = numVal;
           } else {
@@ -682,9 +682,9 @@ class EegOptimizerPanel extends HTMLElement {
         const type = target.type;
         if (type === "number") {
           let numVal = parseFloat(target.value) || 0;
-          if (field === "discharge_power_kw" && this._wizardData.inverter_type === "solaredge_storedge" && numVal < 4.0) {
-            numVal = 4.0;
-            target.value = "4.0";
+          if (field === "discharge_power_kw" && this._wizardData.inverter_type === "solaredge_storedge" && numVal < 5.0) {
+            numVal = 5.0;
+            target.value = "5.0";
           }
           this._wizardData[field] = numVal;
         } else {
@@ -709,9 +709,9 @@ class EegOptimizerPanel extends HTMLElement {
             this._settingsData[realField] = target.checked;
           } else if (type === "number") {
             let numVal = parseFloat(target.value) || 0;
-            if (realField === "discharge_power_kw" && this._config?.inverter_type === "solaredge_storedge" && numVal < 4.0) {
-              numVal = 4.0;
-              target.value = "4.0";
+            if (realField === "discharge_power_kw" && this._config?.inverter_type === "solaredge_storedge" && numVal < 5.0) {
+              numVal = 5.0;
+              target.value = "5.0";
             }
             this._settingsData[realField] = numVal;
           } else {
@@ -888,7 +888,7 @@ class EegOptimizerPanel extends HTMLElement {
         const invValue = dataset?.value;
         if (invValue && invValue !== this._wizardData.inverter_type) {
           this._wizardData.inverter_type = invValue;
-          // SolarEdge: default 5 kW, minimum 4 kW
+          // SolarEdge: default 5 kW, minimum 5 kW
           if (invValue === "solaredge_storedge") {
             this._wizardData.discharge_power_kw = 5.0;
           } else {
@@ -2294,8 +2294,8 @@ class EegOptimizerPanel extends HTMLElement {
           <label>Entladeleistung (kW)</label>
           <input type="number" data-field="discharge_power_kw"
                  value="${this._wizardData.discharge_power_kw}"
-                 min="${this._wizardData.inverter_type === "solaredge_storedge" ? "4.0" : "0.5"}" max="10.0" step="0.5">
-          <div class="help-text">Leistung der Batterieentladung ins Netz.${this._wizardData.inverter_type === "solaredge_storedge" ? " Bei SolarEdge min. 4 kW." : ""}</div>
+                 min="${this._wizardData.inverter_type === "solaredge_storedge" ? "5.0" : "0.5"}" max="10.0" step="0.5">
+          <div class="help-text">Leistung der Batterieentladung ins Netz.${this._wizardData.inverter_type === "solaredge_storedge" ? " Bei SolarEdge min. 5 kW." : ""}</div>
         </div>
         <div class="field-group">
           <label>Minimaler Ladezustand (%)</label>
@@ -2499,8 +2499,8 @@ class EegOptimizerPanel extends HTMLElement {
           <label>Entladeleistung (kW)</label>
           <input type="number" data-field="settings_discharge_power_kw"
                  value="${d.discharge_power_kw || 3.0}"
-                 min="${d.inverter_type === "solaredge_storedge" ? "4.0" : "0.5"}" max="10.0" step="0.5">
-          <div class="help-text">Leistung der Batterieentladung ins Netz.${d.inverter_type === "solaredge_storedge" ? " Bei SolarEdge min. 4 kW." : ""}</div>
+                 min="${d.inverter_type === "solaredge_storedge" ? "5.0" : "0.5"}" max="10.0" step="0.5">
+          <div class="help-text">Leistung der Batterieentladung ins Netz.${d.inverter_type === "solaredge_storedge" ? " Bei SolarEdge min. 5 kW." : ""}</div>
         </div>
         <div class="field-group">
           <label>Minimaler Ladezustand (%)</label>

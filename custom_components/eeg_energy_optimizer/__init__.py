@@ -542,7 +542,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     first_cycle[0] = False
                     prev_zustand[0] = decision.zustand
                 elif decision.zustand != prev_zustand[0]:
-                    _log_activity(decision, decision.zustand)
+                    reason = decision.zustand
+                    # Watchdog: Begründung anhängen wenn Entladung wegen Netzbezug abgebrochen
+                    if (prev_zustand[0] == "Abend-Entladung"
+                            and any("Netzbezug" in r for r in decision.discharge_reasons)):
+                        reason = "Normal — Netzbezug > 1 kW für > 5 Min, Entladung für heute abgebrochen"
+                    _log_activity(decision, reason)
                     prev_zustand[0] = decision.zustand
                 else:
                     from datetime import datetime as dt

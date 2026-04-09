@@ -177,14 +177,14 @@ class EEGOptimizer:
         self._discharge_power_kw = config.get(
             CONF_DISCHARGE_POWER_KW, DEFAULT_DISCHARGE_POWER_KW
         )
-        # SolarEdge: enforce minimum discharge power of 4 kW
+        # SolarEdge: enforce minimum discharge power of 5 kW
         inv_type_cfg = config.get(CONF_INVERTER_TYPE, "")
-        if inv_type_cfg == "solaredge_storedge" and self._discharge_power_kw < 4.0:
+        if inv_type_cfg == "solaredge_storedge" and self._discharge_power_kw < 5.0:
             _LOGGER.warning(
-                "SolarEdge: Entladeleistung %.1f kW unter Minimum 4 kW — auf 4 kW angehoben",
+                "SolarEdge: Entladeleistung %.1f kW unter Minimum 5 kW — auf 5 kW angehoben",
                 self._discharge_power_kw,
             )
-            self._discharge_power_kw = 4.0
+            self._discharge_power_kw = 5.0
         self._min_soc = config.get(CONF_MIN_SOC, DEFAULT_MIN_SOC)
         self._safety_buffer_pct = config.get(
             CONF_SAFETY_BUFFER_PCT, DEFAULT_SAFETY_BUFFER_PCT
@@ -196,10 +196,13 @@ class EEGOptimizer:
         self._prev_zustand: str | None = None
         self._last_decision: Decision | None = None
 
-        # Grid import watchdog during discharge
-        # If grid import > 1 kW persists for > 5 minutes, abort discharge for the day
+        # Grid import watchdog during discharge (SolarEdge only)
+        # SolarEdge "Discharge to Maximize Export" pushes to grid but doesn't
+        # cover household demand — the house draws from grid simultaneously.
+        # If grid import > 1 kW persists for > 5 minutes, abort discharge for the day.
         self._grid_import_since: datetime | None = None
         self._discharge_aborted_date: str | None = None  # ISO date "YYYY-MM-DD"
+        self._is_solaredge = inv_type_cfg == "solaredge_storedge"
 
         # Grid sensor for watchdog
         self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, "")
@@ -689,10 +692,11 @@ class EEGOptimizer:
                 f"PV-Prognose morgen ({pv_tomorrow:.1f} kWh) < Bedarf ({tomorrow_demand:.1f} kWh)"
             )
 
-        # Grid import watchdog: if discharge was aborted today, block it
-        today_str = snap.now.strftime("%Y-%m-%d")
-        if self._discharge_aborted_date == today_str:
-            reasons.append("Entladung heute wegen Netzbezug abgebrochen")
+        # Grid import watchdog (SolarEdge only): if discharge was aborted today, block it
+        if self._is_solaredge:
+            today_str = snap.now.strftime("%Y-%m-%d")
+            if self._discharge_aborted_date == today_str:
+                reasons.append("Entladung heute wegen Netzbezug abgebrochen")
 
         return (len(reasons) == 0, min_soc, reasons)
 
@@ -862,16 +866,19 @@ class EEGOptimizer:
     def _check_grid_import_watchdog(self, decision: Decision, snap: Snapshot) -> Decision:
         """Check for sustained grid import during discharge and abort if needed.
 
-        During active discharge, monitors the grid power sensor. If grid import
-        exceeds 1 kW for more than 5 consecutive minutes, the discharge is
-        aborted for the rest of the day to prevent wasteful grid import.
+        SolarEdge only: "Discharge to Maximize Export" pushes power to grid
+        but doesn't cover household demand — the house draws from grid
+        simultaneously. If grid import exceeds 1 kW for more than 5
+        consecutive minutes, the discharge is aborted for the rest of the day.
+
+        Huawei/SolaX cover household demand first, so this issue doesn't apply.
 
         Returns the (possibly modified) decision.
         """
         now = snap.now
 
-        # Only monitor during active discharge
-        if decision.zustand != STATE_ABEND_ENTLADUNG:
+        # Only monitor SolarEdge during active discharge
+        if not self._is_solaredge or decision.zustand != STATE_ABEND_ENTLADUNG:
             self._grid_import_since = None
             return decision
 
