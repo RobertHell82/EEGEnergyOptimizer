@@ -3376,10 +3376,10 @@ class EegOptimizerPanel extends HTMLElement {
           <h3 class="status-card-title" style="margin-top:0;display:flex;align-items:center;gap:8px">
             <ha-icon icon="mdi:pulse" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4)"></ha-icon>
             Aktueller Status
-            <span style="cursor:pointer;display:inline-flex;align-items:center"
+            ${this._config?.inverter_type === "solaredge_storedge" ? `<span style="cursor:pointer;display:inline-flex;align-items:center"
               title="NVRAM-Schreibvorg\u00e4nge: ${this._readFloat("sensor.eeg_energy_optimizer_register_schreibvorgange") ?? 0} seit Installation">
               <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color)"></ha-icon>
-            </span>
+            </span>` : ""}
           </h3>
           <div class="header-grid">
             <div class="hlv${pvEntity ? " hlv-clickable" : ""}" ${pvEntity ? `data-action="show-entity" data-entity="${pvEntity}"` : ""}><span class="hlv-label">PV</span><span class="hlv-val val-green">${pvKw.toFixed(2)} kW</span></div>
