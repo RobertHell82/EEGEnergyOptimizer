@@ -264,7 +264,7 @@ class SolarEdgeInverter(InverterBase):
         if prefix is None:
             self.register_writes += 1
 
-    async def _wait_for_available(self, config_key: str, timeout: float = 10.0, *, prefix: str | None = None) -> bool:
+    async def _wait_for_available(self, config_key: str, timeout: float = 20.0, *, prefix: str | None = None) -> bool:
         """Wait until an entity is no longer unavailable.
 
         After switching storage_control_mode to Remote Control, the command
