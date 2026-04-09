@@ -3602,10 +3602,10 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
         ` : ""}
 
-        <div style="text-align:center;margin-top:32px;padding:16px 0 8px;opacity:0.45;font-size:11px;color:var(--secondary-text-color,#999);line-height:1.6">
-          <img src="/eeg_optimizer_panel/logo.png" alt="EEG Energy Optimizer" style="max-height:36px;width:auto;display:block;margin:0 auto 8px">
-          <div>EEG Energy Optimizer${this._config?.version ? " v" + this._config.version : ""}</div>
-          <div style="max-width:480px;margin:4px auto 0;font-size:10px">Diese Software steuert Batteriespeicher automatisch. Nutzung auf eigene Verantwortung \u2014 keine Haftung f\u00fcr Sch\u00e4den an Ger\u00e4ten, Ertragsausf\u00e4lle oder fehlerhafte Steuerung.</div>
+        <div style="text-align:center;margin-top:32px;padding:16px 0 8px;font-size:11px;color:var(--secondary-text-color,#999);line-height:1.6">
+          <img src="/eeg_optimizer_panel/logo.png" alt="EEG Energy Optimizer" style="max-height:36px;width:auto;display:block;margin:0 auto 8px;filter:brightness(1) saturate(1.2) hue-rotate(-10deg)">
+          <div style="opacity:0.35">EEG Energy Optimizer${this._config?.version ? " v" + this._config.version : ""}</div>
+          <div style="max-width:480px;margin:4px auto 0;font-size:10px;opacity:0.35">Diese Software steuert Batteriespeicher automatisch. Nutzung auf eigene Verantwortung \u2014 keine Haftung f\u00fcr Sch\u00e4den an Ger\u00e4ten, Ertragsausf\u00e4lle oder fehlerhafte Steuerung.</div>
         </div>
 
       </div>`;
