@@ -303,7 +303,7 @@ async def async_backfill_hausverbrauch_stats(
 
 PANEL_FRONTEND_URL = "/eeg_optimizer_panel"
 PANEL_ICON = "mdi:battery-charging-high"
-PANEL_TITLE = "EEG Optimizer"
+PANEL_TITLE = "EEG Energy Optimizer"
 PANEL_URL_PATH = "eeg-optimizer"
 
 
@@ -438,8 +438,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         from homeassistant.components.persistent_notification import async_create
         async_create(
             hass,
-            f"EEG Optimizer: Wechselrichter konnte nicht erstellt werden — {err}",
-            title="EEG Optimizer Fehler",
+            f"EEG Energy Optimizer: Wechselrichter konnte nicht erstellt werden — {err}",
+            title="EEG Energy Optimizer Fehler",
             notification_id="eeg_inverter_error",
         )
         return False
@@ -586,17 +586,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not provider:
             missing.append("PV-Prognose (provider)")
         _LOGGER.error(
-            "EEG Optimizer: Optimizer konnte nicht gestartet werden — "
+            "EEG Energy Optimizer: Optimizer konnte nicht gestartet werden — "
             "fehlende Komponenten: %s",
             ", ".join(missing),
         )
         from homeassistant.components.persistent_notification import async_create
         async_create(
             hass,
-            f"EEG Optimizer konnte nicht vollstaendig starten. "
+            f"EEG Energy Optimizer konnte nicht vollstaendig starten. "
             f"Fehlende Komponenten: {', '.join(missing)}. "
             f"Bitte Setup-Wizard erneut durchlaufen.",
-            title="EEG Optimizer Warnung",
+            title="EEG Energy Optimizer Warnung",
             notification_id="eeg_init_warning",
         )
 
@@ -632,7 +632,7 @@ async def _async_update_listener(
             )
             new_optimizer._prev_zustand = optimizer._prev_zustand
             data["optimizer"] = new_optimizer
-            _LOGGER.info("EEG Optimizer: Config hot-reloaded")
+            _LOGGER.info("EEG Energy Optimizer: Config hot-reloaded")
             # Run cycle immediately so dashboard reflects changes
             cycle_fn = data.get("_run_cycle")
             if cycle_fn:

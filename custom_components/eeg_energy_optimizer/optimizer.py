@@ -1,4 +1,4 @@
-"""EEG Optimizer decision engine.
+"""EEG Energy Optimizer decision engine.
 
 Core intelligence: decides when to block battery charging (morning EEG feed-in)
 and when to discharge (evening EEG feed-in) based on PV forecasts, consumption

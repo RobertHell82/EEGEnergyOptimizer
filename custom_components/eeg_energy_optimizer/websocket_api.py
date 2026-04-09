@@ -1,4 +1,4 @@
-"""WebSocket API for EEG Optimizer panel."""
+"""WebSocket API for EEG Energy Optimizer panel."""
 
 from __future__ import annotations
 
@@ -224,7 +224,7 @@ def _get_entry_data(hass: HomeAssistant, connection: websocket_api.ActiveConnect
 
 
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
-    """Register WebSocket commands for the EEG Optimizer panel."""
+    """Register WebSocket commands for the EEG Energy Optimizer panel."""
     websocket_api.async_register_command(hass, ws_get_config)
     websocket_api.async_register_command(hass, ws_save_config)
     websocket_api.async_register_command(hass, ws_check_prerequisites)
@@ -260,6 +260,15 @@ async def ws_get_config(
     config = {**entry.data, **entry.options}
     config["entry_id"] = entry.entry_id
     config["setup_complete"] = entry.data.get("setup_complete", False)
+    # Inject version from manifest
+    try:
+        import json, pathlib
+        manifest = json.loads(
+            (pathlib.Path(__file__).parent / "manifest.json").read_text()
+        )
+        config["version"] = manifest.get("version", "")
+    except Exception:
+        config["version"] = ""
     connection.send_result(msg["id"], config)
 
 

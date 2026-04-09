@@ -1,5 +1,5 @@
 /**
- * EEG Optimizer Panel - Custom element for HA sidebar panel.
+ * EEG Energy Optimizer Panel - Custom element for HA sidebar panel.
  *
  * Provides dashboard/wizard view toggle and loads config via WebSocket.
  * Wizard: 8-step setup for inverter, prerequisites, sensors, forecasts,
@@ -154,7 +154,7 @@ const DIALOG_CONTENT = {
         <li>Port: <strong>6607</strong> (neuere Firmware) oder <strong>502</strong> (EMMA / &auml;ltere Firmware)</li>
         <li>Slave ID: <strong>1</strong> (Standard, bei Problemen 0 versuchen)</li>
         <li><strong>Elevated Permissions: MUSS aktiviert werden!</strong>
-          <br><span style="color:var(--secondary-text-color)">Ohne Elevated Permissions keine Batteriesteuerung &mdash; der EEG Optimizer kann dann nicht steuern.</span>
+          <br><span style="color:var(--secondary-text-color)">Ohne Elevated Permissions keine Batteriesteuerung &mdash; der EEG Energy Optimizer kann dann nicht steuern.</span>
         </li>
         <li>Installer-Passwort: <code>00000a</code> eingeben</li>
       </ol>
@@ -298,7 +298,7 @@ const DIALOG_CONTENT = {
         <li>Die Sensoren <code>sensor.energy_production_today_remaining</code> und <code>sensor.energy_production_tomorrow</code> sollten kWh-Werte zeigen</li>
         <li>Kehre hierher zur&uuml;ck &mdash; die Sensoren werden automatisch zugeordnet</li>
       </ol>
-      <p style="margin:12px 0 4px;color:var(--secondary-text-color);font-size:13px"><strong>Kostenlose Version:</strong> 12 Abrufe/Stunde, Prognose f&uuml;r heute + morgen, 1h-Aufl&ouml;sung &mdash; vollkommen ausreichend f&uuml;r den EEG Optimizer.</p>`,
+      <p style="margin:12px 0 4px;color:var(--secondary-text-color);font-size:13px"><strong>Kostenlose Version:</strong> 12 Abrufe/Stunde, Prognose f&uuml;r heute + morgen, 1h-Aufl&ouml;sung &mdash; vollkommen ausreichend f&uuml;r den EEG Energy Optimizer.</p>`,
   },
   capacity_sensor: {
     title: "Huawei Akkukapazität-Sensor aktivieren",
@@ -339,7 +339,7 @@ const DIALOG_CONTENT = {
         </tr>
       </table>
       <div style="background:var(--warning-color,#ff9800);color:#fff;padding:8px 12px;border-radius:8px;margin:12px 0;font-size:13px">
-        <strong>&#9888; Wichtig:</strong> Der Work Mode darf <strong>NICHT</strong> auf &ldquo;Feedin Priority&rdquo; oder &ldquo;Force Time Use&rdquo; stehen! Der EEG Optimizer steuert die Batterie &uuml;ber Remote Control (Mode 1) und setzt voraus, dass der Wechselrichter im Self Use Modus l&auml;uft.
+        <strong>&#9888; Wichtig:</strong> Der Work Mode darf <strong>NICHT</strong> auf &ldquo;Feedin Priority&rdquo; oder &ldquo;Force Time Use&rdquo; stehen! Der EEG Energy Optimizer steuert die Batterie &uuml;ber Remote Control (Mode 1) und setzt voraus, dass der Wechselrichter im Self Use Modus l&auml;uft.
       </div>
       <h3 style="margin:16px 0 8px">3. HACS Integration installieren</h3>
       <p style="margin-bottom:8px;color:var(--secondary-text-color)"><strong>Voraussetzung:</strong> <a href="https://hacs.xyz/" target="_blank">HACS</a> muss installiert sein.</p>
@@ -366,7 +366,7 @@ const DIALOG_CONTENT = {
         <li><code>button.solax_*remotecontrol_trigger</code> existiert (= Remote Control verf&uuml;gbar)</li>
         <li>Kehre hierher zur&uuml;ck &mdash; der Wechselrichter wird automatisch erkannt</li>
       </ol>
-      <p style="margin:4px 0;color:var(--secondary-text-color);font-size:13px"><strong>Hinweis:</strong> Der Entity-Prefix variiert je Installation (z.B. <code>solax_inverter_</code> statt <code>solax_</code>). Der EEG Optimizer erkennt den Prefix automatisch.</p>
+      <p style="margin:4px 0;color:var(--secondary-text-color);font-size:13px"><strong>Hinweis:</strong> Der Entity-Prefix variiert je Installation (z.B. <code>solax_inverter_</code> statt <code>solax_</code>). Der EEG Energy Optimizer erkennt den Prefix automatisch.</p>
       <h3 style="margin:16px 0 8px">H&auml;ufige Probleme</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <tr style="border-bottom:1px solid var(--divider-color)">
@@ -437,7 +437,7 @@ const DIALOG_CONTENT = {
       </ol>
       <h3 style="margin:16px 0 8px">4. Speichersteuerung aktivieren</h3>
       <div style="background:var(--error-color,#db4437);color:#fff;padding:8px 12px;border-radius:8px;margin:0 0 12px;font-size:13px">
-        <strong>&#9888; Pflichtschritt!</strong> Ohne diesen Schritt fehlen die Steuerungs-Entities und der EEG Optimizer kann die Batterie nicht steuern.
+        <strong>&#9888; Pflichtschritt!</strong> Ohne diesen Schritt fehlen die Steuerungs-Entities und der EEG Energy Optimizer kann die Batterie nicht steuern.
       </div>
       <ol style="padding-left:20px;line-height:1.8">
         <li>Gehe zu <strong>Einstellungen &rarr; Integrationen &rarr; SolarEdge Modbus Multi</strong></li>
@@ -446,9 +446,9 @@ const DIALOG_CONTENT = {
         <li>Speichern und <strong>Integration neu laden</strong></li>
       </ol>
       <p style="margin:8px 0;color:var(--secondary-text-color);font-size:13px">Nach dem Neuladen sollten diese Entities erscheinen: <code>select.*storage_command_mode</code>, <code>number.*storage_charge_limit</code>, <code>number.*storage_discharge_limit</code></p>
-      <p style="margin:4px 0;color:var(--secondary-text-color);font-size:13px"><strong>Hinweis:</strong> Der EEG Optimizer setzt <code>storage_control_mode</code> bei Bedarf automatisch auf &ldquo;Remote Control&rdquo; und stellt den Originalzustand danach wieder her.</p>
+      <p style="margin:4px 0;color:var(--secondary-text-color);font-size:13px"><strong>Hinweis:</strong> Der EEG Energy Optimizer setzt <code>storage_control_mode</code> bei Bedarf automatisch auf &ldquo;Remote Control&rdquo; und stellt den Originalzustand danach wieder her.</p>
       <div style="background:var(--info-color,#039be5);color:#fff;padding:8px 12px;border-radius:8px;margin:8px 0 12px;font-size:13px">
-        <strong>&#9432; NVRAM-Schreibvorg&auml;nge:</strong> SolarEdge speichert Modbus-Register&auml;nderungen im Flash-Speicher (NVRAM). Der EEG Optimizer minimiert Schreibvorg&auml;nge: max. ~10 Writes/Tag (Worst Case), an bew&ouml;lkten Tagen oder im Winter 0 Writes. Realistisch ~5 Writes/Tag im Jahresdurchschnitt &rarr; ~55 Jahre bei 100.000 Flash-Zyklen.
+        <strong>&#9432; NVRAM-Schreibvorg&auml;nge:</strong> SolarEdge speichert Modbus-Register&auml;nderungen im Flash-Speicher (NVRAM). Der EEG Energy Optimizer minimiert Schreibvorg&auml;nge: max. ~10 Writes/Tag (Worst Case), an bew&ouml;lkten Tagen oder im Winter 0 Writes. Realistisch ~5 Writes/Tag im Jahresdurchschnitt &rarr; ~55 Jahre bei 100.000 Flash-Zyklen.
       </div>
       <h3 style="margin:16px 0 8px">5. Pr&uuml;fen</h3>
       <ol style="padding-left:20px;line-height:1.8">
@@ -457,7 +457,7 @@ const DIALOG_CONTENT = {
         <li><code>select.solaredge_*_storage_command_mode</code> existiert (= Speichersteuerung aktiv)</li>
         <li>Kehre hierher zur&uuml;ck &mdash; der Wechselrichter wird automatisch erkannt</li>
       </ol>
-      <p style="margin:4px 0;color:var(--secondary-text-color);font-size:13px"><strong>Hinweis:</strong> Der Entity-Prefix variiert je Installation (z.B. <code>solaredge_i1_</code> statt <code>solaredge_</code>). Der EEG Optimizer erkennt den Prefix automatisch.</p>
+      <p style="margin:4px 0;color:var(--secondary-text-color);font-size:13px"><strong>Hinweis:</strong> Der Entity-Prefix variiert je Installation (z.B. <code>solaredge_i1_</code> statt <code>solaredge_</code>). Der EEG Energy Optimizer erkennt den Prefix automatisch.</p>
       <h3 style="margin:16px 0 8px">H&auml;ufige Probleme</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <tr style="border-bottom:1px solid var(--divider-color)">
@@ -564,7 +564,7 @@ class EegOptimizerPanel extends HTMLElement {
         const elapsed = Date.now() - this._lastHassUpdate;
         // If no hass update for >30s, the connection likely dropped
         if (elapsed > 30000) {
-          console.info("EEG Optimizer: tab visible after " + Math.round(elapsed / 1000) + "s, refreshing");
+          console.info("EEG Energy Optimizer: tab visible after " + Math.round(elapsed / 1000) + "s, refreshing");
           this._loadConfigPending = false;
           this._loadConfigWithRetry();
         }
@@ -1501,7 +1501,7 @@ class EegOptimizerPanel extends HTMLElement {
     try {
       this._setHassInner(hass);
     } catch (err) {
-      console.error("EEG Optimizer: error in set hass():", err);
+      console.error("EEG Energy Optimizer: error in set hass():", err);
     }
   }
 
@@ -1524,7 +1524,7 @@ class EegOptimizerPanel extends HTMLElement {
 
     // Detect connection object change (HA reconnect after network switch)
     if (oldHass && hass && oldHass.connection !== hass.connection) {
-      console.info("EEG Optimizer: connection changed (network switch?), reloading");
+      console.info("EEG Energy Optimizer: connection changed (network switch?), reloading");
       this._activityUnsub = null; // old subscription is dead
       this._loadConfigPending = false;
       this._loadConfigWithRetry();
@@ -1533,7 +1533,7 @@ class EegOptimizerPanel extends HTMLElement {
 
     // Recover silently-dead activity subscription
     if (this._setupComplete && !this._activityUnsub && this._initialized) {
-      console.info("EEG Optimizer: activity subscription missing, re-subscribing");
+      console.info("EEG Energy Optimizer: activity subscription missing, re-subscribing");
       this._subscribeActivityEvents();
     }
 
@@ -1601,11 +1601,11 @@ class EegOptimizerPanel extends HTMLElement {
       if (attempt < 5) {
         this._loadConfigPending = false;
         const delay = (attempt + 1) * 2000;
-        console.warn(`EEG Optimizer: config load failed, retry ${attempt + 1}/5 in ${delay}ms`);
+        console.warn(`EEG Energy Optimizer: config load failed, retry ${attempt + 1}/5 in ${delay}ms`);
         setTimeout(() => this._loadConfigWithRetry(attempt + 1), delay);
         return;
       }
-      console.error("EEG Optimizer: config load failed after 5 retries");
+      console.error("EEG Energy Optimizer: config load failed after 5 retries");
     }
     this._loadConfigPending = false;
   }
@@ -1916,9 +1916,9 @@ class EegOptimizerPanel extends HTMLElement {
         <img src="/eeg_optimizer_panel/logo.png" alt="EEG Energy Optimizer" style="max-width:180px;height:auto">
       </div>
       <p style="line-height:1.6;margin-bottom:20px">
-        Diese Integration optimiert deine Hausbatterie für die Energiegemeinschaft (EEG).
-        Morgens wird die Batterieladung verzögert, damit Solarstrom ins Netz fließt.
-        Abends wird die Batterie ins Netz entladen, wenn genug Reserve für die Nacht bleibt.
+        Diese Home Assistant Integration optimiert deine Hausbatterie für die Energiegemeinschaft (EEG).
+        Morgens wird die Batterieladung verzögert, damit Solarstrom ins Netz fließt, wenn er benötigt wird.
+        Abends wird die Batterie ins Netz entladen — jedoch nur soweit, dass der Eigenverbrauch mit der Restladung der Batterie gesichert ist.
       </p>
       <h3 style="margin-bottom:8px">Was du brauchst</h3>
       <ul style="line-height:1.8;margin-bottom:20px;padding-left:20px">
@@ -3602,6 +3602,12 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
         ` : ""}
 
+        <div style="text-align:center;margin-top:32px;padding:16px 0 8px;opacity:0.45;font-size:11px;color:var(--secondary-text-color,#999);line-height:1.6">
+          <img src="/eeg_optimizer_panel/logo.png" alt="EEG Energy Optimizer" style="max-height:36px;width:auto;display:block;margin:0 auto 8px">
+          <div>EEG Energy Optimizer${this._config?.version ? " v" + this._config.version : ""}</div>
+          <div style="max-width:480px;margin:4px auto 0;font-size:10px">Diese Software steuert Batteriespeicher automatisch. Nutzung auf eigene Verantwortung \u2014 keine Haftung f\u00fcr Sch\u00e4den an Ger\u00e4ten, Ertragsausf\u00e4lle oder fehlerhafte Steuerung.</div>
+        </div>
+
       </div>`;
   }
 
@@ -3612,7 +3618,7 @@ class EegOptimizerPanel extends HTMLElement {
       this._renderInner();
       // Verify render succeeded
     } catch (outerErr) {
-      console.error("EEG Optimizer fatal render error:", outerErr);
+      console.error("EEG Energy Optimizer fatal render error:", outerErr);
       try {
         this._shadow.innerHTML = `
           <div style="padding:24px;font-family:sans-serif">
@@ -3693,7 +3699,7 @@ class EegOptimizerPanel extends HTMLElement {
           ${this._renderInfoModal()}`;
       }
     } catch (err) {
-      console.error("EEG Optimizer render error:", err);
+      console.error("EEG Energy Optimizer render error:", err);
       content = `
         <div class="content">
           <div class="card" style="border-left:4px solid var(--error-color, #db4437); margin:16px">
@@ -4102,7 +4108,7 @@ class EegOptimizerPanel extends HTMLElement {
         <button class="menu-btn" data-action="toggle-sidebar" title="Men\u00fc">
           <ha-icon icon="mdi:menu"></ha-icon>
         </button>
-        <h1>EEG Optimizer</h1>
+        <h1>EEG Energy Optimizer</h1>
         <div class="toolbar-actions">${headerRight}</div>
       </div>
       ${content}
@@ -4135,7 +4141,7 @@ class EegOptimizerPanel extends HTMLElement {
     }
     // If already initialized before detach, re-init data + subscription
     if (this._hass && this._initialized) {
-      console.info("EEG Optimizer: panel reattached, refreshing");
+      console.info("EEG Energy Optimizer: panel reattached, refreshing");
       this._loadConfigPending = false;
       this._loadConfigWithRetry();
     }
