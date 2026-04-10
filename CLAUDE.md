@@ -45,13 +45,14 @@ optimizer.py: async_run_cycle(mode)
 
 | File | Role |
 |------|------|
-| `__init__.py` | Entry setup, 30s optimizer timer, activity log, panel registration, config migration |
+| `__init__.py` | Entry setup, 30s optimizer timer, activity log, feed-in statistics, panel registration, config migration |
 | `optimizer.py` | Decision engine — Snapshot/Decision dataclasses, charge blocking, discharge logic |
-| `sensor.py` | 14 sensors: consumption profile, forecasts, battery, PV, Hausverbrauch, decision |
+| `statistics.py` | Feed-in statistics tracker — tracks grid export kWh, session count & duration during active states |
+| `sensor.py` | 16 sensors: consumption profile, forecasts, battery, PV, Hausverbrauch, decision, feed-in energy |
 | `coordinator.py` | Loads hourly consumption averages from recorder (rolling, weekday split) |
 | `forecast_provider.py` | Abstract PV forecast provider — Solcast and Forecast.Solar implementations |
 | `config_flow.py` | Single-click config flow (full setup happens in panel) |
-| `websocket_api.py` | 12 WebSocket commands for panel (config, sensors, inverter control, activity log) |
+| `websocket_api.py` | 13 WebSocket commands for panel (config, sensors, inverter control, activity log, feed-in statistics) |
 | `inverter/base.py` | Abstract inverter interface (InverterBase ABC) |
 | `inverter/huawei.py` | Huawei SUN2000 implementation via HA services |
 | `inverter/solax.py` | SolaX Gen4+ implementation via solax_modbus Mode 1 |
@@ -61,7 +62,7 @@ optimizer.py: async_run_cycle(mode)
 | `const.py` | All constants, defaults, mode enums, state names |
 | `frontend/eeg-optimizer-panel.js` | Dashboard + onboarding panel (plain HTMLElement, Shadow DOM) |
 
-### Sensors (14 total)
+### Sensors (16 total)
 
 | # | Sensor | Update | Description |
 |---|--------|--------|-------------|
@@ -73,6 +74,8 @@ optimizer.py: async_run_cycle(mode)
 | 12 | PV Prognose morgen | fast | PV forecast tomorrow |
 | 13 | Hausverbrauch | fast | Calculated: PV - Battery - Grid (kW, MEASUREMENT) |
 | 14 | Entscheidung | 30s | Current optimizer state + Markdown dashboard |
+| 15 | Morgen-Einspeisung Energie heute | fast | Grid feed-in kWh during morning charge blocking (TOTAL, resets daily) |
+| 16 | Abend-Entladung Energie heute | fast | Grid feed-in kWh during evening discharge (TOTAL, resets daily) |
 
 ### Select Entity
 
@@ -93,7 +96,7 @@ optimizer.py: async_run_cycle(mode)
 - **API**: Paginated WebSocket endpoint (`get_activity_log` with `offset`/`limit`)
 - **Frontend**: Loads 100 entries initially, "Mehr laden" fetches 100 more per click, live events via subscription
 
-### WebSocket API (12 commands)
+### WebSocket API (13 commands)
 
 | Command | Description |
 |---------|-------------|
@@ -109,6 +112,7 @@ optimizer.py: async_run_cycle(mode)
 | `eeg_optimizer/get_test_overrides` | Read simulation overrides |
 | `eeg_optimizer/clear_test_overrides` | Clear simulation overrides |
 | `eeg_optimizer/get_activity_log` | Paginated activity log (offset, limit) |
+| `eeg_optimizer/get_feedin_statistics` | Feed-in statistics (days=0 for all data, includes daily + period summaries) |
 
 ### Inverter Abstraction
 

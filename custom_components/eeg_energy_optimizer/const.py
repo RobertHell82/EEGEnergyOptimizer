@@ -87,6 +87,15 @@ STATE_ABEND_ENTLADUNG = "Abend-Entladung"
 # to let sensors (PV forecast, sun.sun) settle with valid data
 STARTUP_GRACE_SECONDS = 90
 
+# Feed-in statistics: compact session details to daily aggregates after N days
+STATS_COMPACT_AFTER_DAYS = 90
+
+# Map optimizer states to statistics keys
+STATE_TO_STATS_KEY = {
+    STATE_MORGEN_EINSPEISUNG: "morning",
+    STATE_ABEND_ENTLADUNG: "evening",
+}
+
 # Phase 4: Onboarding Panel
 CONF_SETUP_COMPLETE = "setup_complete"
 CONF_EXPERT_MODE = "expert_mode"

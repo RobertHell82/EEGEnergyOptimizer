@@ -107,6 +107,7 @@ except ImportError:
 
     class SensorStateClass:  # type: ignore[no-redef]
         MEASUREMENT = "measurement"
+        TOTAL = "total"
 
     class UnitOfEnergy:  # type: ignore[no-redef]
         KILO_WATT_HOUR = "kWh"
@@ -825,6 +826,49 @@ class EntscheidungsSensor(SensorEntity):
 
 
 # ---------------------------------------------------------------------------
+# Sensors 19-20: Feed-in Energy (fast, daily kWh per optimizer state)
+# ---------------------------------------------------------------------------
+
+class FeedinEnergySensor(SensorEntity):
+    """Daily feed-in energy during an optimizer active state.
+
+    Two instances: morning (Morgen-Einspeisung) and evening (Abend-Entladung).
+    Resets to 0 at midnight. Compatible with HA Energy Dashboard (TOTAL + last_reset).
+    """
+
+    _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_suggested_display_precision = 2
+
+    def __init__(
+        self, hass: Any, entry: Any, stats_key: str, name: str, icon: str
+    ) -> None:
+        self.hass = hass
+        self._entry_id = entry.entry_id
+        self._stats_key = stats_key
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_feedin_{stats_key}_heute"
+        self._attr_device_info = _device_info(entry.entry_id)
+        self._attr_native_value: float | None = 0.0
+        self._attr_extra_state_attributes: dict[str, Any] = {}
+
+    async def async_update(self) -> None:
+        data = self.hass.data.get(DOMAIN, {}).get(self._entry_id, {})
+        stats = data.get("feedin_stats")
+        if stats is None:
+            return
+        kwh = stats.get_today_kwh(self._stats_key)
+        self._attr_native_value = round(kwh, 3)
+        # last_reset = today midnight for TOTAL state class
+        now_local = _now()
+        midnight = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        self._attr_extra_state_attributes = {"last_reset": midnight.isoformat()}
+
+
+# ---------------------------------------------------------------------------
 # Platform setup
 # ---------------------------------------------------------------------------
 
@@ -891,12 +935,25 @@ async def async_setup_entry(
     decision_sensor = EntscheidungsSensor(entry.entry_id)
     data["decision_sensor"] = decision_sensor
 
+    # Sensors 19-20: Feed-in energy per optimizer state (daily kWh)
+    feedin_morning_sensor = FeedinEnergySensor(
+        hass, entry, "morning",
+        "Morgen-Einspeisung Energie heute",
+        "mdi:transmission-tower-export",
+    )
+    feedin_evening_sensor = FeedinEnergySensor(
+        hass, entry, "evening",
+        "Abend-Entladung Energie heute",
+        "mdi:battery-arrow-down",
+    )
+
     slow_sensors: list[SensorEntity] = [profil_sensor]
     fast_sensors: list[SensorEntity] = (
         daily_sensors
         + [sunrise_sensor, battery_sensor, pv_today_sensor, pv_tomorrow_sensor,
            hausverbrauch_sensor, pv_leistung_sensor, netzleistung_sensor,
-           batterieleistung_sensor, register_writes_sensor]
+           batterieleistung_sensor, register_writes_sensor,
+           feedin_morning_sensor, feedin_evening_sensor]
     )
 
     async_add_entities(slow_sensors + fast_sensors + [decision_sensor], False)

@@ -555,6 +555,10 @@ class EegOptimizerPanel extends HTMLElement {
     this._connectionLostSeen = false;
     this._manualControlOpen = false;
     this._simulationOpen = false;
+    this._feedinStats = null;
+    this._feedinStatsLoaded = false;
+    this._feedinStatsOpen = true;
+    this._feedinStatsPeriod = "month";
     this._settingsData = {};
     this._lastHassUpdate = Date.now();
 
@@ -984,6 +988,30 @@ class EegOptimizerPanel extends HTMLElement {
         this._simulationOpen = !this._simulationOpen;
         this._render();
         break;
+      case "toggle-feedin-stats":
+        this._feedinStatsOpen = !this._feedinStatsOpen;
+        this._render();
+        break;
+      case "feedin-period-today":
+        this._feedinStatsPeriod = "today";
+        this._render();
+        break;
+      case "feedin-period-week":
+        this._feedinStatsPeriod = "week";
+        this._render();
+        break;
+      case "feedin-period-month":
+        this._feedinStatsPeriod = "month";
+        this._render();
+        break;
+      case "feedin-period-year":
+        this._feedinStatsPeriod = "year";
+        this._render();
+        break;
+      case "feedin-period-total":
+        this._feedinStatsPeriod = "total";
+        this._render();
+        break;
     }
   }
 
@@ -1258,6 +1286,7 @@ class EegOptimizerPanel extends HTMLElement {
       if (res?.config?.setup_complete) {
         await this._loadConfig();
         this._loadActivityLog();
+        this._loadFeedinStats();
         this._subscribeActivityEvents();
         return;
       }
@@ -1280,6 +1309,21 @@ class EegOptimizerPanel extends HTMLElement {
       this._render();
     } catch (e) {
       // Silently ignore — log may not be available yet
+    }
+  }
+
+  async _loadFeedinStats() {
+    if (!this._hass) return;
+    try {
+      const result = await this._hass.callWS({
+        type: "eeg_optimizer/get_feedin_statistics",
+        days: 0,
+      });
+      this._feedinStats = result;
+      this._feedinStatsLoaded = true;
+      this._render();
+    } catch (e) {
+      // Silently ignore — stats may not be available yet
     }
   }
 
@@ -2913,6 +2957,180 @@ class EegOptimizerPanel extends HTMLElement {
       </div>`;
   }
 
+  _renderFeedinStatistics() {
+    if (!this._feedinStatsLoaded || !this._feedinStats) {
+      return `<p style="color:var(--secondary-text-color);font-size:14px">Statistik wird geladen\u2026</p>`;
+    }
+
+    const s = this._feedinStats;
+    const period = this._feedinStatsPeriod;
+    const data = s[period] || {morning: {kwh: 0, count: 0, duration_min: 0}, evening: {kwh: 0, count: 0, duration_min: 0}};
+    const m = data.morning || {kwh: 0, count: 0, duration_min: 0};
+    const e = data.evening || {kwh: 0, count: 0, duration_min: 0};
+
+    const fmtDur = (min) => {
+      if (min < 60) return min + " Min";
+      const h = Math.floor(min / 60);
+      const r = min % 60;
+      return r > 0 ? h + "h " + r + "m" : h + "h";
+    };
+
+    const periods = [
+      {key: "today", label: "Heute"},
+      {key: "week", label: "Woche"},
+      {key: "month", label: "Monat"},
+      {key: "year", label: "Jahr"},
+      {key: "total", label: "Gesamt"},
+    ];
+    const periodBtns = periods.map(p =>
+      `<button data-action="feedin-period-${p.key}" style="padding:4px 12px;border:1px solid var(--divider-color);background:${period === p.key ? "var(--primary-color)" : "var(--card-background-color,#fff)"};color:${period === p.key ? "#fff" : "var(--primary-text-color)"};border-radius:16px;font-size:12px;cursor:pointer">${p.label}</button>`
+    ).join("");
+
+    const summaryHtml = `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${periodBtns}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div style="background:var(--card-background-color,#fff);border:1px solid var(--divider-color);border-radius:12px;padding:14px">
+          <div style="font-size:13px;color:var(--secondary-text-color);margin-bottom:6px">
+            <ha-icon icon="mdi:weather-sunny" style="--mdc-icon-size:16px;color:#FF9800;vertical-align:middle"></ha-icon>
+            Morgen-Einspeisung
+          </div>
+          <div style="font-size:24px;font-weight:600;color:var(--primary-text-color)">${m.kwh.toFixed(1)} <span style="font-size:14px;font-weight:400">kWh</span></div>
+          <div style="font-size:12px;color:var(--secondary-text-color);margin-top:4px">${m.count}\u00d7 aktiv \u00b7 ${fmtDur(m.duration_min)}</div>
+        </div>
+        <div style="background:var(--card-background-color,#fff);border:1px solid var(--divider-color);border-radius:12px;padding:14px">
+          <div style="font-size:13px;color:var(--secondary-text-color);margin-bottom:6px">
+            <ha-icon icon="mdi:weather-night" style="--mdc-icon-size:16px;color:#2196F3;vertical-align:middle"></ha-icon>
+            Abend-Entladung
+          </div>
+          <div style="font-size:24px;font-weight:600;color:var(--primary-text-color)">${e.kwh.toFixed(1)} <span style="font-size:14px;font-weight:400">kWh</span></div>
+          <div style="font-size:12px;color:var(--secondary-text-color);margin-top:4px">${e.count}\u00d7 aktiv \u00b7 ${fmtDur(e.duration_min)}</div>
+        </div>
+      </div>`;
+
+    // Bar chart: daily feed-in data
+    const chartHtml = this._renderFeedinBarChart();
+
+    return summaryHtml + chartHtml;
+  }
+
+  _renderFeedinBarChart() {
+    if (!this._feedinStats?.daily) return "";
+    const daily = this._feedinStats.daily;
+    const period = this._feedinStatsPeriod;
+
+    // Determine how many days to show and whether to aggregate by month
+    let byMonth = false;
+    let daysBack = 30;
+    if (period === "today") daysBack = 1;
+    else if (period === "week") daysBack = 7;
+    else if (period === "month") daysBack = 30;
+    else if (period === "year") { daysBack = 365; byMonth = true; }
+    else if (period === "total") { daysBack = 99999; byMonth = true; }
+
+    if (byMonth) {
+      return this._renderFeedinMonthlyChart(daily);
+    }
+
+    // Daily bars
+    const today = new Date();
+    const entries = [];
+    for (let i = daysBack - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      const dayData = daily[key] || {};
+      const mKwh = dayData.morning?.total_kwh || 0;
+      const eKwh = dayData.evening?.total_kwh || 0;
+      const label = d.toLocaleDateString("de-DE", {day: "2-digit", month: "2-digit"});
+      entries.push({label, morning: mKwh, evening: eKwh});
+    }
+
+    if (entries.length === 0) return `<p style="color:var(--secondary-text-color);font-size:13px">Noch keine Daten vorhanden</p>`;
+    return this._renderGroupedFeedinBars(entries);
+  }
+
+  _renderFeedinMonthlyChart(daily) {
+    // Aggregate daily data into months
+    const months = {};
+    for (const [dateStr, dayData] of Object.entries(daily)) {
+      const monthKey = dateStr.slice(0, 7); // YYYY-MM
+      if (!months[monthKey]) months[monthKey] = {morning: 0, evening: 0};
+      months[monthKey].morning += dayData.morning?.total_kwh || 0;
+      months[monthKey].evening += dayData.evening?.total_kwh || 0;
+    }
+
+    const sortedKeys = Object.keys(months).sort();
+    if (sortedKeys.length === 0) return `<p style="color:var(--secondary-text-color);font-size:13px">Noch keine Daten vorhanden</p>`;
+
+    const monthNames = ["Jan", "Feb", "M\u00e4r", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+    const entries = sortedKeys.map(k => {
+      const m = parseInt(k.slice(5, 7)) - 1;
+      return {label: monthNames[m] + " " + k.slice(2, 4), morning: months[k].morning, evening: months[k].evening};
+    });
+
+    return this._renderGroupedFeedinBars(entries);
+  }
+
+  _renderGroupedFeedinBars(entries) {
+    const width = 700, height = 300, padding = {top: 30, right: 20, bottom: 40, left: 50};
+    const chartW = width - padding.left - padding.right;
+    const chartH = height - padding.top - padding.bottom;
+    const maxVal = Math.max(...entries.map(e => Math.max(e.morning, e.evening)), 0.1) * 1.15;
+    const slotW = chartW / Math.max(entries.length, 1);
+    const barW = Math.min(slotW * 0.35, 30);
+    const gap = 2;
+
+    let bars = "";
+    entries.forEach((d, i) => {
+      const slotX = padding.left + i * slotW;
+      const x1 = slotX + (slotW - barW * 2 - gap) / 2;
+
+      // Morning bar (left, orange)
+      if (d.morning > 0) {
+        const barH1 = (d.morning / maxVal) * chartH;
+        const y1 = padding.top + chartH - barH1;
+        bars += `<rect x="${x1}" y="${y1}" width="${barW}" height="${barH1}" fill="#FF9800" rx="3"/>`;
+        if (entries.length <= 14) bars += `<text x="${x1 + barW/2}" y="${y1 - 4}" text-anchor="middle" font-size="10" fill="var(--primary-text-color)">${d.morning.toFixed(1)}</text>`;
+      }
+
+      // Evening bar (right, blue)
+      const x2 = x1 + barW + gap;
+      if (d.evening > 0) {
+        const barH2 = (d.evening / maxVal) * chartH;
+        const y2 = padding.top + chartH - barH2;
+        bars += `<rect x="${x2}" y="${y2}" width="${barW}" height="${barH2}" fill="#2196F3" rx="3"/>`;
+        if (entries.length <= 14) bars += `<text x="${x2 + barW/2}" y="${y2 - 4}" text-anchor="middle" font-size="10" fill="var(--primary-text-color)">${d.evening.toFixed(1)}</text>`;
+      }
+
+      // Skip some labels if too many entries
+      const labelEvery = entries.length > 20 ? Math.ceil(entries.length / 12) : 1;
+      if (i % labelEvery === 0) {
+        bars += `<text x="${slotX + slotW/2}" y="${height - 10}" text-anchor="middle" font-size="${entries.length > 14 ? 9 : 11}" fill="var(--secondary-text-color)">${d.label}</text>`;
+      }
+    });
+
+    // Y-axis grid
+    let yLines = "";
+    for (let i = 0; i <= 4; i++) {
+      const y = padding.top + (chartH / 4) * i;
+      const val = (maxVal * (4 - i) / 4).toFixed(1);
+      yLines += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--divider-color)" stroke-dasharray="4"/>`;
+      yLines += `<text x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
+    }
+
+    // Legend
+    const lx = width - padding.right - 240;
+    const ly = 14;
+    const legend = `
+      <rect x="${lx}" y="${ly - 8}" width="10" height="10" fill="#FF9800" rx="2"/>
+      <text x="${lx + 14}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Morgen-Einspeisung</text>
+      <rect x="${lx + 135}" y="${ly - 8}" width="10" height="10" fill="#2196F3" rx="2"/>
+      <text x="${lx + 149}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Abend-Entladung</text>`;
+
+    const mobileStyle = `<style>@media (max-width: 600px) { text { font-size: 13px !important; } }</style>`;
+    return `<div class="chart-card" style="margin-top:4px"><svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${mobileStyle}${yLines}${bars}${legend}</svg></div>`;
+  }
+
   _renderActivityTimeline() {
     if (!this._activityLog || this._activityLog.length === 0) {
       return `<p style="color:var(--secondary-text-color);font-size:14px;text-align:center;margin:16px 0">
@@ -3466,6 +3684,18 @@ class EegOptimizerPanel extends HTMLElement {
             </div>
           </div>
           ${this._renderActivityTimeline()}
+        </div>
+
+        <!-- Feed-in Statistics Card -->
+        <div class="card">
+          <div data-action="toggle-feedin-stats" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
+            <h3 style="margin:0">
+              <ha-icon icon="mdi:chart-timeline-variant-shimmer" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
+              Einspeise-Statistik
+            </h3>
+            <ha-icon icon="mdi:chevron-${this._feedinStatsOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
+          </div>
+          ${this._feedinStatsOpen ? this._renderFeedinStatistics() : ""}
         </div>
 
         ${this._config?.enable_manual_control ? `

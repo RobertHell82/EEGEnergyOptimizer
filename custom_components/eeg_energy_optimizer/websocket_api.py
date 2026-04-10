@@ -237,6 +237,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_test_overrides)
     websocket_api.async_register_command(hass, ws_clear_test_overrides)
     websocket_api.async_register_command(hass, ws_get_activity_log)
+    websocket_api.async_register_command(hass, ws_get_feedin_statistics)
 
 
 @websocket_api.websocket_command(
@@ -736,4 +737,60 @@ async def ws_get_activity_log(
         "total": total,
         "offset": offset,
         "has_more": offset + limit < total,
+    })
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/get_feedin_statistics",
+        vol.Optional("days", default=0): vol.Coerce(int),
+    }
+)
+@websocket_api.async_response
+async def ws_get_feedin_statistics(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Return feed-in statistics for the requested period.
+
+    Args (via msg):
+        days: Number of days to return daily data for. 0 = all data (default).
+    """
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+
+    stats = data.get("feedin_stats")
+    empty_state = {"kwh": 0.0, "count": 0, "duration_min": 0}
+    empty = {"morning": dict(empty_state), "evening": dict(empty_state)}
+
+    if not stats:
+        connection.send_result(msg["id"], {
+            "daily": {},
+            "today": empty,
+            "week": empty,
+            "month": empty,
+            "year": empty,
+            "total": empty,
+        })
+        return
+
+    days = msg.get("days", 0)
+    from datetime import datetime, timedelta
+    now_str = datetime.now().strftime("%Y-%m-%d")
+
+    if days > 0:
+        start_str = (datetime.now() - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+        daily = stats.get_daily_stats(start_date=start_str, end_date=now_str)
+    else:
+        daily = stats.get_daily_stats()
+
+    connection.send_result(msg["id"], {
+        "daily": daily,
+        "today": stats.get_summary(days=1),
+        "week": stats.get_summary(days=7),
+        "month": stats.get_summary(days=30),
+        "year": stats.get_summary(days=365),
+        "total": stats.get_summary(days=None),
     })

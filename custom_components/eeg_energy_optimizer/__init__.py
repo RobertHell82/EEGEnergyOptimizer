@@ -469,6 +469,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         optimizer = EEGOptimizer(hass, entry.entry_id, config, inverter, coordinator, provider)
         data["optimizer"] = optimizer
 
+        # Feed-in statistics tracker
+        from .statistics import FeedinStatistics
+        feedin_stats = FeedinStatistics(hass, entry.entry_id, config)
+        await feedin_stats.async_load()
+        data["feedin_stats"] = feedin_stats
+
         # Activity log: persistent ring buffer (last 5000 entries)
         from homeassistant.helpers.storage import Store
         ACTIVITY_STORE_KEY = f"{DOMAIN}_{entry.entry_id}_activity"
@@ -559,6 +565,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             # Persist activity log to disk if changed
             await _flush_activity_log()
+
+            # Update feed-in statistics
+            _fstats = data.get("feedin_stats")
+            if _fstats and decision:
+                from datetime import datetime as _dt, timezone as _tz
+                await _fstats.async_update(decision, _dt.now(tz=_tz.utc))
+                await _fstats.async_flush()
 
             # Persist register write counter (only if changed)
             _ws = data.get("writes_store")
