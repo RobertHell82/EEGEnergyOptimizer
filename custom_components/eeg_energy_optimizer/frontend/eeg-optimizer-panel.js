@@ -3651,6 +3651,18 @@ class EegOptimizerPanel extends HTMLElement {
             Bitte die Sensoren f\u00fcr die Tage 3\u20137 in der Solcast Integration aktivieren, um die fehlenden Prognosedaten anzeigen zu lassen.</p>` : ""}
         </div>
 
+        <!-- Feed-in Statistics Card -->
+        <div class="card">
+          <div data-action="toggle-feedin-stats" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
+            <h3 style="margin:0">
+              <ha-icon icon="mdi:chart-timeline-variant-shimmer" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
+              Einspeise-Statistik
+            </h3>
+            <ha-icon icon="mdi:chevron-${this._feedinStatsOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
+          </div>
+          ${this._feedinStatsOpen ? this._renderFeedinStatistics() : ""}
+        </div>
+
         <!-- Hourly Profile Chart -->
         <div class="card chart-card">
           <h3 class="status-card-title" style="margin-top:0">
@@ -3667,18 +3679,6 @@ class EegOptimizerPanel extends HTMLElement {
           ${this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0)}
         </div>
         `}
-
-        <!-- Feed-in Statistics Card -->
-        <div class="card">
-          <div data-action="toggle-feedin-stats" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
-            <h3 style="margin:0">
-              <ha-icon icon="mdi:chart-timeline-variant-shimmer" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
-              Einspeise-Statistik
-            </h3>
-            <ha-icon icon="mdi:chevron-${this._feedinStatsOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
-          </div>
-          ${this._feedinStatsOpen ? this._renderFeedinStatistics() : ""}
-        </div>
 
         <!-- Activity Timeline -->
         <div class="card">
