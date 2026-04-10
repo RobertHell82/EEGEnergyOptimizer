@@ -1687,9 +1687,10 @@ class EegOptimizerPanel extends HTMLElement {
     this._initialized = true;
     this._render();
 
-    // Load activity log and subscribe to live events
+    // Load activity log, feed-in stats, and subscribe to live events
     if (this._setupComplete) {
       this._loadActivityLog();
+      this._loadFeedinStats();
       // Re-subscribe if previous subscription was lost (e.g. after reconnect)
       if (!this._activityUnsub) {
         this._subscribeActivityEvents();
@@ -3667,6 +3668,18 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
         `}
 
+        <!-- Feed-in Statistics Card -->
+        <div class="card">
+          <div data-action="toggle-feedin-stats" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
+            <h3 style="margin:0">
+              <ha-icon icon="mdi:chart-timeline-variant-shimmer" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
+              Einspeise-Statistik
+            </h3>
+            <ha-icon icon="mdi:chevron-${this._feedinStatsOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
+          </div>
+          ${this._feedinStatsOpen ? this._renderFeedinStatistics() : ""}
+        </div>
+
         <!-- Activity Timeline -->
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -3684,18 +3697,6 @@ class EegOptimizerPanel extends HTMLElement {
             </div>
           </div>
           ${this._renderActivityTimeline()}
-        </div>
-
-        <!-- Feed-in Statistics Card -->
-        <div class="card">
-          <div data-action="toggle-feedin-stats" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
-            <h3 style="margin:0">
-              <ha-icon icon="mdi:chart-timeline-variant-shimmer" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
-              Einspeise-Statistik
-            </h3>
-            <ha-icon icon="mdi:chevron-${this._feedinStatsOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
-          </div>
-          ${this._feedinStatsOpen ? this._renderFeedinStatistics() : ""}
         </div>
 
         ${this._config?.enable_manual_control ? `
