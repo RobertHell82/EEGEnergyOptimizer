@@ -83,6 +83,10 @@ STATE_MORGEN_EINSPEISUNG = "Morgen-Einspeisung"
 STATE_NORMAL = "Normal"
 STATE_ABEND_ENTLADUNG = "Abend-Entladung"
 
+# Startup grace period: delay inverter commands after HA restart
+# to let sensors (PV forecast, sun.sun) settle with valid data
+STARTUP_GRACE_SECONDS = 90
+
 # Phase 4: Onboarding Panel
 CONF_SETUP_COMPLETE = "setup_complete"
 CONF_EXPERT_MODE = "expert_mode"

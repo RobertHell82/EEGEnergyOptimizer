@@ -36,6 +36,7 @@ from .const import (
     INVERTER_SIGN_CONVENTIONS,
     MODE_EIN,
     MODE_TEST,
+    STARTUP_GRACE_SECONDS,
     STATE_ABEND_ENTLADUNG,
     STATE_MORGEN_EINSPEISUNG,
     STATE_NORMAL,
@@ -195,6 +196,11 @@ class EEGOptimizer:
         # Inverter deduplication
         self._prev_zustand: str | None = None
         self._last_decision: Decision | None = None
+
+        # Startup grace period: don't send inverter commands until sensors
+        # have had time to settle after a HA restart.
+        self._startup_time: datetime = _now()
+        self._grace_period_logged: bool = False
 
         # Grid import watchdog during discharge (SolarEdge only)
         # SolarEdge "Discharge to Maximize Export" pushes to grid but doesn't
@@ -715,7 +721,13 @@ class EEGOptimizer:
             zustand = STATE_NORMAL
 
         # Determine next action text
-        if zustand == STATE_MORGEN_EINSPEISUNG:
+        in_grace_period = (
+            (_now() - self._startup_time).total_seconds() < STARTUP_GRACE_SECONDS
+        )
+        if in_grace_period:
+            remaining = int(STARTUP_GRACE_SECONDS - (_now() - self._startup_time).total_seconds())
+            nächste_aktion = f"Neustart — warte auf Sensordaten ({remaining}s)"
+        elif zustand == STATE_MORGEN_EINSPEISUNG:
             nächste_aktion = (
                 f"Morgen-Einspeisung bis "
                 f"{self._morning_end_hour:02d}:{self._morning_end_min:02d}"
@@ -841,6 +853,18 @@ class EEGOptimizer:
         - SolaX: resends every cycle (commands expire via autorepeat)
         - SolarEdge: sets command_timeout high to avoid flash wear
         """
+        # Startup grace period: skip inverter commands while sensors settle
+        elapsed = (_now() - self._startup_time).total_seconds()
+        if elapsed < STARTUP_GRACE_SECONDS:
+            remaining = int(STARTUP_GRACE_SECONDS - elapsed)
+            if not self._grace_period_logged:
+                _LOGGER.info(
+                    "Startup Grace Period aktiv — keine Inverter-Befehle für %ds",
+                    remaining,
+                )
+                self._grace_period_logged = True
+            return
+
         is_active_state = decision.zustand in (STATE_MORGEN_EINSPEISUNG, STATE_ABEND_ENTLADUNG)
         inv_type = self._config.get("inverter_type", "")
         needs_repeat = inv_type == "solax_gen4" and is_active_state

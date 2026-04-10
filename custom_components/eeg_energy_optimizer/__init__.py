@@ -631,6 +631,8 @@ async def _async_update_listener(
                 hass, entry.entry_id, config, inverter, coordinator, provider
             )
             new_optimizer._prev_zustand = optimizer._prev_zustand
+            new_optimizer._startup_time = optimizer._startup_time
+            new_optimizer._grace_period_logged = optimizer._grace_period_logged
             data["optimizer"] = new_optimizer
             _LOGGER.info("EEG Energy Optimizer: Config hot-reloaded")
             # Run cycle immediately so dashboard reflects changes
