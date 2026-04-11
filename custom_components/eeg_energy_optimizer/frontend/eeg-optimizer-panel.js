@@ -1962,7 +1962,7 @@ class EegOptimizerPanel extends HTMLElement {
       </div>
       <p style="line-height:1.6;margin-bottom:20px">
         Diese Home Assistant Integration optimiert deine Hausbatterie für die Energiegemeinschaft (EEG).
-        Morgens wird die Batterieladung verzögert, damit Solarstrom ins Netz fließt, wenn er benötigt wird.
+        Morgens wird die Batterieladung blockiert, damit Solarstrom direkt ins Netz der Energiegemeinschaft fließt.
         Abends wird die Batterie ins Netz entladen — jedoch nur soweit, dass der Eigenverbrauch mit der Restladung der Batterie gesichert ist.
       </p>
       <h3 style="margin-bottom:8px">Was du brauchst</h3>
