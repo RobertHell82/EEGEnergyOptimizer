@@ -992,10 +992,6 @@ class EegOptimizerPanel extends HTMLElement {
         this._feedinStatsOpen = !this._feedinStatsOpen;
         this._render();
         break;
-      case "feedin-period-today":
-        this._feedinStatsPeriod = "today";
-        this._render();
-        break;
       case "feedin-period-week":
         this._feedinStatsPeriod = "week";
         this._render();
@@ -2977,7 +2973,6 @@ class EegOptimizerPanel extends HTMLElement {
     };
 
     const periods = [
-      {key: "today", label: "Heute"},
       {key: "week", label: "Woche"},
       {key: "month", label: "Monat"},
       {key: "year", label: "Jahr"},
@@ -2988,7 +2983,7 @@ class EegOptimizerPanel extends HTMLElement {
     ).join("");
 
     const summaryHtml = `
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${periodBtns}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;margin-bottom:12px">${periodBtns}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
         <div style="background:var(--card-background-color,#fff);border:1px solid var(--divider-color);border-radius:12px;padding:14px">
           <div style="font-size:13px;color:var(--secondary-text-color);margin-bottom:6px">
@@ -3022,8 +3017,7 @@ class EegOptimizerPanel extends HTMLElement {
     // Determine how many days to show and whether to aggregate by month
     let byMonth = false;
     let daysBack = 30;
-    if (period === "today") daysBack = 1;
-    else if (period === "week") daysBack = 7;
+    if (period === "week") daysBack = 7;
     else if (period === "month") daysBack = 30;
     else if (period === "year") { daysBack = 365; byMonth = true; }
     else if (period === "total") { daysBack = 99999; byMonth = true; }
