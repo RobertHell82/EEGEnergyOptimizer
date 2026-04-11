@@ -3042,8 +3042,10 @@ class EegOptimizerPanel extends HTMLElement {
       const dayData = daily[key] || {};
       const mKwh = dayData.morning?.total_kwh || 0;
       const eKwh = dayData.evening?.total_kwh || 0;
+      const mDur = dayData.morning?.total_duration_min || 0;
+      const eDur = dayData.evening?.total_duration_min || 0;
       const label = d.toLocaleDateString("de-DE", {day: "2-digit", month: "2-digit"});
-      entries.push({label, morning: mKwh, evening: eKwh});
+      entries.push({label, morning: mKwh, evening: eKwh, morningDur: mDur, eveningDur: eDur});
     }
 
     if (entries.length === 0) return `<p style="color:var(--secondary-text-color);font-size:13px">Noch keine Daten vorhanden</p>`;
@@ -3055,9 +3057,11 @@ class EegOptimizerPanel extends HTMLElement {
     const months = {};
     for (const [dateStr, dayData] of Object.entries(daily)) {
       const monthKey = dateStr.slice(0, 7); // YYYY-MM
-      if (!months[monthKey]) months[monthKey] = {morning: 0, evening: 0};
+      if (!months[monthKey]) months[monthKey] = {morning: 0, evening: 0, morningDur: 0, eveningDur: 0};
       months[monthKey].morning += dayData.morning?.total_kwh || 0;
       months[monthKey].evening += dayData.evening?.total_kwh || 0;
+      months[monthKey].morningDur += dayData.morning?.total_duration_min || 0;
+      months[monthKey].eveningDur += dayData.evening?.total_duration_min || 0;
     }
 
     const sortedKeys = Object.keys(months).sort();
@@ -3066,7 +3070,7 @@ class EegOptimizerPanel extends HTMLElement {
     const monthNames = ["Jan", "Feb", "M\u00e4r", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
     const entries = sortedKeys.map(k => {
       const m = parseInt(k.slice(5, 7)) - 1;
-      return {label: monthNames[m] + " " + k.slice(2, 4), morning: months[k].morning, evening: months[k].evening};
+      return {label: monthNames[m] + " " + k.slice(2, 4), morning: months[k].morning, evening: months[k].evening, morningDur: months[k].morningDur, eveningDur: months[k].eveningDur};
     });
 
     return this._renderGroupedFeedinBars(entries);
@@ -3081,6 +3085,14 @@ class EegOptimizerPanel extends HTMLElement {
     const barW = Math.min(slotW * 0.35, 30);
     const gap = 2;
 
+    const fmtDur = (min) => {
+      if (!min) return "0 Min";
+      if (min < 60) return min + " Min";
+      const h = Math.floor(min / 60);
+      const r = min % 60;
+      return r > 0 ? h + "h " + r + "m" : h + "h";
+    };
+
     let bars = "";
     entries.forEach((d, i) => {
       const slotX = padding.left + i * slotW;
@@ -3090,8 +3102,9 @@ class EegOptimizerPanel extends HTMLElement {
       if (d.morning > 0) {
         const barH1 = (d.morning / maxVal) * chartH;
         const y1 = padding.top + chartH - barH1;
-        bars += `<rect x="${x1}" y="${y1}" width="${barW}" height="${barH1}" fill="#FF9800" rx="3"/>`;
-        if (entries.length <= 14) bars += `<text x="${x1 + barW/2}" y="${y1 - 4}" text-anchor="middle" font-size="10" fill="var(--primary-text-color)">${d.morning.toFixed(1)}</text>`;
+        const mTip = `${d.label} \u2014 Morgen-Einspeisung\n${d.morning.toFixed(2)} kWh\nDauer: ${fmtDur(d.morningDur || 0)}`;
+        bars += `<rect x="${x1}" y="${y1}" width="${barW}" height="${barH1}" fill="#FF9800" rx="3" style="cursor:pointer"><title>${mTip}</title></rect>`;
+        if (entries.length <= 14) bars += `<text x="${x1 + barW/2}" y="${y1 - 4}" text-anchor="middle" font-size="10" fill="var(--primary-text-color)" style="pointer-events:none">${d.morning.toFixed(1)}</text>`;
       }
 
       // Evening bar (right, blue)
@@ -3099,8 +3112,9 @@ class EegOptimizerPanel extends HTMLElement {
       if (d.evening > 0) {
         const barH2 = (d.evening / maxVal) * chartH;
         const y2 = padding.top + chartH - barH2;
-        bars += `<rect x="${x2}" y="${y2}" width="${barW}" height="${barH2}" fill="#2196F3" rx="3"/>`;
-        if (entries.length <= 14) bars += `<text x="${x2 + barW/2}" y="${y2 - 4}" text-anchor="middle" font-size="10" fill="var(--primary-text-color)">${d.evening.toFixed(1)}</text>`;
+        const eTip = `${d.label} \u2014 Abend-Entladung\n${d.evening.toFixed(2)} kWh\nDauer: ${fmtDur(d.eveningDur || 0)}`;
+        bars += `<rect x="${x2}" y="${y2}" width="${barW}" height="${barH2}" fill="#2196F3" rx="3" style="cursor:pointer"><title>${eTip}</title></rect>`;
+        if (entries.length <= 14) bars += `<text x="${x2 + barW/2}" y="${y2 - 4}" text-anchor="middle" font-size="10" fill="var(--primary-text-color)" style="pointer-events:none">${d.evening.toFixed(1)}</text>`;
       }
 
       // Skip some labels if too many entries
