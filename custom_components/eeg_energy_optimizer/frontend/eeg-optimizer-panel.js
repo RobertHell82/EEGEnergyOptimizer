@@ -3102,7 +3102,7 @@ class EegOptimizerPanel extends HTMLElement {
       if (d.morning > 0) {
         const barH1 = (d.morning / maxVal) * chartH;
         const y1 = padding.top + chartH - barH1;
-        const mTip = `${d.label} \u2014 Morgen-Einspeisung\n${d.morning.toFixed(2)} kWh\nDauer: ${fmtDur(d.morningDur || 0)}`;
+        const mTip = `${d.label} Morgen-Einspeisung\nEnergie: ${d.morning.toFixed(2)} kWh\nDauer: ${fmtDur(d.morningDur || 0)}`;
         bars += `<rect x="${x1}" y="${y1}" width="${barW}" height="${barH1}" fill="#FF9800" rx="3" style="cursor:pointer"><title>${mTip}</title></rect>`;
         if (entries.length <= 14) bars += `<text x="${x1 + barW/2}" y="${y1 - 4}" text-anchor="middle" font-size="10" fill="var(--primary-text-color)" style="pointer-events:none">${d.morning.toFixed(1)}</text>`;
       }
@@ -3112,7 +3112,7 @@ class EegOptimizerPanel extends HTMLElement {
       if (d.evening > 0) {
         const barH2 = (d.evening / maxVal) * chartH;
         const y2 = padding.top + chartH - barH2;
-        const eTip = `${d.label} \u2014 Abend-Entladung\n${d.evening.toFixed(2)} kWh\nDauer: ${fmtDur(d.eveningDur || 0)}`;
+        const eTip = `${d.label} Abend-Entladung\nEnergie: ${d.evening.toFixed(2)} kWh\nDauer: ${fmtDur(d.eveningDur || 0)}`;
         bars += `<rect x="${x2}" y="${y2}" width="${barW}" height="${barH2}" fill="#2196F3" rx="3" style="cursor:pointer"><title>${eTip}</title></rect>`;
         if (entries.length <= 14) bars += `<text x="${x2 + barW/2}" y="${y2 - 4}" text-anchor="middle" font-size="10" fill="var(--primary-text-color)" style="pointer-events:none">${d.evening.toFixed(1)}</text>`;
       }
