@@ -2360,7 +2360,7 @@ class EegOptimizerPanel extends HTMLElement {
           <div class="feature-card-header">
             <ha-icon icon="mdi:weather-sunset-up"></ha-icon>
             <div class="feature-card-text">
-              <span class="feature-title">Verz\u00f6gerte Batterieladung</span>
+              <span class="feature-title">Morgen-Einspeisung</span>
               <span class="feature-desc">Morgens wird die Batterie nicht sofort geladen, sondern die Energie direkt ins Netz und die EEG eingespeist \u2014 dort, wo sie zu dieser Zeit am dringendsten gebraucht wird. Das geschieht jedoch nur, wenn die PV-Prognose f\u00fcr den heutigen Tag im Verh\u00e4ltnis zum Verbrauch gut genug ist, damit die Batterie im Laufe des Tages sicher wieder vollgeladen wird.</span>
             </div>
             <div class="feature-badge ${mDelay ? "on" : "off"}">${mDelay ? "Aktiv" : "Aus"}</div>
@@ -2483,7 +2483,7 @@ class EegOptimizerPanel extends HTMLElement {
       </div>
 
       <div class="summary-section">
-        <h3>Verzögerte Batterieladung</h3>
+        <h3>Morgen-Einspeisung</h3>
         ${row("Status", d.enable_morning_delay ? "Aktiv" : "Deaktiviert")}
         ${d.enable_morning_delay ? row("Vorlaufzeit", (d.morning_start_offset || 0) + " Std. vor Sonnenaufgang") : ""}
         ${d.enable_morning_delay ? row("Blockiert bis", d.morning_end_time) : ""}
@@ -2582,7 +2582,7 @@ class EegOptimizerPanel extends HTMLElement {
               <div class="feature-card-header">
                 <ha-icon icon="mdi:weather-sunset-up"></ha-icon>
                 <div class="feature-card-text">
-                  <span class="feature-title">Verz\u00f6gerte Batterieladung</span>
+                  <span class="feature-title">Morgen-Einspeisung</span>
                   <span class="feature-desc">Morgens wird die Batterie nicht sofort geladen, sondern die Energie direkt ins Netz eingespeist.</span>
                 </div>
                 <div class="feature-badge ${mDelay ? "on" : "off"}">${mDelay ? "Aktiv" : "Aus"}</div>
@@ -2662,7 +2662,7 @@ class EegOptimizerPanel extends HTMLElement {
     if (!this._activeInfoModal) return "";
     const isZoomed = this._infoImageZoomed;
     const info = this._activeInfoModal === "morning" ? {
-      title: "Verz\u00f6gerte Ladung (Morgen-Einspeisung)",
+      title: "Morgen-Einspeisung",
       image: "/eeg_optimizer_panel/delayed-charging.svg",
       content: `
         <p>Stellt sicher, dass PV-\u00dcbersch\u00fcsse bevorzugt am Morgen ins Netz der Energiegemeinschaft eingespeist werden \u2014 also dann, wenn die Gemeinschaft den Strom dringend braucht. Ohne diese Funktion w\u00fcrde die Batterie den PV-\u00dcberschuss sofort ab Sonnenaufgang aufladen. Die Einspeisung in die Energiegemeinschaft w\u00fcrde dann erst ab Mittag erfolgen, wenn ohnehin genug Strom vorhanden ist.</p>
@@ -2787,7 +2787,7 @@ class EegOptimizerPanel extends HTMLElement {
     const mStatus = ma.morning_status || "deaktiviert";
     const dStatus = ma.discharge_status || "deaktiviert";
 
-    // --- Left card: Verzogerte Ladung ---
+    // --- Left card: Morgen-Einspeisung ---
     let mIndicator = "";
     let mColorClass = "gray";
     let mConditionsHtml = "";
@@ -2936,7 +2936,7 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="card">
           <h3 class="status-card-title" style="margin-top:0">
             <ha-icon icon="mdi:weather-sunny" style="--mdc-icon-size:20px;color:var(--warning-color,#ff9800)"></ha-icon>
-            Verz\u00f6gerte Ladung
+            Morgen-Einspeisung
             <span data-action="show-info" data-info="morning" style="cursor:pointer;display:inline-flex;align-items:center" title="Mehr erfahren">
               <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color)"></ha-icon>
             </span>

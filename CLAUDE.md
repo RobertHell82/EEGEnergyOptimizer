@@ -28,7 +28,7 @@ optimizer.py: async_run_cycle(mode)
   → _gather_snapshot() → Snapshot (all sensor states as dataclass)
   → _evaluate() → Decision
      1. _calc_energiebedarf() — consumption to sunset + missing battery energy
-     2. _should_block_charging() — morning charge blocking check:
+     2. _should_block_charging() — Morgen-Einspeisung check:
         - Feature enabled + sunrise known
         - Within window (sunrise - 1h to morning_end_time)
         - PV forecast > demand * (1 + safety_buffer%)
@@ -46,7 +46,7 @@ optimizer.py: async_run_cycle(mode)
 | File | Role |
 |------|------|
 | `__init__.py` | Entry setup, 30s optimizer timer, activity log, feed-in statistics, panel registration, config migration |
-| `optimizer.py` | Decision engine — Snapshot/Decision dataclasses, charge blocking, discharge logic |
+| `optimizer.py` | Decision engine — Snapshot/Decision dataclasses, Morgen-Einspeisung, discharge logic |
 | `statistics.py` | Feed-in statistics tracker — tracks grid export kWh, session count & duration during active states |
 | `sensor.py` | 16 sensors: consumption profile, forecasts, battery, PV, Hausverbrauch, decision, feed-in energy |
 | `coordinator.py` | Loads hourly consumption averages from recorder (rolling, weekday split) |
@@ -74,7 +74,7 @@ optimizer.py: async_run_cycle(mode)
 | 12 | PV Prognose morgen | fast | PV forecast tomorrow |
 | 13 | Hausverbrauch | fast | Calculated: PV - Battery - Grid (kW, MEASUREMENT) |
 | 14 | Entscheidung | 30s | Current optimizer state + Markdown dashboard |
-| 15 | Morgen-Einspeisung Energie heute | fast | Grid feed-in kWh during morning charge blocking (TOTAL, resets daily) |
+| 15 | Morgen-Einspeisung Energie heute | fast | Grid feed-in kWh during Morgen-Einspeisung (TOTAL, resets daily) |
 | 16 | Abend-Entladung Energie heute | fast | Grid feed-in kWh during evening discharge (TOTAL, resets daily) |
 
 ### Select Entity
@@ -141,7 +141,7 @@ Implementations:
 
 ## Key Domain Concepts
 
-- **Morning Charge Blocking**: Prevents battery from charging during morning hours so PV surplus feeds into the grid when the EEG community needs it most. Active when PV forecast exceeds demand + safety buffer.
+- **Morgen-Einspeisung** (Morning Feed-in): Prevents battery from charging during morning hours so PV surplus feeds into the grid when the EEG community needs it most. Active when PV forecast exceeds demand + safety buffer.
 - **Evening Discharge**: Discharges battery into grid during evening hours when community demand is high. Requires: sufficient SOC above dynamic min-SOC, and tomorrow's PV forecast covers tomorrow's demand.
 - **Dynamic Min-SOC**: base_min_soc + ceil((overnight_consumption * (1 + buffer%) / capacity) * 100) — ensures enough energy for overnight household consumption.
 - **Safety Buffer** (`safety_buffer_pct`, default 25%): Applied to both morning blocking threshold and overnight consumption reserve.

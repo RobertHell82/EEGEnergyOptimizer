@@ -49,11 +49,11 @@ Das Sidebar-Panel (`/eeg-optimizer`) führt durch die Einrichtung:
 
 ## Funktionsweise
 
-### Verzögerte Ladung (Morgen-Einspeisung)
+### Morgen-Einspeisung
 
-<img src="https://raw.githubusercontent.com/RobertHell82/EEGEnergyOptimizer/main/docs/delayed-charging.svg" alt="Verzögerte Batterieladung" width="700">
+<img src="https://raw.githubusercontent.com/RobertHell82/EEGEnergyOptimizer/main/docs/delayed-charging.svg" alt="Morgen-Einspeisung" width="700">
 
-Die verzögerte Ladung stellt sicher, dass PV-Überschüsse bevorzugt am Morgen in das Netz der Energiegemeinschaft eingespeist werden — also dann, wenn die Gemeinschaft den Strom dringend braucht. Ohne diese Funktion würde die Batterie den PV-Überschuss sofort ab Sonnenaufgang aufladen. Die Einspeisung in die Energiegemeinschaft würde dann erst ab Mittag erfolgen, wenn ohnehin genug Strom vorhanden ist.
+Die Morgen-Einspeisung stellt sicher, dass PV-Überschüsse bevorzugt am Morgen in das Netz der Energiegemeinschaft eingespeist werden — also dann, wenn die Gemeinschaft den Strom dringend braucht. Ohne diese Funktion würde die Batterie den PV-Überschuss sofort ab Sonnenaufgang aufladen. Die Einspeisung in die Energiegemeinschaft würde dann erst ab Mittag erfolgen, wenn ohnehin genug Strom vorhanden ist.
 
 **Funktionsweise:** Die Batterieladung wird ab einer Stunde vor Sonnenaufgang blockiert und frühestens um die konfigurierte Endzeit (Standard: 11:00 Uhr) wieder freigegeben. Die Blockierung erfolgt nur, solange die PV-Prognose des aktuellen Tages den Gesamtbedarf übersteigt.
 
