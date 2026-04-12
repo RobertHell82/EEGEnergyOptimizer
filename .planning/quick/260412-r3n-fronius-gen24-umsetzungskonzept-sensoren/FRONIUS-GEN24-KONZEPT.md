@@ -471,11 +471,14 @@ Der Benutzer muss vor der Nutzung folgende Einstellungen im Fronius Web-Interfac
 - **Empfohlen:** >= 1.40.0 (callifo Fork Empfehlung, beste Kompatibilität)
 - **Vorsicht bei:** FW 1.38 (Auth-Änderung MD5 → SHA-256, betrifft nur Web API, nicht Modbus)
 
-### 7.3 HA Native Fronius Integration
+### 7.3 HA Native Fronius Integration (für Sensoren)
 
-- Muss installiert sein (für lesende Sensoren)
-- Wird automatisch via Auto-Discovery erkannt
-- Koexistiert problemlos mit direktem Modbus TCP (verschiedene Protokolle: HTTP vs. Modbus TCP Port 502)
+- **Core-Integration** — in Home Assistant eingebaut, kein HACS, kein manuelles Installieren nötig
+- Wird automatisch via **Auto-Discovery** erkannt — jeder Fronius-Benutzer hat diese Integration ohnehin
+- Liefert alle lesenden Sensoren (PV, Batterie, Grid, SOC) die der Benutzer auch für sein HA Energy Dashboard braucht
+- Koexistiert problemlos mit direktem Modbus TCP (verschiedene Protokolle: Solar API über HTTP vs. Modbus TCP Port 502)
+- **Vergleichbar mit huawei_solar bei Huawei** — eine Standard-HA-Komponente, keine Drittanbieter-Dependency
+- Sensoren zusätzlich über Modbus selbst zu lesen wäre redundant: Die native Integration pollt bereits alle 10s (Power Flow) bzw. 60s (Storage/SOC), was für den 30s-Optimizer-Zyklus ausreicht
 
 ---
 
