@@ -364,6 +364,12 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data.setdefault("enable_manual_control", is_expert)
         hass.config_entries.async_update_entry(entry, data=new_data, version=10)
 
+    if entry.version < 11:
+        new_data = {**entry.data}
+        # No defaults needed for Fronius — fronius_modbus_host/port
+        # are only set when user selects Fronius in wizard
+        hass.config_entries.async_update_entry(entry, data=new_data, version=11)
+
     return True
 
 
