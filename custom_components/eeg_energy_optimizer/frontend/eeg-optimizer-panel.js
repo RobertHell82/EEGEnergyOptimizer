@@ -1131,11 +1131,11 @@ class EegOptimizerPanel extends HTMLElement {
           return false;
         }
         if (!this._wizardData.forecast_remaining_entity) {
-          this._showValidationError("PV Prognose verbleibend heute ist erforderlich.");
+          this._showValidationError("PV-Prognose verbleibend heute ist erforderlich.");
           return false;
         }
         if (!this._wizardData.forecast_tomorrow_entity) {
-          this._showValidationError("PV Prognose morgen ist erforderlich.");
+          this._showValidationError("PV-Prognose morgen ist erforderlich.");
           return false;
         }
         return true;
@@ -2129,7 +2129,7 @@ class EegOptimizerPanel extends HTMLElement {
         ${this._entityPickerHtml(
           "forecast_remaining_entity",
           this._wizardData.forecast_remaining_entity,
-          "Sensor f\u00fcr PV Prognose verbleibend heute *",
+          "Sensor f\u00fcr PV-Prognose verbleibend heute *",
           solcastSelected
             ? solcastRemainingHint
             : "Verbleibende PV-Produktion f\u00fcr den heutigen Tag in kWh (Forecast.Solar: sensor.energy_production_today_remaining).",
@@ -2138,7 +2138,7 @@ class EegOptimizerPanel extends HTMLElement {
         ${this._entityPickerHtml(
           "forecast_tomorrow_entity",
           this._wizardData.forecast_tomorrow_entity,
-          "Sensor f\u00fcr PV Prognose morgen *",
+          "Sensor f\u00fcr PV-Prognose morgen *",
           solcastSelected
             ? solcastTomorrowHint
             : "Prognostizierte PV-Produktion f\u00fcr morgen in kWh (Forecast.Solar: sensor.energy_production_tomorrow).",
@@ -2179,42 +2179,42 @@ class EegOptimizerPanel extends HTMLElement {
         ${this._entityPickerHtml(
           "forecast_today_entity",
           this._wizardData.forecast_today_entity,
-          "PV Prognose heute (gesamt)",
+          "PV-Prognose heute (gesamt)",
           "Gesamte PV-Produktion f\u00fcr heute in kWh, z.B. sensor.solcast_pv_forecast_prognose_heute.",
           "sensor"
         )}
         ${this._entityPickerHtml(
           "forecast_day3_entity",
           this._wizardData.forecast_day3_entity,
-          "PV Prognose Tag 3",
+          "PV-Prognose Tag 3",
           "z.B. sensor.solcast_pv_forecast_prognose_tag_3",
           "sensor"
         )}
         ${this._entityPickerHtml(
           "forecast_day4_entity",
           this._wizardData.forecast_day4_entity,
-          "PV Prognose Tag 4",
+          "PV-Prognose Tag 4",
           "z.B. sensor.solcast_pv_forecast_prognose_tag_4",
           "sensor"
         )}
         ${this._entityPickerHtml(
           "forecast_day5_entity",
           this._wizardData.forecast_day5_entity,
-          "PV Prognose Tag 5",
+          "PV-Prognose Tag 5",
           "z.B. sensor.solcast_pv_forecast_prognose_tag_5",
           "sensor"
         )}
         ${this._entityPickerHtml(
           "forecast_day6_entity",
           this._wizardData.forecast_day6_entity,
-          "PV Prognose Tag 6",
+          "PV-Prognose Tag 6",
           "z.B. sensor.solcast_pv_forecast_prognose_tag_6",
           "sensor"
         )}
         ${this._entityPickerHtml(
           "forecast_day7_entity",
           this._wizardData.forecast_day7_entity,
-          "PV Prognose Tag 7",
+          "PV-Prognose Tag 7",
           "z.B. sensor.solcast_pv_forecast_prognose_tag_7",
           "sensor"
         )}
@@ -2799,7 +2799,7 @@ class EegOptimizerPanel extends HTMLElement {
       mIndicator = `\u25CB Morgen ab ${ma.morning_sunrise_tomorrow || ""} (PV ausreichend)`;
     } else if (mStatus === "morgen_nicht_erwartet") {
       mColorClass = "red";
-      mIndicator = `\u2715 Morgen nicht geplant \u2014 PV Prognose zu gering`;
+      mIndicator = `\u2715 Morgen nicht geplant \u2014 PV-Prognose zu gering`;
     } else {
       mColorClass = "gray";
       mIndicator = `\u2014 Deaktiviert`;
@@ -2812,7 +2812,7 @@ class EegOptimizerPanel extends HTMLElement {
       const buffer = ma.morning_buffer_kwh != null ? Number(ma.morning_buffer_kwh).toFixed(1) : "---";
       const battery = ma.morning_battery_kwh != null ? Number(ma.morning_battery_kwh).toFixed(1) : "---";
       const pvOk = Number(ma.morning_pv_today_kwh || 0) > Number(ma.morning_threshold_kwh || 0);
-      const pvLabel = (mStatus === "morgen_erwartet" || mStatus === "morgen_nicht_erwartet") ? "PV Prognose morgen" : "PV Prognose heute";
+      const pvLabel = (mStatus === "morgen_erwartet" || mStatus === "morgen_nicht_erwartet") ? "PV-Prognose morgen" : "PV-Prognose heute";
       const fensterStart = ma.morning_sunrise_tomorrow || "---";
       const fensterEnd = ma.morning_end_time || "---";
 
@@ -2914,7 +2914,7 @@ class EegOptimizerPanel extends HTMLElement {
           <span>${demandTotal} kWh</span>
         </div>
         <div class="condition-row">
-          <span>PV Prognose</span>
+          <span>PV-Prognose</span>
           <span>${pvTom} kWh <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}</span></span>
         </div>`;
       if (dStatus === "aktiv") {
@@ -3183,7 +3183,7 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="activity-dot" style="background:${color}">${icon}</div>
         <div class="activity-content">
           <div class="activity-header">${reason} ${changeBadge} ${testBadge}</div>
-          <div class="activity-details">SOC ${e.soc}%${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${e.min_soc}%` : ""} &middot; PV-Prognose (Rest) ${e.pv_today} kWh &middot; Gesamtbedarf ${e.bedarf} kWh</div>
+          <div class="activity-details">SOC ${e.soc}%${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${e.min_soc}%` : ""} &middot; ${e.zustand === "Abend-Entladung" ? `PV morgen ${e.discharge_pv != null ? e.discharge_pv : e.pv_tomorrow} kWh &middot; Gesamtbedarf ${e.discharge_bedarf != null ? e.discharge_bedarf : e.bedarf} kWh` : `PV-Prognose (Rest) ${e.pv_today} kWh &middot; Gesamtbedarf ${e.bedarf} kWh`}</div>
         </div>
       </div>`;
     }).join("");
@@ -3264,7 +3264,7 @@ class EegOptimizerPanel extends HTMLElement {
       legend += `<rect x="${lx}" y="${ly - 8}" width="10" height="10" fill="var(--primary-color)" rx="2"/>`;
       legend += `<text class="bc-legend" x="${lx + 14}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Verbrauch</text>`;
       legend += `<rect x="${lx + 100}" y="${ly - 8}" width="10" height="10" fill="#FF9800" rx="2"/>`;
-      legend += `<text class="bc-legend" x="${lx + 114}" y="${ly}" font-size="11" fill="var(--primary-text-color)">PV Erzeugung</text>`;
+      legend += `<text class="bc-legend" x="${lx + 114}" y="${ly}" font-size="11" fill="var(--primary-text-color)">PV-Prognose</text>`;
     }
 
     const mobileStyle = `<style>

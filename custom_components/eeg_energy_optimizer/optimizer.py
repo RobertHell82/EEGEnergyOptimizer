@@ -197,6 +197,13 @@ class EEGOptimizer:
         self._prev_zustand: str | None = None
         self._last_decision: Decision | None = None
 
+        # Hysteresis: track dates when states were first activated today.
+        # If a state was already active and then deactivated on the same day,
+        # require a higher threshold to reactivate (prevents oscillation).
+        self._morning_activated_date: str | None = None
+        self._discharge_activated_date: str | None = None
+        self._last_eval_zustand: str = STATE_NORMAL
+
         # Startup grace period: don't send inverter commands until sensors
         # have had time to settle after a HA restart.
         self._startup_time: datetime = _now()
@@ -511,7 +518,7 @@ class EEGOptimizer:
                 result["reason"] = f"Morgen ab {sunrise_str}"
             else:
                 result["status"] = "morgen_nicht_erwartet"
-                result["reason"] = "PV Prognose zu gering"
+                result["reason"] = "PV-Prognose zu gering"
 
         return result
 
@@ -618,6 +625,16 @@ class EEGOptimizer:
 
         bedarf = self._calc_energiebedarf(snap)
 
+        # Hysteresis: if morning feed-in was already active today and then
+        # deactivated, require PV to exceed demand by 10% to reactivate
+        today_str = snap.now.strftime("%Y-%m-%d")
+        is_reactivation = (
+            self._morning_activated_date == today_str
+            and self._last_eval_zustand != STATE_MORGEN_EINSPEISUNG
+        )
+        if is_reactivation:
+            return pv_today > bedarf * 1.1
+
         return pv_today > bedarf
 
     def _calc_min_soc(self, snap: Snapshot) -> float:
@@ -678,9 +695,23 @@ class EEGOptimizer:
         if snap.now < discharge_start and not past_midnight_in_window:
             reasons.append(f"Startzeit {self._discharge_start_h:02d}:{self._discharge_start_m:02d} noch nicht erreicht")
 
+        # Hard cutoff: discharge ends at 04:00 at the latest
+        cutoff = snap.now.replace(hour=4, minute=0, second=0, microsecond=0)
+        if past_midnight_in_window and snap.now >= cutoff:
+            reasons.append("Entladung endet um 04:00")
+
         # Check SOC
-        if snap.battery_soc <= min_soc:
-            reasons.append(f"SOC {snap.battery_soc:.0f}% <= Min-SOC {min_soc:.0f}%")
+        # Hysteresis: if discharge was already active today and then deactivated,
+        # require SOC to be 3 percentage points above min_soc to reactivate
+        today_str = snap.now.strftime("%Y-%m-%d")
+        is_reactivation = (
+            self._discharge_activated_date == today_str
+            and self._last_eval_zustand != STATE_ABEND_ENTLADUNG
+        )
+        effective_min_soc = min_soc + 3 if is_reactivation else min_soc
+
+        if snap.battery_soc <= effective_min_soc:
+            reasons.append(f"SOC {snap.battery_soc:.0f}% <= Min-SOC {effective_min_soc:.0f}%")
 
         # Check tomorrow surplus (D-09)
         # Tomorrow demand = daylight consumption (with safety buffer) + battery charge needed
@@ -719,6 +750,16 @@ class EEGOptimizer:
             zustand = STATE_ABEND_ENTLADUNG
         else:
             zustand = STATE_NORMAL
+
+        # Track activation dates for hysteresis
+        today_str = snap.now.strftime("%Y-%m-%d")
+        if zustand == STATE_MORGEN_EINSPEISUNG:
+            if self._morning_activated_date != today_str:
+                self._morning_activated_date = today_str
+        elif zustand == STATE_ABEND_ENTLADUNG:
+            if self._discharge_activated_date != today_str:
+                self._discharge_activated_date = today_str
+        self._last_eval_zustand = zustand
 
         # Determine next action text
         in_grace_period = (
@@ -803,7 +844,7 @@ class EEGOptimizer:
             )
             if snap.pv_remaining_today_kwh is not None:
                 lines.append(
-                    f"- PV Prognose heute: {snap.pv_remaining_today_kwh:.1f} kWh"
+                    f"- PV-Prognose heute: {snap.pv_remaining_today_kwh:.1f} kWh"
                 )
             lines.append(
                 f"- Energiebedarf: {decision.energiebedarf_kwh:.1f} kWh "
@@ -824,7 +865,7 @@ class EEGOptimizer:
             lines.append(f"- Ziel-SOC: {decision.min_soc_berechnet:.0f}%")
             if snap.pv_tomorrow_kwh is not None:
                 lines.append(
-                    f"- PV Prognose morgen: {snap.pv_tomorrow_kwh:.1f} kWh"
+                    f"- PV-Prognose morgen: {snap.pv_tomorrow_kwh:.1f} kWh"
                 )
             lines.append(
                 f"- Verbrauchsprognose morgen: {snap.consumption_tomorrow_kwh:.1f} kWh"

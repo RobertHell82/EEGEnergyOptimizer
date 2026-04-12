@@ -72,7 +72,7 @@ Reicht die PV-Prognose nicht aus, um den Gesamtbedarf zu decken, wird die Batter
 
 Die Abend-Entladung speist unter Tags gewonnene Energie, die der eigene Haushalt nicht benötigt, um über die Nacht zu kommen, in die Energiegemeinschaft ein. So steht Strom zu einem Zeitpunkt zur Verfügung, an dem ansonsten keine PV-Erzeugung im Netz vorhanden ist.
 
-**Funktionsweise:** Ab der konfigurierten Startzeit (Standard: 20:00 Uhr) wird die Batterie mit einstellbarer Leistung entladen, bis der dynamisch berechnete Ziel-SOC erreicht ist.
+**Funktionsweise:** Ab der konfigurierten Startzeit (Standard: 20:00 Uhr) wird die Batterie mit einstellbarer Leistung entladen, bis der dynamisch berechnete Ziel-SOC erreicht ist. Die Entladung endet spätestens um 04:00 Uhr.
 
 **Der Ziel-SOC ergibt sich aus:**
 - Konfigurierter Mindest-SOC der Batterie
@@ -82,6 +82,8 @@ Die Abend-Entladung speist unter Tags gewonnene Energie, die der eigene Haushalt
 **Die Entladung erfolgt nur, wenn alle Bedingungen erfüllt sind:**
 - Aktueller SOC liegt über dem berechneten Ziel-SOC
 - Die PV-Prognose für morgen deckt den erwarteten Gesamtbedarf
+
+**Hysterese:** Wurde eine Aktion (Morgen-Einspeisung oder Abend-Entladung) am selben Tag bereits aktiviert und dann deaktiviert, gelten strengere Schwellen für eine erneute Aktivierung. So wird ein schnelles Hin-und-Herspringen zwischen Zuständen verhindert.
 
 **Der Gesamtbedarf für morgen setzt sich zusammen aus:**
 - Geschätzter Stromverbrauch von Sonnenaufgang bis Sonnenuntergang

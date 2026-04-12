@@ -34,8 +34,8 @@ optimizer.py: async_run_cycle(mode)
         - PV forecast > demand * (1 + safety_buffer%)
      3. _should_discharge() — evening discharge check:
         - Feature enabled
-        - Time >= discharge_start
-        - SOC > dynamic min_soc
+        - Time >= discharge_start and < 04:00
+        - SOC > dynamic min_soc (+ hysteresis on reactivation)
         - PV tomorrow >= tomorrow_demand
      4. State: Morgen-Einspeisung / Abend-Entladung / Normal
   → _execute() — inverter commands (only in mode "Ein")
@@ -70,8 +70,8 @@ optimizer.py: async_run_cycle(mode)
 | 2–8 | Tagesverbrauchsprognose heute..Tag 6 | fast | Daily consumption forecasts (7 sensors) |
 | 9 | Prognose bis Sonnenaufgang | fast | Consumption now → next sunrise |
 | 10 | Batterie fehlende Energie | fast | kWh needed to fully charge battery |
-| 11 | PV Prognose heute | fast | Remaining PV today from forecast provider |
-| 12 | PV Prognose morgen | fast | PV forecast tomorrow |
+| 11 | PV-Prognose heute | fast | Remaining PV today from forecast provider |
+| 12 | PV-Prognose morgen | fast | PV forecast tomorrow |
 | 13 | Hausverbrauch | fast | Calculated: PV - Battery - Grid (kW, MEASUREMENT) |
 | 14 | Entscheidung | 30s | Current optimizer state + Markdown dashboard |
 | 15 | Morgen-Einspeisung Energie heute | fast | Grid feed-in kWh during Morgen-Einspeisung (TOTAL, resets daily) |
@@ -142,9 +142,10 @@ Implementations:
 ## Key Domain Concepts
 
 - **Morgen-Einspeisung** (Morning Feed-in): Prevents battery from charging during morning hours so PV surplus feeds into the grid when the EEG community needs it most. Active when PV forecast exceeds demand + safety buffer.
-- **Evening Discharge**: Discharges battery into grid during evening hours when community demand is high. Requires: sufficient SOC above dynamic min-SOC, and tomorrow's PV forecast covers tomorrow's demand.
+- **Evening Discharge**: Discharges battery into grid during evening hours when community demand is high. Requires: sufficient SOC above dynamic min-SOC, and tomorrow's PV forecast covers tomorrow's demand. Hard cutoff at 04:00 — discharge stops regardless of other conditions.
 - **Dynamic Min-SOC**: base_min_soc + ceil((overnight_consumption * (1 + buffer%) / capacity) * 100) — ensures enough energy for overnight household consumption.
 - **Safety Buffer** (`safety_buffer_pct`, default 25%): Applied to both morning blocking threshold and overnight consumption reserve.
+- **Hysteresis** (anti-oscillation): Tracks whether a state (Morgen-Einspeisung or Abend-Entladung) was already active on the current day. If a state was active and then deactivated, stricter thresholds apply for reactivation: evening discharge requires SOC > min_soc + 3% (instead of > min_soc), morning feed-in requires PV > demand × 1.1 (instead of > demand). While a state remains continuously active, normal thresholds apply.
 - **Consumption Profile**: Hourly averages from recorder, split by 7 individual weekdays (mo–so), rolling window (default 4 weeks), with weekday fallback chain for missing data.
 - **Dual Update Timers**: Slow sensors (profile) every 15min, fast sensors (forecasts, battery, Hausverbrauch) every 1min.
 
