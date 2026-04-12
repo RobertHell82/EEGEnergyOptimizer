@@ -140,10 +140,9 @@ None yet.
 | 260406-tg6 | SolarEdge Anleitung im Panel auf Huawei-Detailgrad | 2026-04-06 | 3d647de | | [260406-tg6-solaredge-anleitung-im-panel-auf-huawei-](./quick/260406-tg6-solaredge-anleitung-im-panel-auf-huawei-/) |
 | 260406-u8h | SolaX Anleitung im Panel | 2026-04-06 | — | | [260406-u8h-solax-anleitung-im-panel](./quick/260406-u8h-solax-anleitung-im-panel/) |
 | 260406-ufh | Einstellungen-Screen statt Wizard nach Setup + Dashboard-Gating | 2026-04-06 | 1de9b07 | Verified | [260406-ufh-einstellungen-screen-statt-wizard-nach-s](./quick/260406-ufh-einstellungen-screen-statt-wizard-nach-s/) |
-| 260412-r3n | Fronius Gen24 Umsetzungskonzept: Sensoren und Wechselrichter-Ansteuerung | 2026-04-12 | e34bb17 | | [260412-r3n-fronius-gen24-umsetzungskonzept-sensoren](./quick/260412-r3n-fronius-gen24-umsetzungskonzept-sensoren/) |
 
 ## Session Continuity
 
-Last activity: 2026-04-12 - Completed quick task 260412-r3n: Fronius Gen24 Umsetzungskonzept
+Last activity: 2026-04-06 - Completed quick task 260406-ufh: Settings screen + dashboard card gating
 Stopped at: Completed quick-260406-ufh
 Resume file: None
