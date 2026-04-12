@@ -361,10 +361,26 @@ Die Implementierung nutzt pymodbus für direkte Register-Schreibzugriffe auf Sun
 
 #### Initialisierung (einmalig beim Start)
 
-1. Modbus TCP Verbindung zu Fronius IP:502 aufbauen (async, pymodbus `AsyncModbusTcpClient`)
-2. SunSpec Model Discovery: Ab Register 40000 scannen, Model-Header lesen (Model-ID + Länge), bis Model 124 (Storage) gefunden
+1. Modbus TCP Verbindung zu Fronius IP:502 aufbauen (async, pymodbus `AsyncModbusTcpClient`, 3 Retries, 200ms Pause)
+2. SunSpec Model Discovery (Referenz: fronius_modbus `_scan_sunspec_models()`):
+   - Register 40000–40001 lesen → SunSpec-ID prüfen (0x5375, 0x6E53 = "SunS")
+   - Ab Register 40002 iterativ scannen (max 128 Models):
+     - 2 Register lesen: Model-ID (uint16) + Länge (uint16)
+     - Falls Model-ID = 124 → Basisadresse gefunden, Scan beenden
+     - Falls Model-ID = 0xFFFF → End-Marker, Scan beenden
+     - Sonst: Adresse um (Länge + 2) weiter springen zum nächsten Model
 3. Basisadresse von Model 124 merken → alle Offsets relativ dazu
-4. `WChaMax` lesen (Offset +2) — maximale Batterieleistung in W, wird für Prozentwert-Berechnung gebraucht
+4. `WChaMax` lesen (Offset +0) — maximale Batterieleistung in W, einmal täglich gecacht
+
+**Model 124 Register-Offsets** (relativ zur Basisadresse, Referenz: fronius_modbus):
+
+| Offset | Feld | Typ | R/W | Beschreibung |
+|---|---|---|---|---|
+| +0 | WChaMax | uint16 | R | Max Batterieleistung in W |
+| +3 | StorCtl_Mod | bitfield16 | RW | Steuermodus (Bit 0=Charge, Bit 1=Discharge) |
+| +5 | MinRsvPct | uint16 (SF -2) | RW | Mindest-Reserve % |
+| +12 | OutWRte | int16 (SF -2) | RW | Entlade-Rate % von WChaMax |
+| +13 | InWRte | int16 (SF -2) | RW | Lade-Rate % von WChaMax |
 
 #### async_set_charge_limit(power_kw)
 
