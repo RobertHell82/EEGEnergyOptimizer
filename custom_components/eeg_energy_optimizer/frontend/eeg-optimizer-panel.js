@@ -1617,6 +1617,12 @@ class EegOptimizerPanel extends HTMLElement {
         }
       }
       if (changed) {
+        // Reload feed-in stats periodically (at most every 60s)
+        const now = Date.now();
+        if (!this._lastFeedinReload || now - this._lastFeedinReload > 60000) {
+          this._lastFeedinReload = now;
+          this._loadFeedinStats();
+        }
         this._render();
       }
     }
