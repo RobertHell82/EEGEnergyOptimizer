@@ -521,6 +521,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "pv_today": round(decision.morning_pv_today_kwh, 1),
                 "pv_tomorrow": round(decision.discharge_pv_tomorrow_kwh, 1),
                 "bedarf": round(decision.energiebedarf_kwh, 1),
+                "discharge_bedarf": round(decision.discharge_demand_total_kwh, 1),
+                "discharge_pv": round(decision.discharge_pv_tomorrow_kwh, 1),
                 "ausführung": decision.ausführung,
             }
             activity_log.append(entry_data)

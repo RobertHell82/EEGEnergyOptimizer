@@ -5,8 +5,8 @@ Creates 14 sensors:
   2-8. Tagesverbrauchsprognose heute..Tag 6  (fast, daily consumption forecasts)
   9.  Prognose bis Sonnenaufgang          (fast, consumption now -> next sunrise)
   10. Batterie fehlende Energie           (fast, kWh to full charge)
-  11. PV Prognose heute                   (fast, remaining PV today)
-  12. PV Prognose morgen                  (fast, PV forecast tomorrow)
+  11. PV-Prognose heute                   (fast, remaining PV today)
+  12. PV-Prognose morgen                  (fast, PV forecast tomorrow)
   13. Hausverbrauch                       (fast, calculated house consumption kW)
   14. Entscheidung                        (optimizer timer, decision + Markdown dashboard)
 """
@@ -433,14 +433,14 @@ class BatteryMissingEnergySensor(SensorEntity):
 
 
 # ---------------------------------------------------------------------------
-# Sensor 11: PV Prognose heute (fast)
+# Sensor 11: PV-Prognose heute (fast)
 # ---------------------------------------------------------------------------
 
 class PVForecastTodaySensor(SensorEntity):
     """PV forecast remaining today from forecast provider."""
 
     _attr_has_entity_name = True
-    _attr_name = "PV Prognose heute"
+    _attr_name = "PV-Prognose heute"
     _attr_native_unit_of_measurement = "kWh"
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_icon = "mdi:solar-power"
@@ -459,14 +459,14 @@ class PVForecastTodaySensor(SensorEntity):
 
 
 # ---------------------------------------------------------------------------
-# Sensor 12: PV Prognose morgen (fast)
+# Sensor 12: PV-Prognose morgen (fast)
 # ---------------------------------------------------------------------------
 
 class PVForecastTomorrowSensor(SensorEntity):
     """PV forecast for tomorrow from forecast provider."""
 
     _attr_has_entity_name = True
-    _attr_name = "PV Prognose morgen"
+    _attr_name = "PV-Prognose morgen"
     _attr_native_unit_of_measurement = "kWh"
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_icon = "mdi:solar-power"

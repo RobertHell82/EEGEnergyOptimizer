@@ -74,7 +74,7 @@ def _make_snapshot(**overrides):
 def _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider, config=None):
     """Create an EEGOptimizer instance with mocks."""
     cfg = config or _make_config()
-    return EEGOptimizer(mock_hass, cfg, mock_inverter, mock_coordinator, mock_provider)
+    return EEGOptimizer(mock_hass, "test_entry_id", cfg, mock_inverter, mock_coordinator, mock_provider)
 
 
 # ---------------------------------------------------------------------------
@@ -87,12 +87,13 @@ class TestShouldBlockCharging:
     ):
         opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
         sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
-        # 5:00 is 30 min before sunrise but within sunrise-1h window
+        # 6:00 is after sunrise and within morning window (sunrise to morning_end 10:00)
         snap = _make_snapshot(
-            now=datetime(2026, 6, 15, 5, 0, tzinfo=timezone.utc),
+            now=datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc),
             sunrise=sunrise,
+            sunrise_today=sunrise,
             pv_remaining_today_kwh=20.0,
-            consumption_today_kwh=10.0,  # factor = 2.0 >= 1.25
+            consumption_today_kwh=10.0,
         )
         assert opt._should_block_charging(snap) is True
 
@@ -250,15 +251,20 @@ class TestAsyncRunCycle:
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
         """Mode Ein during morning block: should call async_set_charge_limit(0)."""
-        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        startup = datetime(2026, 6, 15, 5, 58, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc)  # 120s after startup
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=startup):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
         sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
         snap = _make_snapshot(
-            now=datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc),
+            now=now,
             sunrise=sunrise,
+            sunrise_today=sunrise,
             pv_remaining_today_kwh=20.0,
             consumption_today_kwh=10.0,
         )
-        with patch.object(opt, "_gather_snapshot", return_value=snap):
+        with patch.object(opt, "_gather_snapshot", return_value=snap), \
+             patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
             decision = await opt.async_run_cycle(MODE_EIN)
         assert decision.ladung_blockiert is True
         assert decision.zustand == STATE_MORGEN_EINSPEISUNG
@@ -269,9 +275,12 @@ class TestAsyncRunCycle:
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
         """Mode Ein during evening discharge: should call async_set_discharge."""
-        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        startup = datetime(2026, 6, 15, 20, 58, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)  # 120s after startup
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=startup):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
         snap = _make_snapshot(
-            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            now=now,
             battery_soc=80.0,
             battery_capacity_kwh=10.0,
             pv_tomorrow_kwh=40.0,
@@ -280,7 +289,8 @@ class TestAsyncRunCycle:
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
             sunset=datetime(2026, 6, 15, 20, 30, tzinfo=timezone.utc),
         )
-        with patch.object(opt, "_gather_snapshot", return_value=snap):
+        with patch.object(opt, "_gather_snapshot", return_value=snap), \
+             patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
             decision = await opt.async_run_cycle(MODE_EIN)
         assert decision.entladung_aktiv is True
         assert decision.zustand == STATE_ABEND_ENTLADUNG
@@ -291,14 +301,18 @@ class TestAsyncRunCycle:
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
         """Mode Ein during Normal state: should call async_stop_forcible."""
-        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        startup = datetime(2026, 6, 15, 11, 58, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc)  # 120s after startup
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=startup):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
         snap = _make_snapshot(
-            now=datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc),  # midday
+            now=now,  # midday
             sunrise=datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc),
             pv_remaining_today_kwh=20.0,
             consumption_today_kwh=10.0,  # surplus but after morning window
         )
-        with patch.object(opt, "_gather_snapshot", return_value=snap):
+        with patch.object(opt, "_gather_snapshot", return_value=snap), \
+             patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
             decision = await opt.async_run_cycle(MODE_EIN)
         assert decision.zustand == STATE_NORMAL
         mock_inverter.async_stop_forcible.assert_called_once()
@@ -308,15 +322,19 @@ class TestAsyncRunCycle:
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
         """SAF-04: Test mode must NOT call any inverter methods."""
-        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        now = datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc)
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
         sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
         snap = _make_snapshot(
-            now=datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc),
+            now=now,
             sunrise=sunrise,
+            sunrise_today=sunrise,
             pv_remaining_today_kwh=20.0,
             consumption_today_kwh=10.0,
         )
-        with patch.object(opt, "_gather_snapshot", return_value=snap):
+        with patch.object(opt, "_gather_snapshot", return_value=snap), \
+             patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
             decision = await opt.async_run_cycle(MODE_TEST)
         assert decision.ausführung is False
         mock_inverter.async_set_charge_limit.assert_not_called()
@@ -328,14 +346,18 @@ class TestAsyncRunCycle:
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
         """Same state twice should not call inverter a second time."""
-        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        startup = datetime(2026, 6, 15, 11, 58, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc)  # 120s after startup
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=startup):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
         snap = _make_snapshot(
-            now=datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc),
+            now=now,
             sunrise=datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc),
             pv_remaining_today_kwh=20.0,
             consumption_today_kwh=10.0,
         )
-        with patch.object(opt, "_gather_snapshot", return_value=snap):
+        with patch.object(opt, "_gather_snapshot", return_value=snap), \
+             patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
             await opt.async_run_cycle(MODE_EIN)
             await opt.async_run_cycle(MODE_EIN)
         # stop_forcible should only be called once (deduplication)
@@ -365,30 +387,31 @@ class TestDaylightConsumption:
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
         """_gather_snapshot() computes daylight consumption using coordinator.calculate_period(sunrise, sunset)."""
-        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        now = datetime(2026, 6, 15, 8, 0, tzinfo=timezone.utc)
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now), \
+             patch("custom_components.eeg_energy_optimizer.optimizer._as_local", side_effect=lambda dt: dt):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
 
-        # Setup sun.sun entity: morning call, next_rising is today, next_setting is today
-        sun_state = MagicMock()
-        sun_state.attributes = {
-            "next_rising": "2026-06-15T05:30:00+00:00",
-            "next_setting": "2026-06-15T20:30:00+00:00",
-        }
-        soc_state = MagicMock()
-        soc_state.state = "50"
-        mock_hass.states.get = MagicMock(side_effect=lambda eid: {
-            "sun.sun": sun_state,
-            "sensor.battery_soc": soc_state,
-        }.get(eid))
+            # Setup sun.sun entity: morning call, next_rising is today, next_setting is today
+            sun_state = MagicMock()
+            sun_state.attributes = {
+                "next_rising": "2026-06-15T05:30:00+00:00",
+                "next_setting": "2026-06-15T20:30:00+00:00",
+            }
+            soc_state = MagicMock()
+            soc_state.state = "50"
+            mock_hass.states.get = MagicMock(side_effect=lambda eid: {
+                "sun.sun": sun_state,
+                "sensor.battery_soc": soc_state,
+            }.get(eid))
 
-        # Return different values for different periods
-        def calc_period(start, end):
-            hours = (end - start).total_seconds() / 3600
-            return {"verbrauch_kwh": hours * 0.5, "stunden": hours, "stundenprofil": []}
+            # Return different values for different periods
+            def calc_period(start, end):
+                hours = (end - start).total_seconds() / 3600
+                return {"verbrauch_kwh": hours * 0.5, "stunden": hours, "stundenprofil": []}
 
-        mock_coordinator.calculate_period = MagicMock(side_effect=calc_period)
+            mock_coordinator.calculate_period = MagicMock(side_effect=calc_period)
 
-        with patch("custom_components.eeg_energy_optimizer.optimizer._now",
-                    return_value=datetime(2026, 6, 15, 8, 0, tzinfo=timezone.utc)):
             snap = opt._gather_snapshot()
 
         assert snap.consumption_today_daylight_kwh > 0.0
@@ -398,29 +421,30 @@ class TestDaylightConsumption:
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
         """When next_rising is tomorrow (afternoon call), today's sunrise is derived by subtracting 1 day."""
-        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        now = datetime(2026, 6, 15, 14, 0, tzinfo=timezone.utc)
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now), \
+             patch("custom_components.eeg_energy_optimizer.optimizer._as_local", side_effect=lambda dt: dt):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
 
-        # Afternoon: next_rising is tomorrow, next_setting is today
-        sun_state = MagicMock()
-        sun_state.attributes = {
-            "next_rising": "2026-06-16T05:30:00+00:00",  # tomorrow
-            "next_setting": "2026-06-15T20:30:00+00:00",  # today
-        }
-        soc_state = MagicMock()
-        soc_state.state = "50"
-        mock_hass.states.get = MagicMock(side_effect=lambda eid: {
-            "sun.sun": sun_state,
-            "sensor.battery_soc": soc_state,
-        }.get(eid))
+            # Afternoon: next_rising is tomorrow, next_setting is today
+            sun_state = MagicMock()
+            sun_state.attributes = {
+                "next_rising": "2026-06-16T05:30:00+00:00",  # tomorrow
+                "next_setting": "2026-06-15T20:30:00+00:00",  # today
+            }
+            soc_state = MagicMock()
+            soc_state.state = "50"
+            mock_hass.states.get = MagicMock(side_effect=lambda eid: {
+                "sun.sun": sun_state,
+                "sensor.battery_soc": soc_state,
+            }.get(eid))
 
-        calls = []
-        def calc_period(start, end):
-            calls.append((start, end))
-            return {"verbrauch_kwh": 5.0, "stunden": 8.0, "stundenprofil": []}
-        mock_coordinator.calculate_period = MagicMock(side_effect=calc_period)
+            calls = []
+            def calc_period(start, end):
+                calls.append((start, end))
+                return {"verbrauch_kwh": 5.0, "stunden": 8.0, "stundenprofil": []}
+            mock_coordinator.calculate_period = MagicMock(side_effect=calc_period)
 
-        with patch("custom_components.eeg_energy_optimizer.optimizer._now",
-                    return_value=datetime(2026, 6, 15, 14, 0, tzinfo=timezone.utc)):
             snap = opt._gather_snapshot()
 
         # Today's daylight should use today's sunrise (derived) to today's sunset
@@ -432,29 +456,30 @@ class TestDaylightConsumption:
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
         """After sunset, next_setting is tomorrow; today's sunset derived by subtracting 1 day."""
-        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        now = datetime(2026, 6, 15, 22, 0, tzinfo=timezone.utc)
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now), \
+             patch("custom_components.eeg_energy_optimizer.optimizer._as_local", side_effect=lambda dt: dt):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
 
-        # After sunset: both next_rising and next_setting are tomorrow
-        sun_state = MagicMock()
-        sun_state.attributes = {
-            "next_rising": "2026-06-16T05:30:00+00:00",
-            "next_setting": "2026-06-16T20:30:00+00:00",
-        }
-        soc_state = MagicMock()
-        soc_state.state = "50"
-        mock_hass.states.get = MagicMock(side_effect=lambda eid: {
-            "sun.sun": sun_state,
-            "sensor.battery_soc": soc_state,
-        }.get(eid))
+            # After sunset: both next_rising and next_setting are tomorrow
+            sun_state = MagicMock()
+            sun_state.attributes = {
+                "next_rising": "2026-06-16T05:30:00+00:00",
+                "next_setting": "2026-06-16T20:30:00+00:00",
+            }
+            soc_state = MagicMock()
+            soc_state.state = "50"
+            mock_hass.states.get = MagicMock(side_effect=lambda eid: {
+                "sun.sun": sun_state,
+                "sensor.battery_soc": soc_state,
+            }.get(eid))
 
-        calls = []
-        def calc_period(start, end):
-            calls.append((start, end))
-            return {"verbrauch_kwh": 5.0, "stunden": 8.0, "stundenprofil": []}
-        mock_coordinator.calculate_period = MagicMock(side_effect=calc_period)
+            calls = []
+            def calc_period(start, end):
+                calls.append((start, end))
+                return {"verbrauch_kwh": 5.0, "stunden": 8.0, "stundenprofil": []}
+            mock_coordinator.calculate_period = MagicMock(side_effect=calc_period)
 
-        with patch("custom_components.eeg_energy_optimizer.optimizer._now",
-                    return_value=datetime(2026, 6, 15, 22, 0, tzinfo=timezone.utc)):
             snap = opt._gather_snapshot()
 
         # Tomorrow daylight should be computed with June 16 sunrise/sunset
@@ -465,28 +490,29 @@ class TestDaylightConsumption:
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
         """Tomorrow's sunrise/sunset approximated by shifting today's values by +1 day."""
-        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        now = datetime(2026, 6, 15, 8, 0, tzinfo=timezone.utc)
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now), \
+             patch("custom_components.eeg_energy_optimizer.optimizer._as_local", side_effect=lambda dt: dt):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
 
-        sun_state = MagicMock()
-        sun_state.attributes = {
-            "next_rising": "2026-06-15T05:30:00+00:00",
-            "next_setting": "2026-06-15T20:30:00+00:00",
-        }
-        soc_state = MagicMock()
-        soc_state.state = "50"
-        mock_hass.states.get = MagicMock(side_effect=lambda eid: {
-            "sun.sun": sun_state,
-            "sensor.battery_soc": soc_state,
-        }.get(eid))
+            sun_state = MagicMock()
+            sun_state.attributes = {
+                "next_rising": "2026-06-15T05:30:00+00:00",
+                "next_setting": "2026-06-15T20:30:00+00:00",
+            }
+            soc_state = MagicMock()
+            soc_state.state = "50"
+            mock_hass.states.get = MagicMock(side_effect=lambda eid: {
+                "sun.sun": sun_state,
+                "sensor.battery_soc": soc_state,
+            }.get(eid))
 
-        calls = []
-        def calc_period(start, end):
-            calls.append((start, end))
-            return {"verbrauch_kwh": 5.0, "stunden": 8.0, "stundenprofil": []}
-        mock_coordinator.calculate_period = MagicMock(side_effect=calc_period)
+            calls = []
+            def calc_period(start, end):
+                calls.append((start, end))
+                return {"verbrauch_kwh": 5.0, "stunden": 8.0, "stundenprofil": []}
+            mock_coordinator.calculate_period = MagicMock(side_effect=calc_period)
 
-        with patch("custom_components.eeg_energy_optimizer.optimizer._now",
-                    return_value=datetime(2026, 6, 15, 8, 0, tzinfo=timezone.utc)):
             snap = opt._gather_snapshot()
 
         # Find tomorrow daylight call: should use June 16 05:30 -> June 16 20:30
@@ -508,8 +534,8 @@ class TestDaylightConsumption:
             battery_capacity_kwh=10.0,
         )
         bedarf = opt._calc_energiebedarf(snap)
-        # Expected: 6.0 (daylight) + 5.0 (missing battery: 50% of 10kWh) = 11.0
-        assert bedarf == pytest.approx(11.0)
+        # Expected: 6.0 * 1.25 (daylight + 25% buffer) + 5.0 (missing battery: 50% of 10kWh) = 12.5
+        assert bedarf == pytest.approx(12.5)
 
     def test_morning_delay_outside_window_uses_daylight_tomorrow(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -527,8 +553,9 @@ class TestDaylightConsumption:
         result = opt._morning_delay_status(snap, bedarf)
         # Tomorrow demand should be based on daylight consumption (12.0), not full-day (20.0)
         # missing_battery = (100 - 10) / 100 * 10 = 9.0 (min_soc=10 default)
-        # tomorrow_threshold = (12.0 + 9.0) * 1.25 = 26.25
-        assert result["threshold_kwh"] == pytest.approx((12.0 + 9.0) * 1.25)
+        # buffer applies only to consumption: 12.0 * 0.25 = 3.0
+        # tomorrow_threshold = (12.0 + 3.0) + 9.0 = 24.0
+        assert result["threshold_kwh"] == pytest.approx(24.0)
 
     def test_discharge_still_uses_full_day_consumption(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -561,8 +588,9 @@ class TestDaylightConsumption:
             pv_tomorrow_kwh=40.0,
         )
         result = opt._discharge_detail_status(snap, True, 48.0, [])
-        # demand uses full-day: 12.0 + (90% * 10) = 12.0 + 9.0 = 21.0
-        assert result["demand_tomorrow_kwh"] == pytest.approx(21.0)
+        # demand uses tomorrow_daylight(8.0) with buffer + battery charge:
+        # 8.0 * 1.25 + (90% * 10) = 10.0 + 9.0 = 19.0
+        assert result["demand_total_kwh"] == pytest.approx(19.0)
 
     def test_daylight_fields_zero_when_sunrise_sunset_none(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -587,3 +615,270 @@ class TestDaylightConsumption:
 
         assert snap.consumption_today_daylight_kwh == 0.0
         assert snap.consumption_tomorrow_daylight_kwh == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Hysteresis: prevent oscillation on reactivation
+# ---------------------------------------------------------------------------
+
+class TestHysteresis:
+    """Test hysteresis logic that prevents oscillation when reactivating states."""
+
+    def test_discharge_first_activation_uses_normal_threshold(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """First activation on a day: SOC just above min_soc should activate discharge."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        # min_soc = base(10) + ceil(3.0*1.25/10*100) = 10 + 38 = 48
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            battery_soc=49.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons = opt._should_discharge(snap)
+        assert should is True
+        assert not any("SOC" in r for r in reasons)
+
+    def test_discharge_reactivation_requires_3pct_above_min_soc(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """After deactivation on same day: SOC must be > min_soc + 3 to reactivate."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+
+        # Simulate: discharge was already active today, then deactivated
+        opt._discharge_activated_date = now.strftime("%Y-%m-%d")
+        opt._last_eval_zustand = STATE_NORMAL
+
+        # min_soc = 48%, SOC at 50% — only 2% above, less than 3% hysteresis
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=50.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons = opt._should_discharge(snap)
+        assert should is False
+        assert any("SOC" in r for r in reasons)
+
+    def test_discharge_reactivation_succeeds_with_enough_margin(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """After deactivation: SOC > min_soc + 3 should reactivate discharge."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+
+        opt._discharge_activated_date = now.strftime("%Y-%m-%d")
+        opt._last_eval_zustand = STATE_NORMAL
+
+        # min_soc = 48%, SOC at 52% — 4% above, exceeds 3% hysteresis
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=52.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons = opt._should_discharge(snap)
+        assert should is True
+
+    def test_discharge_no_hysteresis_while_still_active(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """While discharge is still active (not deactivated), normal threshold applies."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+
+        opt._discharge_activated_date = now.strftime("%Y-%m-%d")
+        opt._last_eval_zustand = STATE_ABEND_ENTLADUNG  # still active!
+
+        # min_soc = 48%, SOC at 49% — only 1% above, but no hysteresis needed
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=49.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons = opt._should_discharge(snap)
+        assert should is True
+
+    def test_morning_first_activation_uses_normal_threshold(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """First activation: PV just above demand should activate morning block."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        # bedarf = consumption_to_sunset(8.0)*1.25 + missing_battery(5.0) = 10+5 = 15.0
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc),
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=15.1,
+            consumption_to_sunset_kwh=8.0,
+            battery_soc=50.0,
+            battery_capacity_kwh=10.0,
+        )
+        assert opt._should_block_charging(snap) is True
+
+    def test_morning_reactivation_requires_10pct_above_demand(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """After deactivation on same day: PV must exceed demand * 1.1 to reactivate."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc)
+
+        opt._morning_activated_date = now.strftime("%Y-%m-%d")
+        opt._last_eval_zustand = STATE_NORMAL
+
+        # bedarf = daylight(7.0)*1.25 + missing_battery(5.0) = 13.75
+        # hysteresis threshold = 13.75 * 1.1 = 15.125
+        snap = _make_snapshot(
+            now=now,
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=14.5,  # 14.5 > 13.75 but < 15.125
+            consumption_to_sunset_kwh=8.0,
+            battery_soc=50.0,
+            battery_capacity_kwh=10.0,
+        )
+        assert opt._should_block_charging(snap) is False
+
+    def test_morning_reactivation_succeeds_with_enough_margin(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """After deactivation: PV > demand * 1.1 should reactivate morning block."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc)
+
+        opt._morning_activated_date = now.strftime("%Y-%m-%d")
+        opt._last_eval_zustand = STATE_NORMAL
+
+        # bedarf = 13.75, need > 15.125
+        snap = _make_snapshot(
+            now=now,
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=16.0,  # 16.0 > 15.125
+            consumption_to_sunset_kwh=8.0,
+            battery_soc=50.0,
+            battery_capacity_kwh=10.0,
+        )
+        assert opt._should_block_charging(snap) is True
+
+    def test_morning_no_hysteresis_while_still_active(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """While morning block is still active, normal threshold applies."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc)
+
+        opt._morning_activated_date = now.strftime("%Y-%m-%d")
+        opt._last_eval_zustand = STATE_MORGEN_EINSPEISUNG  # still active!
+
+        # bedarf = 15.0, PV 15.1 > 15.0 → still active (no hysteresis)
+        snap = _make_snapshot(
+            now=now,
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=15.1,
+            consumption_to_sunset_kwh=8.0,
+            battery_soc=50.0,
+            battery_capacity_kwh=10.0,
+        )
+        assert opt._should_block_charging(snap) is True
+
+    def test_hysteresis_does_not_apply_on_different_day(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Activated date from yesterday should not trigger hysteresis today."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+
+        opt._discharge_activated_date = "2026-06-14"  # yesterday
+        opt._last_eval_zustand = STATE_NORMAL
+
+        # min_soc = 48%, SOC 49% — only 1% above, but no hysteresis (different day)
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=49.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons = opt._should_discharge(snap)
+        assert should is True
+
+    def test_evaluate_tracks_activation_dates(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """_evaluate sets activation dates when states become active."""
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
+            decision = opt._evaluate(snap, MODE_TEST)
+        assert decision.zustand == STATE_ABEND_ENTLADUNG
+        assert opt._discharge_activated_date == "2026-06-15"
+        assert opt._last_eval_zustand == STATE_ABEND_ENTLADUNG
+
+    def test_discharge_stops_at_0400_cutoff(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Discharge must stop at 04:00 even if other conditions are met."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        # 04:00 past midnight, sunrise at 05:30 — in window but past cutoff
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 16, 4, 0, tzinfo=timezone.utc),
+            battery_soc=60.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=1.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons = opt._should_discharge(snap)
+        assert should is False
+        assert any("04:00" in r for r in reasons)
+
+    def test_discharge_active_before_0400_cutoff(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Discharge should still be active at 03:59 past midnight."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 16, 3, 59, tzinfo=timezone.utc),
+            battery_soc=60.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=1.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons = opt._should_discharge(snap)
+        assert should is True
