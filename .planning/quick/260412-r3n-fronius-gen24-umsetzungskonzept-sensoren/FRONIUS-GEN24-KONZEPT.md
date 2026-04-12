@@ -523,30 +523,25 @@ Die folgenden Punkte müssen am Testgerät (Fronius Gen24 unter **192.168.100.21
 - **Test:** StorCtl_Mod=3, InWRte=0, OutWRte=10000 setzen → Netz-Einspeisung beobachten. Steigt die Einspeisung über den PV-Überschuss hinaus? Dann wird aktiv aus der Batterie ins Netz eingespeist.
 - **Falls NICHT aktiv entladen wird:** Alternative prüfen — möglicherweise braucht es einen zusätzlichen Register-Wert oder die undokumentierte Web API als Ergänzung nur für diesen einen Zweck.
 
-### 8.2 Persistenz der Modbus-Werte nach WR-Neustart
-
-- **Was bekannt ist:** Modbus-Werte gelten während der Laufzeit
-- **Was unklar ist:** Bleiben StorCtl_Mod / InWRte / OutWRte nach einem WR-Neustart erhalten (NVRAM) oder werden sie auf Standardwerte zurückgesetzt?
-- **Relevanz:** Falls persistent (wie SolarEdge NVRAM), muss `async_stop_forcible()` besonders zuverlässig aufgerufen werden. Falls nicht persistent, revertiert der WR nach Neustart automatisch — weniger kritisch.
-- **Empfehlung:** Am Testgerät verifizieren: Modbus-Wert setzen → WR neu starten → Wert prüfen
-
-### 8.3 SunSpec Model Discovery — Basisadresse von Model 124
+### 8.2 SunSpec Model Discovery — Basisadresse von Model 124
 
 - **Was bekannt ist:** Register-Adressen sind dynamisch und hängen von Firmware und aktivierten Modellen ab. Standard-Basisadresse für Model 124 ist typischerweise 40343 (int+SF).
 - **Was unklar ist:** Exakte Basisadresse am Testgerät. Funktioniert der Scan ab Register 40000 zuverlässig?
 - **Test:** pymodbus-Skript schreiben das ab 40000 scannt: Model-ID (uint16) + Länge (uint16) lesen, bis Model-ID 124 gefunden wird. Basisadresse notieren.
 
-### 8.4 WChaMax-Wert und Prozentwert-Umrechnung
+### 8.3 WChaMax-Wert und Prozentwert-Umrechnung
 
 - **Was bekannt ist:** WChaMax enthält die maximale Batterieleistung in W, wird für die Umrechnung kW → Prozentwert benötigt
 - **Was unklar ist:** Ist WChaMax ein fester Wert (z.B. 5000W für Gen24 Plus 5.0) oder ändert er sich je nach Batterie-Zustand (Temperatur, SOC)?
 - **Test:** WChaMax-Register mehrfach zu verschiedenen Zeiten lesen. Wenn konstant → kann beim Setup einmal gelesen und gecacht werden. Wenn variabel → muss vor jedem Schreibvorgang gelesen werden.
 
-### 8.5 Koexistenz native HA Fronius + direkte Modbus TCP Schreibzugriffe
+### ~~8.4 Persistenz nach WR-Neustart~~ — GESTRICHEN
 
-- **Was bekannt ist:** Native HA Fronius nutzt HTTP (Solar API), unsere Steuerung nutzt Modbus TCP Port 502 — verschiedene Protokolle
-- **Was unklar ist:** Gibt es Locking-Konflikte auf dem Fronius? Stört das Modbus-Schreiben die Solar API Lesezugriffe?
-- **Test:** Native HA Fronius Integration aktiv + gleichzeitig Modbus Register schreiben → Sensoren weiterhin stabil?
+Nicht relevant — der EEG Optimizer schreibt die Register ohnehin täglich neu (Morgen-Einspeisung morgens, Abend-Entladung abends, Normalbetrieb dazwischen).
+
+### ~~8.5 Koexistenz native HA Fronius + Modbus~~ — GESTRICHEN
+
+Bereits bestätigt: Native Fronius Integration (Solar API/HTTP) verträgt sich mit direkten Modbus TCP Schreibzugriffen (vom Benutzer selbst getestet).
 
 ---
 
