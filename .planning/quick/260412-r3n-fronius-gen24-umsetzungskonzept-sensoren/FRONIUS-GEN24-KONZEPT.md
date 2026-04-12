@@ -529,19 +529,9 @@ Die folgenden Punkte müssen am Testgerät (Fronius Gen24 unter **192.168.100.21
 - **Was unklar ist:** Exakte Basisadresse am Testgerät. Funktioniert der Scan ab Register 40000 zuverlässig?
 - **Test:** pymodbus-Skript schreiben das ab 40000 scannt: Model-ID (uint16) + Länge (uint16) lesen, bis Model-ID 124 gefunden wird. Basisadresse notieren.
 
-### 8.3 WChaMax-Wert und Prozentwert-Umrechnung
+### ~~8.3 WChaMax-Wert~~ — GEKLÄRT
 
-- **Was bekannt ist:** WChaMax enthält die maximale Batterieleistung in W, wird für die Umrechnung kW → Prozentwert benötigt
-- **Was unklar ist:** Ist WChaMax ein fester Wert (z.B. 5000W für Gen24 Plus 5.0) oder ändert er sich je nach Batterie-Zustand (Temperatur, SOC)?
-- **Test:** WChaMax-Register mehrfach zu verschiedenen Zeiten lesen. Wenn konstant → kann beim Setup einmal gelesen und gecacht werden. Wenn variabel → muss vor jedem Schreibvorgang gelesen werden.
-
-### ~~8.4 Persistenz nach WR-Neustart~~ — GESTRICHEN
-
-Nicht relevant — der EEG Optimizer schreibt die Register ohnehin täglich neu (Morgen-Einspeisung morgens, Abend-Entladung abends, Normalbetrieb dazwischen).
-
-### ~~8.5 Koexistenz native HA Fronius + Modbus~~ — GESTRICHEN
-
-Bereits bestätigt: Native Fronius Integration (Solar API/HTTP) verträgt sich mit direkten Modbus TCP Schreibzugriffen (vom Benutzer selbst getestet).
+**Bestätigt:** WChaMax ist konstant. Wird einmal täglich beim ersten Modbus-Zugriff gelesen und für den Rest des Tages gecacht.
 
 ---
 
