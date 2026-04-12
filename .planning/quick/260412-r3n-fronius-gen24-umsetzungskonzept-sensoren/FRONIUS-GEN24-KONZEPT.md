@@ -480,6 +480,36 @@ Der Benutzer muss vor der Nutzung folgende Einstellungen im Fronius Web-Interfac
 - **Vergleichbar mit huawei_solar bei Huawei** — eine Standard-HA-Komponente, keine Drittanbieter-Dependency
 - Sensoren zusätzlich über Modbus selbst zu lesen wäre redundant: Die native Integration pollt bereits alle 10s (Power Flow) bzw. 60s (Storage/SOC), was für den 30s-Optimizer-Zyklus ausreicht
 
+### 7.4 Panel-Anleitung für Fronius Integration
+
+Bei der Implementierung muss eine Panel-Anleitung erstellt werden (analog zu den bestehenden Anleitungen für Huawei Solar, SolaX und SolarEdge). Die Anleitung führt den Benutzer durch:
+
+1. **Fronius Integration einrichten:**
+   - Wird normalerweise automatisch via Auto-Discovery erkannt
+   - Falls nicht: Einstellungen → Geräte & Dienste → Integration hinzufügen → "Fronius"
+   - IP-Adresse des Wechselrichters angeben
+   - Solar API muss im Fronius Web-Interface aktiviert sein
+
+2. **Modbus TCP am Wechselrichter aktivieren:**
+   - Fronius Web-Interface öffnen (http://{IP})
+   - Communication → Modbus → Aktivieren
+   - Mode: TCP Server
+   - SunSpec Model Type: **int + SF**
+   - Port: 502
+   - **Allow Control via Modbus: EIN**
+
+3. **Scheduled (Dis)Charging deaktivieren:**
+   - Batterie/Energie-Management → Zeitpläne deaktivieren
+   - Wichtig: Aktivierte Zeitpläne überschreiben die Modbus-Steuerung
+
+4. **Sensoren prüfen:**
+   - Nach Einrichtung der Fronius Integration sollten folgende Sensoren verfügbar sein:
+   - PV-Leistung (`power_photovoltaics`)
+   - Batterie-Leistung (`power_battery`)
+   - Batterie-SOC (`state_of_charge`)
+   - Netz-Leistung (`power_grid`)
+   - Batterie-Kapazität (`capacity_maximum`)
+
 ---
 
 ## 8. Offene Fragen (Testgerät-Verifizierung)
