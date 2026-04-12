@@ -322,28 +322,30 @@ Es existiert eine undokumentierte Web API für Batterie-Steuerung, die im Web-In
 
 ## 5. Empfehlung
 
-### Primär: Native HA Fronius + fronius_modbus HACS (callifo Fork)
+### Primär: Native HA Fronius (Sensoren) + Direkte Modbus TCP Steuerung (pymodbus)
 
 **Lesen:** Native HA Fronius Integration für alle Sensoren (PV, Batterie, Grid, SOC).
 
-**Steuern:** `fronius_modbus` HACS Custom Component (callifo Fork) für Batterie-Steuerung.
+**Steuern:** Direkte Modbus TCP Schreibzugriffe über pymodbus auf SunSpec Model 124 Register.
 
 **Begründung:**
 
-1. **HA-native Entities:** Select- und Number-Entities für Steuerung — analog zur bestehenden SolaX- und SolarEdge-Implementierung
-2. **SunSpec-basiert:** Standardisiertes Protokoll, firmware-stabil (keine Breaking Changes bei FW-Updates)
-3. **Aktive Entwicklung:** v0.2.9 (März 2026), 251 Commits, 27 Releases
-4. **Koexistenz:** Native HA Fronius (Solar API/HTTP) und fronius_modbus (Modbus/TCP Port 502) nutzen unterschiedliche Protokolle und können parallel laufen
-5. **Implementierungsmuster:** Steuerung über select/number Entities — identisches Muster wie SolaX und SolarEdge
+1. **Keine Drittanbieter-Abhängigkeit:** Kein fronius_modbus HACS-Addon nötig — der Benutzer braucht nur die native HA Fronius Integration (für Sensoren) und Modbus TCP aktiviert am Wechselrichter
+2. **Minimaler Scope:** Für den EEG Optimizer werden nur 3 Register geschrieben (`StorCtl_Mod`, `InWRte`, `OutWRte`) — dafür eine komplette HACS-Integration zu verlangen wäre Overkill
+3. **Volle Kontrolle:** Keine Überraschungen durch Breaking Changes einer Drittintegration. Wir wissen exakt welche Register gesetzt werden
+4. **SunSpec-Standard:** Das Protokoll ist standardisiert und firmware-stabil. Register-Semantik ändert sich nicht
+5. **Einfachere Benutzer-Einrichtung:** Eine Dependency weniger, kein HACS-Repository hinzufügen, keine Entity-IDs konfigurieren
+6. **pymodbus:** Etablierte Python-Bibliothek, asynchron (asyncio), gut getestet
 
-### Alternativ: Direkte Modbus TCP Steuerung (pymodbus)
+**Einzige Hürde:** SunSpec Model Discovery — die Register-Adressen von Model 124 sind nicht fest, sondern müssen beim Start einmalig durch einen Scan ab Register 40000 ermittelt werden. Das ist ein einmaliger Scan (~20 Register lesen), kein Hexenwerk.
 
-Falls die HACS-Integration Probleme bereitet oder nicht gewünscht ist:
+### Alternativ: fronius_modbus HACS (callifo Fork)
 
-- Direkte Modbus-Register-Zugriffe über pymodbus
-- Volle Kontrolle, keine Abhängigkeit von Drittanbieter-Integration
-- Höhere Komplexität: SunSpec Model Discovery, Register-Berechnung, pymodbus als Dependency
-- Sinnvoll als Fallback-Option oder wenn maximale Kontrolle gewünscht ist
+Falls der direkte Modbus-Weg Probleme bereitet:
+
+- `fronius_modbus` HACS Custom Component (callifo Fork, v0.2.9) bietet HA-native select/number Entities
+- Identisches Muster wie SolaX/SolarEdge (Entities über HA Services ansteuern)
+- Nachteil: Zusätzliche Dependency, "Work in Progress", Entity-IDs können sich zwischen Versionen ändern
 
 ### Nicht empfohlen: Undokumentierte Web API
 
@@ -353,102 +355,94 @@ Zu fragil, Firmware-Abhängigkeit, komplexe Authentifizierung. Selbst etablierte
 
 ## 6. Mapping auf InverterBase
 
-### 6.1 Empfohlener Weg: Via fronius_modbus Entities
+### 6.1 Empfohlener Weg: Direkte Modbus TCP Steuerung (pymodbus)
 
-Die Implementierung wäre analog zur bestehenden SolaX- und SolarEdge-Implementierung, die ebenfalls HA-Entities (select/number) ansteuern.
+Die Implementierung nutzt pymodbus für direkte Register-Schreibzugriffe auf SunSpec Model 124. Beim Start wird einmalig SunSpec Model Discovery durchgeführt, um die Basisadresse von Model 124 zu ermitteln. Danach werden nur 2-3 Register pro Operation geschrieben.
+
+#### Initialisierung (einmalig beim Start)
+
+1. Modbus TCP Verbindung zu Fronius IP:502 aufbauen (async, pymodbus `AsyncModbusTcpClient`)
+2. SunSpec Model Discovery: Ab Register 40000 scannen, Model-Header lesen (Model-ID + Länge), bis Model 124 (Storage) gefunden
+3. Basisadresse von Model 124 merken → alle Offsets relativ dazu
+4. `WChaMax` lesen (Offset +2) — maximale Batterieleistung in W, wird für Prozentwert-Berechnung gebraucht
 
 #### async_set_charge_limit(power_kw)
 
-**Morgen-Einspeisung (power_kw = 0):**
+**Morgen-Einspeisung (power_kw = 0) — Ladung komplett blockieren:**
 
-1. `select.select_option("Block charging")` auf Storage Control Mode Entity
-2. **Ergebnis:** StorCtl_Mod Bit 0 wird gesetzt, InWRte = 0 → PV-Überschuss geht ins Netz
+1. `write_register(StorCtl_Mod, 1)` — Bit 0: Charge Limit aktiv
+2. `write_register(InWRte, 0)` — 0% Ladeleistung = keine Ladung erlaubt
+3. **Ergebnis:** PV-Überschuss geht ins Netz statt in die Batterie
 
 **Teilweise Ladung (power_kw > 0):**
 
-1. `select.select_option("PV Charge Limit")` auf Storage Control Mode Entity
-2. `number.set_value(power_kw * 1000)` auf PV Charge Limit Entity (Watt)
-3. **Ergebnis:** Batterie lädt nur bis zum angegebenen Limit
+1. Prozentwert berechnen: `percent = int(min(power_kw * 1000 / WChaMax, 1.0) * 10000)`
+2. `write_register(StorCtl_Mod, 1)` — Charge Limit aktiv
+3. `write_register(InWRte, percent)` — Ladung begrenzt auf X% von WChaMax
 
-**Analogie:** Vergleichbar mit SolaX `async_set_charge_limit` (select + number + trigger), aber ohne Trigger-Button.
+**Beispiel:** WChaMax = 5000W, power_kw = 2.0 → percent = int(2000/5000 * 10000) = 4000 → 40% Ladeleistung erlaubt
 
 #### async_set_discharge(power_kw, target_soc)
 
 **Abend-Entladung:**
 
-1. `select.select_option("Discharge to Grid")` auf Storage Control Mode Entity
-2. `number.set_value(power_kw * 1000)` auf Grid Discharge Power Entity (Watt)
-3. Optional: `number.set_value(target_soc)` auf Minimum Reserve Entity (%)
-4. **Ergebnis:** Batterie entlädt mit der angegebenen Leistung ins Netz
+1. Prozentwert berechnen: `percent = int(min(power_kw * 1000 / WChaMax, 1.0) * 10000)`
+2. `write_register(StorCtl_Mod, 3)` — Bits 0+1: Charge Limit + Discharge Limit aktiv
+3. `write_register(InWRte, 0)` — Ladung blockiert (während Entladung nicht laden)
+4. `write_register(OutWRte, percent)` — Entlade-Satz in % von WChaMax
+5. Optional: `write_register(MinRsvPct, int(target_soc * 100))` — Mindest-SOC (SF -2, d.h. 1500 = 15%)
 
-**target_soc-Handling:** Der EEG Optimizer steuert den Mindest-SOC selbst über seine Dynamic Min-SOC Berechnung. Die Minimum Reserve Entity kann als zusätzliche Sicherheit gesetzt werden, ähnlich wie bei SolarEdge (wo `backup_reserve` als Safety Net dient).
+**Beispiel:** WChaMax = 5000W, power_kw = 5.0 → percent = 10000 (100%) → volle Entladeleistung
 
-**Analogie:** Vergleichbar mit SolarEdge `async_set_discharge` (command_mode + discharge_limit).
+**Was bedeutet `StorCtl_Mod = 3` + `OutWRte`?**
+- `StorCtl_Mod = 3` aktiviert die Steuerung für Laden UND Entladen (Bit 0 + Bit 1)
+- `OutWRte = 10000` (100%) sagt dem Wechselrichter: "Entlade mit bis zu 100% der maximalen Leistung"
+- `InWRte = 0` blockiert gleichzeitig das Laden
+- **Ob der Gen24 das als aktive Entladung ins Netz interpretiert** (gewünschtes Verhalten) **oder nur als Obergrenze**, muss am Testgerät verifiziert werden. Community-Berichte deuten auf aktive Entladung hin, aber das ist ein kritischer Verifizierungspunkt (siehe Kapitel 8).
+
+**target_soc-Handling:** Der EEG Optimizer steuert den Mindest-SOC selbst über seine Dynamic Min-SOC Berechnung. `MinRsvPct` kann als zusätzliche Hardware-Sicherheit gesetzt werden, damit der Wechselrichter selbst nicht unter diesen SOC entlädt.
 
 #### async_stop_forcible()
 
 **Normalbetrieb wiederherstellen:**
 
-1. `select.select_option("Auto")` auf Storage Control Mode Entity
-2. **Ergebnis:** StorCtl_Mod = 0, InWRte/OutWRte = 10000 → Wechselrichter im Automatik-Modus
-
-**Analogie:** Vergleichbar mit SolaX `async_stop_forcible` ("Disabled" + trigger) oder SolarEdge (Restore "Maximize Self Consumption").
+1. `write_register(StorCtl_Mod, 0)` — Keine Limits aktiv
+2. `write_register(InWRte, 10000)` — 100% Ladung erlaubt
+3. `write_register(OutWRte, 10000)` — 100% Entladung erlaubt
+4. **Ergebnis:** Wechselrichter arbeitet wieder im Automatik-Modus
 
 #### is_available
 
 ```
-Prüfen ob fronius_modbus Integration geladen ist:
-  entries = hass.config_entries.async_entries("fronius_modbus")
-  return any(entry.state.value == "loaded" for entry in entries)
+Modbus TCP Verbindung prüfen:
+  return self._client.connected  (pymodbus AsyncModbusTcpClient)
 ```
 
-**Analogie:** Identisches Muster wie bei allen bestehenden Implementierungen (Domain-Check über config_entries).
+Kein Domain-Check über config_entries nötig — die Modbus-Verbindung wird direkt vom FroniusInverter-Treiber verwaltet.
 
-### 6.2 Alternativer Weg: Via direkte Modbus TCP
+### 6.2 Alternativer Weg: Via fronius_modbus HACS Entities
 
-Falls pymodbus direkt verwendet wird (ohne fronius_modbus HACS):
+Falls der direkte Modbus-Weg Probleme bereitet, kann die fronius_modbus HACS-Integration als Fallback verwendet werden. Die Steuerung erfolgt dann über HA select/number Entities (analog zu SolaX/SolarEdge):
 
-#### async_set_charge_limit(power_kw)
-
-1. Verbindung zu Fronius IP:502 (Modbus TCP)
-2. SunSpec Model 124 Startadresse ermitteln (Model Discovery)
-3. `write_register(StorCtl_Mod_addr, 1)` — Bit 0: Charge Limit aktiv
-4. `write_register(InWRte_addr, 0)` — 0% Ladung = blockiert
-
-Bei power_kw > 0 (Teilladung):
-1. WChaMax aus Register lesen
-2. `percent = min(power_kw * 1000 / WChaMax * 10000, 10000)`
-3. `write_register(StorCtl_Mod_addr, 1)` — Charge Limit aktiv
-4. `write_register(InWRte_addr, int(percent))` — Ladung in %
-
-#### async_set_discharge(power_kw, target_soc)
-
-1. WChaMax aus Register lesen
-2. `percent = min(power_kw * 1000 / WChaMax * 10000, 10000)`
-3. `write_register(StorCtl_Mod_addr, 3)` — Bits 0+1: Charge + Discharge aktiv
-4. `write_register(InWRte_addr, 0)` — Ladung blockiert
-5. `write_register(OutWRte_addr, int(percent))` — Entladung in %
-6. Optional: `write_register(MinRsvPct_addr, int(target_soc * 100))` — Mindest-SOC
-
-#### async_stop_forcible()
-
-1. `write_register(StorCtl_Mod_addr, 0)` — Keine Limits
-2. `write_register(InWRte_addr, 10000)` — 100% Ladung erlaubt
-3. `write_register(OutWRte_addr, 10000)` — 100% Entladung erlaubt
+- **Ladung blockieren:** `select.select_option("Block charging")`
+- **Entladung:** `select.select_option("Discharge to Grid")` + `number.set_value(power_w)`
+- **Stop:** `select.select_option("Auto")`
+- **is_available:** `hass.config_entries.async_entries("fronius_modbus")` Domain-Check
 
 ### 6.3 Vergleich mit bestehenden Implementierungen
 
-| Aspekt | Huawei | SolaX | SolarEdge | Fronius (HACS) | Fronius (direkt) |
-|---|---|---|---|---|---|
-| **Steuerungsweg** | HA Services (huawei_solar) | HA Entities (solax_modbus) | HA Entities (solaredge_modbus_multi) | HA Entities (fronius_modbus) | pymodbus direkt |
-| **Ladung blockieren** | number.set_value(0) auf Max-Charge | select("Battery Control") + active_power(0) | select("Discharge Minimize Import") | select("Block charging") | StorCtl_Mod=1, InWRte=0 |
-| **Entladung** | Service forcible_discharge_soc | select("Battery Control") + neg. active_power | select("Discharge Maximize Export") + discharge_limit | select("Discharge to Grid") + power | StorCtl_Mod=3, OutWRte=% |
-| **Stop** | stop_forcible_charge + restore max | select("Disabled") + trigger | Restore original modes | select("Auto") | StorCtl_Mod=0, InWRte/OutWRte=10000 |
-| **Persistenz** | Nein (Timeout) | Nein (Autorepeat-Timer) | Ja (NVRAM!) | Nein (Modbus nicht persistent) | Nein |
-| **Leistungsangabe** | Watt (direkt) | Watt (direkt) | Watt (direkt) | Watt (Entity) | Prozent von WChaMax |
-| **HA-Dependency** | huawei_solar | solax_modbus | solaredge_modbus_multi | fronius_modbus | Keine (pymodbus) |
-| **Entity-Prefix variabel** | Nein (bekannte IDs) | Ja (konfigurierbar) | Ja (konfigurierbar) | Ja (konfigurierbar) | — |
-| **Stop-Zuverlässigkeit** | Mittel (Timeout hilft) | Mittel (Autorepeat hilft) | Kritisch (NVRAM!) | Wichtig (kein Auto-Revert) | Wichtig (kein Auto-Revert) |
+| Aspekt | Huawei | SolaX | SolarEdge | **Fronius (empfohlen)** |
+|---|---|---|---|---|
+| **Steuerungsweg** | HA Services (huawei_solar) | HA Entities (solax_modbus) | HA Entities (solaredge_modbus_multi) | **pymodbus direkt (SunSpec Model 124)** |
+| **Ladung blockieren** | number.set_value(0) auf Max-Charge | select("Battery Control") + active_power(0) | select("Discharge Minimize Import") | StorCtl_Mod=1, InWRte=0 |
+| **Entladung** | Service forcible_discharge_soc | select("Battery Control") + neg. active_power | select("Discharge Maximize Export") + discharge_limit | StorCtl_Mod=3, OutWRte=% von WChaMax |
+| **Stop** | stop_forcible_charge + restore max | select("Disabled") + trigger | Restore original modes | StorCtl_Mod=0, InWRte/OutWRte=10000 |
+| **Persistenz** | Nein (Timeout) | Nein (Autorepeat-Timer) | Ja (NVRAM!) | Nein (zu verifizieren) |
+| **Leistungsangabe** | Watt (direkt) | Watt (direkt) | Watt (direkt) | Prozent von WChaMax (Umrechnung nötig) |
+| **HA-Dependency** | huawei_solar | solax_modbus | solaredge_modbus_multi | **Keine** (nur pymodbus) |
+| **Entity-Prefix variabel** | Nein (bekannte IDs) | Ja (konfigurierbar) | Ja (konfigurierbar) | — (keine Entities, direkte Register) |
+| **Stop-Zuverlässigkeit** | Mittel (Timeout hilft) | Mittel (Autorepeat hilft) | Kritisch (NVRAM!) | Wichtig (kein Auto-Revert) |
+| **Installationsaufwand Benutzer** | huawei_solar nötig | solax_modbus nötig | solaredge_modbus_multi nötig | **Nur Modbus TCP am WR aktivieren** |
 
 ---
 
@@ -471,26 +465,17 @@ Der Benutzer muss vor der Nutzung folgende Einstellungen im Fronius Web-Interfac
 
 3. **Battery Management aktiviert:** BYD-Batterie muss erkannt und aktiv sein
 
-### 7.2 fronius_modbus HACS-Integration installieren
-
-1. **HACS installieren** (falls noch nicht vorhanden)
-2. **callifo Fork hinzufügen:**
-   - HACS → Custom repositories → `https://github.com/callifo/fronius_modbus`
-   - Alternativ: Original `https://github.com/redpomodoro/fronius_modbus`
-3. **Integration einrichten** in HA → Einstellungen → Geräte & Dienste
-4. **Entities prüfen:** Storage Control Mode (select), Grid Discharge Power (number), etc.
-
-### 7.3 Firmware-Empfehlung
+### 7.2 Firmware-Empfehlung
 
 - **Minimum:** >= 1.34.6-1 (ältere Versionen haben Bugs bei Ladeleistungs-Begrenzung)
 - **Empfohlen:** >= 1.40.0 (callifo Fork Empfehlung, beste Kompatibilität)
 - **Vorsicht bei:** FW 1.38 (Auth-Änderung MD5 → SHA-256, betrifft nur Web API, nicht Modbus)
 
-### 7.4 HA Native Fronius Integration
+### 7.3 HA Native Fronius Integration
 
-- Muss zusätzlich installiert sein (für lesende Sensoren)
+- Muss installiert sein (für lesende Sensoren)
 - Wird automatisch via Auto-Discovery erkannt
-- Koexistiert problemlos mit fronius_modbus (verschiedene Protokolle: HTTP vs. Modbus TCP)
+- Koexistiert problemlos mit direktem Modbus TCP (verschiedene Protokolle: HTTP vs. Modbus TCP Port 502)
 
 ---
 
@@ -498,11 +483,12 @@ Der Benutzer muss vor der Nutzung folgende Einstellungen im Fronius Web-Interfac
 
 Die folgenden Punkte müssen am Testgerät (Fronius Gen24 unter **192.168.100.211**) verifiziert werden:
 
-### 8.1 Exakte Entity-IDs der fronius_modbus Integration
+### 8.1 Erzwingt StorCtl_Mod=3 + OutWRte=10000 eine aktive Entladung ins Netz? (KRITISCH)
 
-- **Was bekannt ist:** Entity-Typen (select, number) und ungefähre Bezeichnungen
-- **Was unklar ist:** Exaktes Entity-ID-Muster — z.B. `select.fronius_storage_control_mode` oder `select.{device_name}_storage_control_mode`?
-- **Empfehlung:** Am Testgerät nach Installation von fronius_modbus prüfen → Entity-Keys im Inverter-Treiber konfigurierbar machen (wie bei SolaX/SolarEdge)
+- **Was bekannt ist:** Community-Berichte deuten auf aktive Entladung hin. Die fronius_modbus Integration bietet einen expliziten "Discharge to Grid" Modus, der auf diesen Registern basiert.
+- **Was unklar ist:** Ob der Gen24 bei gesetztem Discharge Limit aktiv ins Netz entlädt, oder ob OutWRte nur eine Obergrenze ist und die Entladung nur bei Hausverbrauch stattfindet.
+- **Test:** StorCtl_Mod=3, InWRte=0, OutWRte=10000 setzen → Netz-Einspeisung beobachten. Steigt die Einspeisung über den PV-Überschuss hinaus? Dann wird aktiv aus der Batterie ins Netz eingespeist.
+- **Falls NICHT aktiv entladen wird:** Alternative prüfen — möglicherweise braucht es einen zusätzlichen Register-Wert oder die undokumentierte Web API als Ergänzung nur für diesen einen Zweck.
 
 ### 8.2 Persistenz der Modbus-Werte nach WR-Neustart
 
@@ -511,24 +497,23 @@ Die folgenden Punkte müssen am Testgerät (Fronius Gen24 unter **192.168.100.21
 - **Relevanz:** Falls persistent (wie SolarEdge NVRAM), muss `async_stop_forcible()` besonders zuverlässig aufgerufen werden. Falls nicht persistent, revertiert der WR nach Neustart automatisch — weniger kritisch.
 - **Empfehlung:** Am Testgerät verifizieren: Modbus-Wert setzen → WR neu starten → Wert prüfen
 
-### 8.3 callifo vs. redpomodoro Fork
+### 8.3 SunSpec Model Discovery — Basisadresse von Model 124
 
-- **Was bekannt ist:** callifo ist aktiver (mehr Commits, neuere Version), nutzt auch Web API
-- **Was unklar ist:** Ist der callifo Fork stabiler für reine Modbus-Steuerung? Gibt es Konflikte durch die Web API Nutzung?
-- **Empfehlung:** callifo verwenden (aktiver, besser gewartet), bei Problemen auf redpomodoro zurückfallen
+- **Was bekannt ist:** Register-Adressen sind dynamisch und hängen von Firmware und aktivierten Modellen ab. Standard-Basisadresse für Model 124 ist typischerweise 40343 (int+SF).
+- **Was unklar ist:** Exakte Basisadresse am Testgerät. Funktioniert der Scan ab Register 40000 zuverlässig?
+- **Test:** pymodbus-Skript schreiben das ab 40000 scannt: Model-ID (uint16) + Länge (uint16) lesen, bis Model-ID 124 gefunden wird. Basisadresse notieren.
 
-### 8.4 WChaMax-Zugriff bei fronius_modbus
+### 8.4 WChaMax-Wert und Prozentwert-Umrechnung
 
-- **Was bekannt ist:** WChaMax wird für Prozentwert-Berechnung bei direktem Modbus benötigt
-- **Was unklar ist:** Abstrahiert fronius_modbus die Prozentwert-Umrechnung? (Entities scheinen in Watt zu arbeiten)
-- **Relevanz:** Bei fronius_modbus-Weg möglicherweise kein Problem, da Entities in Watt arbeiten und die Umrechnung intern erfolgt
-- **Empfehlung:** Am Testgerät prüfen: Grid Discharge Power auf z.B. 2000 W setzen → tatsächliche Entladeleistung messen
+- **Was bekannt ist:** WChaMax enthält die maximale Batterieleistung in W, wird für die Umrechnung kW → Prozentwert benötigt
+- **Was unklar ist:** Ist WChaMax ein fester Wert (z.B. 5000W für Gen24 Plus 5.0) oder ändert er sich je nach Batterie-Zustand (Temperatur, SOC)?
+- **Test:** WChaMax-Register mehrfach zu verschiedenen Zeiten lesen. Wenn konstant → kann beim Setup einmal gelesen und gecacht werden. Wenn variabel → muss vor jedem Schreibvorgang gelesen werden.
 
-### 8.5 Koexistenz native HA Fronius + fronius_modbus
+### 8.5 Koexistenz native HA Fronius + direkte Modbus TCP Schreibzugriffe
 
-- **Was bekannt ist:** Verschiedene Protokolle (HTTP vs. Modbus TCP), sollte funktionieren
-- **Was unklar ist:** Gibt es in der Praxis Störungen? Locking-Konflikte auf dem Fronius?
-- **Empfehlung:** Am Testgerät verifizieren: Beide Integrationen gleichzeitig aktiv → Sensoren und Steuerung parallel testen
+- **Was bekannt ist:** Native HA Fronius nutzt HTTP (Solar API), unsere Steuerung nutzt Modbus TCP Port 502 — verschiedene Protokolle
+- **Was unklar ist:** Gibt es Locking-Konflikte auf dem Fronius? Stört das Modbus-Schreiben die Solar API Lesezugriffe?
+- **Test:** Native HA Fronius Integration aktiv + gleichzeitig Modbus Register schreiben → Sensoren weiterhin stabil?
 
 ---
 
@@ -584,24 +569,27 @@ Im Fronius Web-Interface muss "Allow Control" / "Inverter control via Modbus" ex
 
 **Warnsignal:** Exception bei jedem Schreibzugriff, Lesen funktioniert aber.
 
-### 9.7 fronius_modbus ist "Work in Progress"
+### 9.7 pymodbus als Dependency
 
-Beide Forks (redpomodoro und callifo) sind in aktiver Entwicklung und können Entity-Namen, Modi oder Verhalten zwischen Versionen ändern.
+Der direkte Modbus-Weg erfordert pymodbus als Python-Dependency. Da Home Assistant selbst pymodbus bereits als Dependency hat (für die HA Modbus Integration), ist es wahrscheinlich bereits verfügbar. Falls nicht, muss es in `manifest.json` als Requirement aufgenommen werden.
 
 **Konsequenz für die Implementierung:**
-- Entity-Keys **konfigurierbar** machen, nicht hardcoden (wie bei SolaX/SolarEdge: Config-Key mit Default-Fallback)
-- Default-Entity-IDs als `FRONIUS_ENTITY_DEFAULTS` Dictionary pflegen
-- Version-Pinning in der Benutzeranleitung empfehlen
-- Bei fronius_modbus-Update: Entities prüfen, ggf. Defaults aktualisieren
+- `pymodbus` in `manifest.json` `requirements` aufnehmen
+- `AsyncModbusTcpClient` für asynchrone Verbindung verwenden (kompatibel mit HA Event Loop)
+- Verbindungs-Management: Reconnect-Logik bei Verbindungsverlust
+- SunSpec Model Discovery einmalig beim Setup, Basisadresse cachen
 
 ---
 
 ## Fazit
 
-Der Fronius Gen24 lässt sich gut in den EEG Energy Optimizer integrieren. Der empfohlene Weg kombiniert die **native HA Fronius Integration** (für zuverlässiges Sensor-Lesen) mit der **fronius_modbus HACS-Integration** (callifo Fork, für SunSpec-basierte Batterie-Steuerung).
+Der Fronius Gen24 lässt sich gut in den EEG Energy Optimizer integrieren. Der empfohlene Weg kombiniert die **native HA Fronius Integration** (für zuverlässiges Sensor-Lesen) mit **direkten Modbus TCP Schreibzugriffen** über pymodbus auf SunSpec Model 124 Register.
 
-Die Implementierung des `FroniusInverter`-Treibers folgt dem gleichen Muster wie SolaX und SolarEdge: HA-Entities (select/number) über Services ansteuern, Entity-Keys konfigurierbar halten, Domain-Check für `is_available`.
+Die Implementierung des `FroniusInverter`-Treibers ist schlanker als bei den anderen Wechselrichtern: Keine Drittanbieter-HA-Integration nötig, nur 2-3 Register-Schreibzugriffe pro Operation (`StorCtl_Mod`, `InWRte`, `OutWRte`). Der Benutzer muss lediglich Modbus TCP mit "Allow Control" am Wechselrichter aktivieren — kein HACS-Addon, keine zusätzlichen Entities konfigurieren.
 
-Die größte Besonderheit gegenüber den anderen Wechselrichtern ist das fehlende Auto-Revert — `async_stop_forcible()` muss zuverlässig aufgerufen werden. Die direkte Modbus-Variante mit pymodbus bietet einen soliden Fallback, erfordert aber mehr Implementierungsaufwand (SunSpec Discovery, Prozentwert-Umrechnung).
+Die größte Besonderheit gegenüber den anderen Wechselrichtern:
+1. **Prozentwerte statt Watt** — Umrechnung über WChaMax nötig
+2. **Kein Auto-Revert** — `async_stop_forcible()` muss zuverlässig aufgerufen werden
+3. **SunSpec Model Discovery** — Register-Adressen werden einmalig beim Start ermittelt
 
-Vor der Implementierung sollten die offenen Fragen am Testgerät (192.168.100.211) geklärt werden, insbesondere die exakten Entity-IDs und das Persistenz-Verhalten nach WR-Neustart.
+Vor der Implementierung sollten die offenen Fragen am Testgerät (192.168.100.211) geklärt werden, insbesondere ob `StorCtl_Mod=3` + `OutWRte=10000` tatsächlich eine aktive Entladung ins Netz bewirkt und wie sich Modbus-Werte nach einem WR-Neustart verhalten.
