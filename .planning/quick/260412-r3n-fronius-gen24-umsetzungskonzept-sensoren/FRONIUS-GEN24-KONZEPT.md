@@ -523,11 +523,9 @@ Die folgenden Punkte müssen am Testgerät (Fronius Gen24 unter **192.168.100.21
 - **Test:** StorCtl_Mod=3, InWRte=0, OutWRte=10000 setzen → Netz-Einspeisung beobachten. Steigt die Einspeisung über den PV-Überschuss hinaus? Dann wird aktiv aus der Batterie ins Netz eingespeist.
 - **Falls NICHT aktiv entladen wird:** Alternative prüfen — möglicherweise braucht es einen zusätzlichen Register-Wert oder die undokumentierte Web API als Ergänzung nur für diesen einen Zweck.
 
-### 8.2 SunSpec Model Discovery — Basisadresse von Model 124
+### ~~8.2 SunSpec Model Discovery~~ — KEIN OFFENER PUNKT
 
-- **Was bekannt ist:** Register-Adressen sind dynamisch und hängen von Firmware und aktivierten Modellen ab. Standard-Basisadresse für Model 124 ist typischerweise 40343 (int+SF).
-- **Was unklar ist:** Exakte Basisadresse am Testgerät. Funktioniert der Scan ab Register 40000 zuverlässig?
-- **Test:** pymodbus-Skript schreiben das ab 40000 scannt: Model-ID (uint16) + Länge (uint16) lesen, bis Model-ID 124 gefunden wird. Basisadresse notieren.
+Wird im Code automatisch gelöst: Beim Start scannt der Treiber ab Register 40000, liest Model-ID (uint16) + Länge (uint16) pro Model, springt weiter bis Model-ID 124 gefunden wird. Basisadresse wird gecacht. Kein manueller Test nötig.
 
 ### ~~8.3 WChaMax-Wert~~ — GEKLÄRT
 
