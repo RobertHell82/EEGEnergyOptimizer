@@ -57,6 +57,11 @@ class FroniusInverter(InverterBase):
         self._wchamax: int | None = None
         self._wchamax_date: str | None = None  # date string for daily cache
         self._slave_id: int = 1  # Fronius default Modbus unit ID
+        # Cached MinRsvPct value (raw register, SF -2) read before
+        # async_set_discharge() overwrites it. Restored by
+        # async_stop_forcible() so we do not leave the inverter with
+        # an elevated reserve in automatic mode.
+        self._minrsvpct_pre_discharge: int | None = None
 
     async def _ensure_connected(self) -> bool:
         """Ensure Modbus TCP connection is established.
@@ -335,6 +340,28 @@ class FroniusInverter(InverterBase):
 
             # Optional: set MinRsvPct for SOC floor (SF -2, e.g. 1500 = 15%)
             if target_soc is not None:
+                # Snapshot the current MinRsvPct so async_stop_forcible() can
+                # restore the user's configured reserve. Fronius has no
+                # auto-revert, so without this snapshot the elevated reserve
+                # would persist into automatic mode.
+                if self._minrsvpct_pre_discharge is None:
+                    try:
+                        result = await self._client.read_holding_registers(
+                            self._model124_base + _OFFSET_MINRSVPCT,
+                            1,
+                            slave=self._slave_id,
+                        )
+                        if not result.isError():
+                            self._minrsvpct_pre_discharge = result.registers[0]
+                            _LOGGER.debug(
+                                "Fronius: cached pre-discharge MinRsvPct=%d",
+                                self._minrsvpct_pre_discharge,
+                            )
+                    except Exception:
+                        _LOGGER.debug(
+                            "Fronius: could not snapshot MinRsvPct — will skip restore"
+                        )
+
                 min_rsv = int(target_soc * 100)
                 if not await self._write_register(_OFFSET_MINRSVPCT, min_rsv):
                     _LOGGER.warning("Fronius: failed to set MinRsvPct (non-critical)")
@@ -373,6 +400,24 @@ class FroniusInverter(InverterBase):
             # OutWRte = 10000 (100% discharge allowed)
             if not await self._write_register(_OFFSET_OUTWRTE, _RATE_100_PERCENT):
                 return False
+
+            # Restore MinRsvPct if async_set_discharge() raised it earlier.
+            # Fronius has no auto-revert: leaving the reserve elevated
+            # would prevent the inverter from using the battery down to
+            # the user's configured level in automatic mode.
+            if self._minrsvpct_pre_discharge is not None:
+                restored = self._minrsvpct_pre_discharge
+                if await self._write_register(_OFFSET_MINRSVPCT, restored):
+                    _LOGGER.info(
+                        "Fronius: restored MinRsvPct to %d (pre-discharge value)",
+                        restored,
+                    )
+                    self._minrsvpct_pre_discharge = None
+                else:
+                    _LOGGER.warning(
+                        "Fronius: failed to restore MinRsvPct=%d — keeping cached value for retry",
+                        restored,
+                    )
 
             _LOGGER.info("Fronius: stopped forcible mode — automatic operation restored")
             return True
