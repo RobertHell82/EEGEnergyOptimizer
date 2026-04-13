@@ -176,11 +176,16 @@ class FroniusInverter(InverterBase):
         return False
 
     async def _ensure_model124(self) -> bool:
-        """Ensure Model 124 base address is known."""
-        if self._model124_base is not None:
-            return True
+        """Ensure Modbus connection is alive and Model 124 base address is known.
+
+        Connection check must happen before the cache check — otherwise the
+        cached base address keeps the driver from reconnecting after a
+        Modbus TCP drop, and every subsequent read/write fails silently.
+        """
         if not await self._ensure_connected():
             return False
+        if self._model124_base is not None:
+            return True
         return await self._discover_model124()
 
     async def _read_wchamax(self) -> int | None:
