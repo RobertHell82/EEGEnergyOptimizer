@@ -9,6 +9,7 @@ import voluptuous as vol
 
 from homeassistant.components import websocket_api
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 
 from .const import (
     CONF_BATTERY_CAPACITY_SENSOR,
@@ -500,19 +501,30 @@ async def ws_detect_sensors(
     fronius_loaded = any(e.state.value == "loaded" for e in fronius_entries)
 
     if fronius_loaded:
-        # Detect Fronius sensors by suffix scanning
+        # Detect Fronius sensors by restricting to entities owned by the
+        # `fronius` Core integration. Pure suffix matching plus loose name
+        # heuristics (fronius/solarnet/power_flow/byd) used to leak in
+        # standalone BYD BMS entities or other integrations that happen to
+        # ship a `state_of_charge` sensor — only used as wizard suggestions
+        # but confusing for users with mixed setups.
+        fronius_entry_ids = {e.entry_id for e in fronius_entries}
+        ent_reg = er.async_get(hass)
+        fronius_entity_ids = {
+            entry.entity_id
+            for entry in ent_reg.entities.values()
+            if entry.config_entry_id in fronius_entry_ids
+        }
+
         sensors = {}
         for conf_key, suffixes in FRONIUS_SENSOR_SUFFIXES.items():
             for suffix in suffixes:
                 for state in hass.states.async_all("sensor"):
+                    if state.entity_id not in fronius_entity_ids:
+                        continue
                     if (state.entity_id.endswith(suffix)
                             and state.state not in ("unavailable", "unknown")):
-                        # Verify it's a Fronius entity by checking naming
-                        eid = state.entity_id
-                        if ("fronius" in eid or "solarnet" in eid
-                                or "power_flow" in eid or "byd" in eid.lower()):
-                            sensors[conf_key] = eid
-                            break
+                        sensors[conf_key] = state.entity_id
+                        break
                 if conf_key in sensors:
                     break
 
