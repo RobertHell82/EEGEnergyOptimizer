@@ -70,6 +70,21 @@ class FroniusInverter(InverterBase):
         # the direct Modbus TCP path here has no such guarantee.
         self._lock = asyncio.Lock()
 
+    def _close_client(self) -> None:
+        """Close and discard the Modbus TCP client.
+
+        Use this instead of `self._client = None` so the underlying socket
+        is released immediately rather than waiting for the GC. pymodbus
+        AsyncModbusTcpClient.close() is synchronous (it just tears the
+        transport down).
+        """
+        if self._client is not None:
+            try:
+                self._client.close()
+            except Exception:
+                _LOGGER.debug("Fronius: error closing Modbus client")
+            self._client = None
+
     async def _ensure_connected(self) -> bool:
         """Ensure Modbus TCP connection is established.
 
@@ -89,6 +104,8 @@ class FroniusInverter(InverterBase):
         for attempt in range(3):
             try:
                 if self._client is None or not self._client.connected:
+                    # Close any stale client before replacing it
+                    self._close_client()
                     self._client = AsyncModbusTcpClient(
                         self._host, port=self._port
                     )
@@ -103,7 +120,7 @@ class FroniusInverter(InverterBase):
                 _LOGGER.debug(
                     "Fronius: connection attempt %d failed", attempt + 1
                 )
-                self._client = None
+                self._close_client()
             if attempt < 2:
                 await asyncio.sleep(0.2)
 
@@ -182,7 +199,7 @@ class FroniusInverter(InverterBase):
 
         except Exception:
             _LOGGER.exception("Fronius: error during SunSpec Model Discovery")
-            self._client = None
+            self._close_client()
             return False
 
         return False
@@ -227,7 +244,7 @@ class FroniusInverter(InverterBase):
 
         except Exception:
             _LOGGER.exception("Fronius: error reading WChaMax")
-            self._client = None
+            self._close_client()
             return None
 
     async def _write_register(self, offset: int, value: int) -> bool:
@@ -259,7 +276,7 @@ class FroniusInverter(InverterBase):
             _LOGGER.exception(
                 "Fronius: exception writing register %d (value=%d)", address, value
             )
-            self._client = None
+            self._close_client()
             return False
 
     async def async_set_charge_limit(self, power_kw: float) -> bool:
@@ -308,7 +325,7 @@ class FroniusInverter(InverterBase):
 
         except Exception:
             _LOGGER.exception("Fronius: failed to set charge limit")
-            self._client = None
+            self._close_client()
             return False
 
     # TODO: KONZEPT open question 8.1 — StorCtl_Mod=3 may force grid discharge
@@ -391,7 +408,7 @@ class FroniusInverter(InverterBase):
 
         except Exception:
             _LOGGER.exception("Fronius: failed to set discharge")
-            self._client = None
+            self._close_client()
             return False
 
     async def async_stop_forcible(self) -> bool:
@@ -442,7 +459,7 @@ class FroniusInverter(InverterBase):
 
         except Exception:
             _LOGGER.exception("Fronius: failed to stop forcible mode")
-            self._client = None
+            self._close_client()
             return False
 
     @property
@@ -451,10 +468,5 @@ class FroniusInverter(InverterBase):
         return self._client is not None and self._client.connected
 
     async def async_disconnect(self) -> None:
-        """Disconnect Modbus TCP client for cleanup."""
-        if self._client is not None:
-            try:
-                self._client.close()
-            except Exception:
-                _LOGGER.debug("Fronius: error closing Modbus client")
-            self._client = None
+        """Disconnect Modbus TCP client for cleanup (called on entry unload)."""
+        self._close_client()
