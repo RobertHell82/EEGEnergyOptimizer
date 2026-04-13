@@ -32,7 +32,7 @@ INVERTER_SIGN_CONVENTIONS = {
     "huawei_sun2000": {"battery_sign": 1, "grid_sign": 1},
     "solax_gen4":     {"battery_sign": -1, "grid_sign": -1},
     "solaredge_storedge": {"battery_sign": 1, "grid_sign": 1, "pv_includes_battery": True},
-    "fronius_gen24": {"battery_sign": 1, "grid_sign": 1},
+    "fronius_gen24": {"battery_sign": -1, "grid_sign": 1},
 }
 
 CONF_FRONIUS_MODBUS_HOST = "fronius_modbus_host"
