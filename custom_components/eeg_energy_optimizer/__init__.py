@@ -681,5 +681,17 @@ async def async_unload_entry(
         unload_ok = True
 
     if unload_ok:
+        # Close inverter resources (e.g. Fronius pymodbus TCP socket)
+        # before dropping the entry. Other inverters use HA-managed
+        # services/entities and do not need explicit cleanup.
+        inverter = data.get("inverter")
+        disconnect = getattr(inverter, "async_disconnect", None)
+        if disconnect is not None:
+            try:
+                await disconnect()
+            except Exception:
+                _LOGGER.exception(
+                    "EEG Energy Optimizer: error disconnecting inverter on unload"
+                )
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unload_ok
