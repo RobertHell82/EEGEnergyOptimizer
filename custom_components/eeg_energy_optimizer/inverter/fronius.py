@@ -44,6 +44,12 @@ _SUNSPEC_MAX_ITERATIONS = 128
 # Scale factor for InWRte/OutWRte: SF = -2, so 10000 = 100%
 _RATE_100_PERCENT = 10000
 
+# Sanity bound for WChaMax (max battery power in W). No residential Fronius
+# Gen24 + battery setup exceeds this; a larger value almost certainly comes
+# from a corrupted Modbus response and would compress every charge/discharge
+# percentage calculation toward zero, making the battery appear inert.
+_WCHAMAX_SANITY_LIMIT = 25000
+
 
 class FroniusInverter(InverterBase):
     """Fronius Gen24 battery control via direct Modbus TCP (SunSpec Model 124)."""
@@ -237,7 +243,18 @@ class FroniusInverter(InverterBase):
                 _LOGGER.error("Fronius: failed to read WChaMax")
                 return None
 
-            self._wchamax = result.registers[0]
+            raw = result.registers[0]
+            if raw == 0 or raw > _WCHAMAX_SANITY_LIMIT:
+                # Implausible value — likely a corrupted Modbus response or
+                # wrong SunSpec model layout. Don't cache, force a re-read on
+                # the next cycle. Zero is also handled by callers as "unknown".
+                _LOGGER.warning(
+                    "Fronius: WChaMax=%d W outside plausible range (1..%d) — ignoring",
+                    raw, _WCHAMAX_SANITY_LIMIT,
+                )
+                return None
+
+            self._wchamax = raw
             self._wchamax_date = today
             _LOGGER.info("Fronius: WChaMax = %d W", self._wchamax)
             return self._wchamax
