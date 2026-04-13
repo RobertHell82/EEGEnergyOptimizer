@@ -14,11 +14,13 @@ CONF_HUAWEI_DEVICE_ID = "huawei_device_id"
 INVERTER_TYPE_HUAWEI = "huawei_sun2000"
 INVERTER_TYPE_SOLAX = "solax_gen4"
 INVERTER_TYPE_SOLAREDGE = "solaredge_storedge"
+INVERTER_TYPE_FRONIUS = "fronius_gen24"
 
 INVERTER_PREREQUISITES = {
     "huawei_sun2000": "huawei_solar",
     "solax_gen4": "solax_modbus",
     "solaredge_storedge": "solaredge_modbus_multi",
+    "fronius_gen24": None,  # No HA integration needed for control — uses pymodbus directly
 }
 
 # Sign conventions per inverter type for battery and grid power sensors.
@@ -30,7 +32,12 @@ INVERTER_SIGN_CONVENTIONS = {
     "huawei_sun2000": {"battery_sign": 1, "grid_sign": 1},
     "solax_gen4":     {"battery_sign": -1, "grid_sign": -1},
     "solaredge_storedge": {"battery_sign": 1, "grid_sign": 1, "pv_includes_battery": True},
+    "fronius_gen24": {"battery_sign": 1, "grid_sign": 1},
 }
+
+CONF_FRONIUS_MODBUS_HOST = "fronius_modbus_host"
+CONF_FRONIUS_MODBUS_PORT = "fronius_modbus_port"
+DEFAULT_FRONIUS_MODBUS_PORT = 502
 
 CONF_PV_POWER_SENSOR_2 = "pv_power_sensor_2"
 

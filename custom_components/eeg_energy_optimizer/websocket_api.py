@@ -23,6 +23,7 @@ from .const import (
     INVERTER_TYPE_HUAWEI,
     INVERTER_TYPE_SOLAX,
     INVERTER_TYPE_SOLAREDGE,
+    INVERTER_TYPE_FRONIUS,
 )
 
 if TYPE_CHECKING:
@@ -99,6 +100,17 @@ SOLAREDGE_CONTROL_SUFFIXES: dict[str, list[tuple[str, str]]] = {
         ("number", "storage_backup_reserve"),
         ("number", "backup_reserve"),
     ],
+}
+
+# Fronius native integration sensor suffixes — used to find entities.
+# The Fronius integration creates entities like sensor.{device_name}_{key}.
+# Prefix varies by installation (e.g. "solarnet_", "power_flow_0_192_168_100_211_").
+FRONIUS_SENSOR_SUFFIXES: dict[str, list[str]] = {
+    CONF_BATTERY_SOC_SENSOR: ["state_of_charge"],
+    CONF_PV_POWER_SENSOR: ["power_photovoltaics"],
+    CONF_GRID_POWER_SENSOR: ["power_grid"],
+    CONF_BATTERY_POWER_SENSOR: ["power_battery"],
+    CONF_BATTERY_CAPACITY_SENSOR: ["capacity_maximum"],
 }
 
 
@@ -316,7 +328,7 @@ async def ws_check_prerequisites(
     msg: dict,
 ) -> None:
     """Check which prerequisite integrations are installed and loaded."""
-    check_domains = ["huawei_solar", "solax_modbus", "solaredge_modbus_multi", "solcast_solar", "forecast_solar"]
+    check_domains = ["huawei_solar", "solax_modbus", "solaredge_modbus_multi", "fronius", "solcast_solar", "forecast_solar"]
     result = {}
 
     for domain in check_domains:
@@ -456,7 +468,36 @@ async def ws_detect_sensors(
         connection.send_result(msg["id"], result)
         return
 
-    # Neither Huawei, SolaX, nor SolarEdge detected
+    # Check if Fronius native integration is loaded
+    fronius_entries = hass.config_entries.async_entries("fronius")
+    fronius_loaded = any(e.state.value == "loaded" for e in fronius_entries)
+
+    if fronius_loaded:
+        # Detect Fronius sensors by suffix scanning
+        sensors = {}
+        for conf_key, suffixes in FRONIUS_SENSOR_SUFFIXES.items():
+            for suffix in suffixes:
+                for state in hass.states.async_all("sensor"):
+                    if (state.entity_id.endswith(suffix)
+                            and state.state not in ("unavailable", "unknown")):
+                        # Verify it's a Fronius entity by checking naming
+                        eid = state.entity_id
+                        if ("fronius" in eid or "solarnet" in eid
+                                or "power_flow" in eid or "byd" in eid.lower()):
+                            sensors[conf_key] = eid
+                            break
+                if conf_key in sensors:
+                    break
+
+        result = {
+            CONF_INVERTER_TYPE: INVERTER_TYPE_FRONIUS,
+            "detected": True,
+            "sensors": sensors,
+        }
+        connection.send_result(msg["id"], result)
+        return
+
+    # Neither Huawei, SolaX, SolarEdge, nor Fronius detected
     connection.send_result(msg["id"], {"detected": False, "sensors": {}})
 
 
