@@ -62,6 +62,13 @@ class FroniusInverter(InverterBase):
         # async_stop_forcible() so we do not leave the inverter with
         # an elevated reserve in automatic mode.
         self._minrsvpct_pre_discharge: int | None = None
+        # Serializes Modbus operations. The 30-second optimizer cycle and
+        # manual WebSocket commands (manual_discharge, manual_stop,
+        # manual_block_charge) can otherwise interleave their multi-register
+        # write sequences and leave the inverter in a half-set state.
+        # Other inverter drivers rely on HA service-call serialization;
+        # the direct Modbus TCP path here has no such guarantee.
+        self._lock = asyncio.Lock()
 
     async def _ensure_connected(self) -> bool:
         """Ensure Modbus TCP connection is established.
@@ -266,6 +273,10 @@ class FroniusInverter(InverterBase):
           - StorCtl_Mod = 1
           - InWRte = percent of WChaMax (SF -2)
         """
+        async with self._lock:
+            return await self._set_charge_limit_locked(power_kw)
+
+    async def _set_charge_limit_locked(self, power_kw: float) -> bool:
         try:
             if not await self._ensure_model124():
                 return False
@@ -315,6 +326,12 @@ class FroniusInverter(InverterBase):
         OutWRte to discharge percent, InWRte=0 to block charging.
         Optionally sets MinRsvPct for SOC floor.
         """
+        async with self._lock:
+            return await self._set_discharge_locked(power_kw, target_soc)
+
+    async def _set_discharge_locked(
+        self, power_kw: float, target_soc: float | None
+    ) -> bool:
         try:
             if not await self._ensure_model124():
                 return False
@@ -382,10 +399,11 @@ class FroniusInverter(InverterBase):
 
         Restores: StorCtl_Mod=0, InWRte=10000 (100%), OutWRte=10000 (100%).
         """
-        try:
-            if not await self._ensure_connected():
-                return False
+        async with self._lock:
+            return await self._stop_forcible_locked()
 
+    async def _stop_forcible_locked(self) -> bool:
+        try:
             if not await self._ensure_model124():
                 return False
 
