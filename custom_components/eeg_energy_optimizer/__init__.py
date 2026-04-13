@@ -365,10 +365,12 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.config_entries.async_update_entry(entry, data=new_data, version=10)
 
     if entry.version < 11:
-        new_data = {**entry.data}
-        # No defaults needed for Fronius — fronius_modbus_host/port
-        # are only set when user selects Fronius in wizard
-        hass.config_entries.async_update_entry(entry, data=new_data, version=11)
+        # v11 only bumps the schema version to mark Fronius support — no
+        # data backfill needed because fronius_modbus_host/port are written
+        # by the wizard when (and only when) the user actually selects
+        # Fronius. Existing Huawei/SolaX/SolarEdge entries get the bump
+        # without their data dict being touched.
+        hass.config_entries.async_update_entry(entry, data=entry.data, version=11)
 
     return True
 
