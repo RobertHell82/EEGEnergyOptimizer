@@ -312,6 +312,33 @@ async def ws_save_config(
         if discharge_kw is not None and float(discharge_kw) < 5.0:
             new_data["discharge_power_kw"] = 5.0
 
+    # Fronius: server-side validation of the Modbus endpoint. The frontend
+    # already checks "non-empty host", but we cannot trust the WebSocket
+    # client. An empty/garbage host or out-of-range port would later surface
+    # as opaque pymodbus connection errors; reject it here with a clear code.
+    if new_data.get("inverter_type") == INVERTER_TYPE_FRONIUS:
+        host = new_data.get("fronius_modbus_host", "")
+        if not isinstance(host, str) or not host.strip() or len(host) > 255:
+            connection.send_error(
+                msg["id"], "invalid_config", "Invalid Fronius Modbus host"
+            )
+            return
+        new_data["fronius_modbus_host"] = host.strip()
+        port_raw = new_data.get("fronius_modbus_port", 502)
+        try:
+            port = int(port_raw)
+        except (TypeError, ValueError):
+            connection.send_error(
+                msg["id"], "invalid_config", "Invalid Fronius Modbus port"
+            )
+            return
+        if not 1 <= port <= 65535:
+            connection.send_error(
+                msg["id"], "invalid_config", "Fronius Modbus port out of range"
+            )
+            return
+        new_data["fronius_modbus_port"] = port
+
     hass.config_entries.async_update_entry(entry, data=new_data)
     connection.send_result(msg["id"], {"success": True})
 
