@@ -141,9 +141,10 @@ None yet.
 | 260406-u8h | SolaX Anleitung im Panel | 2026-04-06 | — | | [260406-u8h-solax-anleitung-im-panel](./quick/260406-u8h-solax-anleitung-im-panel/) |
 | 260406-ufh | Einstellungen-Screen statt Wizard nach Setup + Dashboard-Gating | 2026-04-06 | 1de9b07 | Verified | [260406-ufh-einstellungen-screen-statt-wizard-nach-s](./quick/260406-ufh-einstellungen-screen-statt-wizard-nach-s/) |
 | 260412-r3n | Fronius Gen24 Umsetzungskonzept: Sensoren und Wechselrichter-Ansteuerung | 2026-04-12 | e34bb17 | | [260412-r3n-fronius-gen24-umsetzungskonzept-sensoren](./quick/260412-r3n-fronius-gen24-umsetzungskonzept-sensoren/) |
+| 260412-t0k | Fronius Gen24 Inverter Support: FroniusInverter (SunSpec Model 124 Modbus TCP), Config-Migration v11, WebSocket API, Panel-Wizard | 2026-04-13 | c2a23dd | | [260412-t0k-fronius-gen24-inverter-support-implement](./quick/260412-t0k-fronius-gen24-inverter-support-implement/) |
 
 ## Session Continuity
 
-Last activity: 2026-04-12 - Completed quick task 260412-r3n: Fronius Gen24 Umsetzungskonzept
-Stopped at: Completed quick-260406-ufh
+Last activity: 2026-04-13 - Completed quick task 260412-t0k: Fronius Gen24 Inverter Support (merged from worktree)
+Stopped at: Completed quick-260412-t0k
 Resume file: None
