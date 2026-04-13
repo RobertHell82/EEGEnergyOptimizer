@@ -303,19 +303,26 @@ class FroniusInverter(InverterBase):
                 _LOGGER.error("Fronius: cannot set charge limit — WChaMax unknown or zero")
                 return False
 
-            # StorCtl_Mod = 1 (Charge Limit active)
-            if not await self._write_register(_OFFSET_STORCTL_MOD, 1):
-                return False
-
+            # Write the rate register BEFORE activating the limit mode.
+            # If StorCtl_Mod=1 succeeded first and InWRte then failed, the
+            # inverter would enter Charge-Limit mode with the previously
+            # cached InWRte (possibly 10000 = 100%) and silently fail to
+            # block charging. Setting the rate first guarantees that when
+            # the mode bit flips, the desired rate is already in place.
             if power_kw == 0:
                 # Block charging completely
-                if not await self._write_register(_OFFSET_INWRTE, 0):
-                    return False
+                inwrte_value = 0
             else:
                 # Partial charge limit
-                percent = int(min(power_kw * 1000 / wchamax, 1.0) * _RATE_100_PERCENT)
-                if not await self._write_register(_OFFSET_INWRTE, percent):
-                    return False
+                inwrte_value = int(
+                    min(power_kw * 1000 / wchamax, 1.0) * _RATE_100_PERCENT
+                )
+            if not await self._write_register(_OFFSET_INWRTE, inwrte_value):
+                return False
+
+            # StorCtl_Mod = 1 (Charge Limit active) — activates InWRte set above
+            if not await self._write_register(_OFFSET_STORCTL_MOD, 1):
+                return False
 
             _LOGGER.info(
                 "Fronius: charge limit set (power_kw=%.2f, WChaMax=%d W)",
@@ -360,9 +367,10 @@ class FroniusInverter(InverterBase):
 
             percent = int(min(power_kw * 1000 / wchamax, 1.0) * _RATE_100_PERCENT)
 
-            # StorCtl_Mod = 3 (Bits 0+1: Charge + Discharge Limit active)
-            if not await self._write_register(_OFFSET_STORCTL_MOD, 3):
-                return False
+            # Write the rate registers BEFORE activating the limit mode so
+            # that a partial failure can never leave the inverter with the
+            # discharge mode active but stale rate values from a previous
+            # operation. See ME-03 in REVIEW.md / set_charge_limit comment.
 
             # InWRte = 0 (block charging during discharge)
             if not await self._write_register(_OFFSET_INWRTE, 0):
@@ -399,6 +407,13 @@ class FroniusInverter(InverterBase):
                 min_rsv = int(target_soc * 100)
                 if not await self._write_register(_OFFSET_MINRSVPCT, min_rsv):
                     _LOGGER.warning("Fronius: failed to set MinRsvPct (non-critical)")
+
+            # StorCtl_Mod = 3 (Bits 0+1: Charge + Discharge Limit active) —
+            # written LAST so that all rate/reserve registers are already in
+            # place when the mode bits flip on. Prevents partial-failure
+            # states like "discharge mode active with stale rate values".
+            if not await self._write_register(_OFFSET_STORCTL_MOD, 3):
+                return False
 
             _LOGGER.info(
                 "Fronius: discharge set (power_kw=%.2f, percent=%d, WChaMax=%d W)",
