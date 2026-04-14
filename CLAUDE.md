@@ -55,6 +55,7 @@ optimizer.py: async_run_cycle(mode)
 | `websocket_api.py` | 13 WebSocket commands for panel (config, sensors, inverter control, activity log, feed-in statistics) |
 | `inverter/base.py` | Abstract inverter interface (InverterBase ABC) |
 | `inverter/huawei.py` | Huawei SUN2000 implementation via HA services |
+| `inverter/fronius.py` | Fronius Gen24 implementation via direct Modbus TCP (SunSpec Model 124) |
 | `inverter/solax.py` | SolaX Gen4+ implementation via solax_modbus Mode 1 |
 | `inverter/solaredge.py` | SolarEdge StorEdge implementation via solaredge-modbus-multi |
 | `inverter/__init__.py` | Factory function `create_inverter()` |
@@ -125,6 +126,7 @@ InverterBase (ABC)
 
 Implementations:
   ├── HuaweiInverter — via HA huawei_solar services
+  ├── FroniusInverter — via direct Modbus TCP (SunSpec Model 124, pymodbus)
   ├── SolarEdgeInverter — via HA solaredge_modbus_multi StorEdge
   └── SolaXInverter — via HA solax_modbus Mode 1
 ```
@@ -135,6 +137,7 @@ Implementations:
 - **sun** — sunrise/sunset calculations
 - **http**, **frontend**, **websocket_api** — onboarding panel
 - **huawei_solar** (after_dependency) — Huawei inverter control
+- **fronius** (after_dependency) — Fronius sensor data via Solar API
 - **solax_modbus** (after_dependency) — SolaX inverter control
 - **solaredge_modbus_multi** (after_dependency) — SolarEdge inverter control
 - **solcast_solar**, **forecast_solar** (after_dependency) — PV forecasts
@@ -161,7 +164,7 @@ The config flow is a single-click setup that creates a config entry with `setup_
 6. Inverter connection test
 7. Live dashboard with energy flow, charts, manual controls, activity log
 
-Config entry version: 10 (migrations in `__init__.py`)
+Config entry version: 11 (migrations in `__init__.py`)
 
 ## Development Notes
 

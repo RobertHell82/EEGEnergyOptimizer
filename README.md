@@ -15,8 +15,13 @@ HACS-kompatible Home Assistant Integration für vorausschauendes Batteriemanagem
 ## Unterstützte Wechselrichter
 
 - **Huawei SUN2000** (via [Huawei Solar](https://github.com/wlcrs/huawei_solar) Integration)
+- **Fronius Gen24** (via native [Fronius](https://www.home-assistant.io/integrations/fronius/) Integration + direkte Modbus TCP Steuerung)
 - **SolarEdge StorEdge** (via [SolarEdge Modbus Multi](https://github.com/WillCodeForCats/solaredge-modbus-multi) Integration) — max. 2 Wechselrichter
 - **SolaX Gen4+** (via [SolaX Modbus](https://github.com/wills106/homeassistant-solax-modbus) Integration)
+
+### Hinweis zu Fronius Gen24
+
+Die Fronius-Steuerung nutzt direkte Modbus TCP Verbindung zum Wechselrichter (SunSpec Model 124). Sensordaten (PV, Batterie, Netz) werden über die native HA Fronius Integration (Solar API) gelesen. Es wird keine zusätzliche HACS-Integration benötigt — nur die Fronius Core Integration und eine Netzwerkverbindung zum Wechselrichter (Standard-Port 502).
 
 ### Hinweis zu SolarEdge NVRAM-Schreibvorgängen
 
@@ -97,7 +102,7 @@ So wird sichergestellt, dass die Batterie am nächsten Tag wieder vollständig �
 ## Voraussetzungen
 
 - Home Assistant 2025.1.0 oder neuer
-- Eine unterstützte Wechselrichter-Integration installiert und konfiguriert (Huawei Solar, SolaX Modbus oder SolarEdge Modbus Multi)
+- Eine unterstützte Wechselrichter-Integration installiert und konfiguriert (Huawei Solar, Fronius, SolaX Modbus oder SolarEdge Modbus Multi)
 - Eine PV-Prognose-Integration (Solcast Solar oder Forecast.Solar)
 
 ## Lizenz
