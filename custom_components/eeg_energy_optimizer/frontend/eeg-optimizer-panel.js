@@ -1479,12 +1479,12 @@ class EegOptimizerPanel extends HTMLElement {
     const cacheText = cacheAge != null ? (cacheAge < 60 ? `vor ${cacheAge} Min` : `vor ${Math.round(cacheAge / 60)}h`) : "---";
     const plan = d.discharge_plan;
 
-    // Plan info
+    // Plan info banner
     let planHtml = "";
     if (plan) {
       planHtml = `<div style="background:var(--primary-color);color:#fff;padding:10px 14px;border-radius:10px;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <ha-icon icon="mdi:battery-arrow-down" style="--mdc-icon-size:20px"></ha-icon>
-        <strong>Entladefenster: ${plan.start}\u2013${plan.end}</strong>
+        <strong>Abend-Entladung: ${plan.start}\u2013${plan.end}</strong>
         <span style="opacity:0.8;font-size:13px">(Jitter: ${plan.jitter >= 0 ? "+" : ""}${plan.jitter} Min)</span>
       </div>`;
     } else {
@@ -1494,50 +1494,102 @@ class EegOptimizerPanel extends HTMLElement {
       </div>`;
     }
 
-    // Bar chart of hourly deficit
+    // Line chart of hourly deficit
     const hours = d.hours.filter(h => h.timestamp && h.deficitKwh != null);
     if (hours.length === 0) return planHtml + `<p style="color:var(--secondary-text-color);font-size:13px">Keine Stundendaten vorhanden</p>`;
 
-    const width = 700, height = 250, padding = {top: 25, right: 20, bottom: 40, left: 55};
+    const width = 700, height = 280, padding = {top: 25, right: 20, bottom: 40, left: 55};
     const chartW = width - padding.left - padding.right;
     const chartH = height - padding.top - padding.bottom;
-    const maxVal = Math.max(...hours.map(h => Math.max(0, h.deficitKwh)), 1) * 1.15;
-    const barW = Math.min(chartW / hours.length * 0.8, 25);
+    const values = hours.map(h => Math.max(0, h.deficitKwh));
+    const maxVal = Math.max(...values, 1) * 1.15;
 
-    let bars = "";
-    hours.forEach((h, i) => {
+    // Parse plan window for highlight
+    let planStartMin = -1, planEndMin = -1;
+    if (plan) {
+      const [sh, sm] = plan.start.split(":").map(Number);
+      const [eh, em] = plan.end.split(":").map(Number);
+      planStartMin = sh * 60 + sm;
+      planEndMin = eh * 60 + em;
+      // Overnight: e.g. 20:00-01:00 -> endMin will be < startMin
+    }
+
+    const _hourMin = (h) => {
       const ts = new Date(h.timestamp);
-      const hour = ts.getHours();
-      const deficit = Math.max(0, h.deficitKwh);
-      const slotW = chartW / hours.length;
-      const x = padding.left + i * slotW + (slotW - barW) / 2;
-      const barH = (deficit / maxVal) * chartH;
-      const y = padding.top + chartH - barH;
+      return ts.getHours() * 60 + ts.getMinutes();
+    };
 
-      // Highlight hours in discharge plan window
-      let fill = "var(--primary-color, #03a9f4)";
-      if (plan) {
-        const planStartH = parseInt(plan.start.split(":")[0]);
-        const planEndH = parseInt(plan.end.split(":")[0]);
-        // Handle overnight: plan might go from 20:00 to 00:15
-        if (planStartH <= planEndH) {
-          if (hour >= planStartH && hour < planEndH) fill = "#4CAF50";
-        } else {
-          if (hour >= planStartH || hour < planEndH) fill = "#4CAF50";
-        }
+    const _inPlanWindow = (min) => {
+      if (planStartMin < 0) return false;
+      if (planStartMin <= planEndMin) {
+        return min >= planStartMin && min < planEndMin;
       }
+      // Overnight window
+      return min >= planStartMin || min < planEndMin;
+    };
 
-      const tip = `${String(hour).padStart(2, "0")}:00\nBedarf: ${deficit.toFixed(0)} kWh`;
-      bars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="${fill}" rx="2" style="cursor:pointer"><title>${tip}</title></rect>`;
+    // Build line points
+    const points = hours.map((h, i) => {
+      const x = padding.left + (i / Math.max(hours.length - 1, 1)) * chartW;
+      const y = padding.top + chartH - (values[i] / maxVal) * chartH;
+      return {x, y, hour: new Date(h.timestamp).getHours(), min: _hourMin(h), deficit: values[i]};
+    });
 
-      // Label every 2-3 hours
-      const labelEvery = hours.length > 16 ? 3 : 2;
+    // Discharge window highlight area (green shaded region behind the line)
+    let windowArea = "";
+    if (plan) {
+      // Find points inside the plan window
+      const windowPts = [];
+      points.forEach((p, i) => {
+        if (_inPlanWindow(p.min)) windowPts.push(p);
+      });
+      if (windowPts.length > 0) {
+        const first = windowPts[0];
+        const last = windowPts[windowPts.length - 1];
+        let areaPath = `M ${first.x},${padding.top + chartH}`;
+        windowPts.forEach(p => { areaPath += ` L ${p.x},${p.y}`; });
+        areaPath += ` L ${last.x},${padding.top + chartH} Z`;
+        windowArea = `<path d="${areaPath}" fill="#4CAF50" fill-opacity="0.25"/>`;
+        // Vertical markers for window start/end
+        windowArea += `<line x1="${first.x}" y1="${padding.top}" x2="${first.x}" y2="${padding.top + chartH}" stroke="#4CAF50" stroke-width="1.5" stroke-dasharray="6,3"/>`;
+        windowArea += `<line x1="${last.x}" y1="${padding.top}" x2="${last.x}" y2="${padding.top + chartH}" stroke="#4CAF50" stroke-width="1.5" stroke-dasharray="6,3"/>`;
+        // Labels
+        windowArea += `<text x="${first.x}" y="${padding.top - 6}" text-anchor="middle" font-size="10" fill="#4CAF50" font-weight="500">${plan.start}</text>`;
+        windowArea += `<text x="${last.x}" y="${padding.top - 6}" text-anchor="middle" font-size="10" fill="#4CAF50" font-weight="500">${plan.end}</text>`;
+      }
+    }
+
+    // Area fill under the line (light blue)
+    let areaPath = `M ${points[0].x},${padding.top + chartH}`;
+    points.forEach(p => { areaPath += ` L ${p.x},${p.y}`; });
+    areaPath += ` L ${points[points.length - 1].x},${padding.top + chartH} Z`;
+    const areaFill = `<path d="${areaPath}" fill="var(--primary-color, #03a9f4)" fill-opacity="0.1"/>`;
+
+    // The line itself
+    let linePath = `M ${points[0].x},${points[0].y}`;
+    for (let i = 1; i < points.length; i++) {
+      linePath += ` L ${points[i].x},${points[i].y}`;
+    }
+    const lineEl = `<path d="${linePath}" fill="none" stroke="var(--primary-color, #03a9f4)" stroke-width="2.5" stroke-linejoin="round"/>`;
+
+    // Data points with tooltips
+    let dots = "";
+    points.forEach(p => {
+      const tip = `${String(p.hour).padStart(2, "0")}:00\nBedarf: ${p.deficit.toFixed(0)} kWh`;
+      const color = _inPlanWindow(p.min) ? "#4CAF50" : "var(--primary-color, #03a9f4)";
+      dots += `<circle cx="${p.x}" cy="${p.y}" r="4" fill="${color}" stroke="var(--card-background-color,#fff)" stroke-width="1.5" style="cursor:pointer"><title>${tip}</title></circle>`;
+    });
+
+    // X-axis labels
+    let xLabels = "";
+    const labelEvery = hours.length > 16 ? 3 : 2;
+    points.forEach((p, i) => {
       if (i % labelEvery === 0) {
-        bars += `<text x="${padding.left + i * slotW + slotW / 2}" y="${height - 10}" text-anchor="middle" font-size="10" fill="var(--secondary-text-color)">${String(hour).padStart(2, "0")}:00</text>`;
+        xLabels += `<text x="${p.x}" y="${height - 10}" text-anchor="middle" font-size="10" fill="var(--secondary-text-color)">${String(p.hour).padStart(2, "0")}:00</text>`;
       }
     });
 
-    // Y-axis
+    // Y-axis grid
     let yLines = "";
     for (let i = 0; i <= 4; i++) {
       const y = padding.top + (chartH / 4) * i;
@@ -1546,14 +1598,20 @@ class EegOptimizerPanel extends HTMLElement {
       yLines += `<text x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
     }
 
-    // Legend
-    const legendHtml = plan ? `
-      <rect x="${width - 220}" y="6" width="10" height="10" fill="var(--primary-color, #03a9f4)" rx="2"/>
-      <text x="${width - 206}" y="14" font-size="11" fill="var(--primary-text-color)">Bedarf</text>
-      <rect x="${width - 130}" y="6" width="10" height="10" fill="#4CAF50" rx="2"/>
-      <text x="${width - 116}" y="14" font-size="11" fill="var(--primary-text-color)">Entladefenster</text>` : "";
+    // Y-axis label
+    const yLabel = `<text x="14" y="${padding.top + chartH / 2}" text-anchor="middle" font-size="10" fill="var(--secondary-text-color)" transform="rotate(-90,14,${padding.top + chartH / 2})">kWh</text>`;
 
-    const chartHtml = `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${yLines}${bars}${legendHtml}</svg>`;
+    // Legend
+    let legendHtml = `
+      <rect x="${width - 220}" y="6" width="10" height="10" fill="var(--primary-color, #03a9f4)" rx="2"/>
+      <text x="${width - 206}" y="14" font-size="11" fill="var(--primary-text-color)">Community-Bedarf</text>`;
+    if (plan) {
+      legendHtml += `
+      <rect x="${width - 100}" y="6" width="10" height="10" fill="#4CAF50" rx="2" fill-opacity="0.5"/>
+      <text x="${width - 86}" y="14" font-size="11" fill="var(--primary-text-color)">Entladung</text>`;
+    }
+
+    const chartHtml = `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${yLines}${yLabel}${areaFill}${windowArea}${lineEl}${dots}${xLabels}${legendHtml}</svg>`;
 
     const infoRow = `<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--secondary-text-color);margin-top:8px">
       <span><strong>Community:</strong> ${community}</span>
