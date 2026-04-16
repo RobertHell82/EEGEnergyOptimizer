@@ -24,7 +24,7 @@ must_haves:
     - "Bei PeakShare-Ausfall greift Fallback-Kette: Cache (24h) > fixe Startzeit"
     - "Settings zeigen PeakShare-Checkbox mit Community-Dropdown wenn aktiv"
     - "Alle Nachteinspeisung-Referenzen sind durch Abend-Entladung ersetzt"
-    - "Config Migration v12 fuegt enable_peakshare und peakshare_community hinzu"
+    - "Upgrade von bestehenden Instanzen setzt enable_peakshare=True automatisch, ohne Konfigurationsverlust"
   artifacts:
     - path: "custom_components/eeg_energy_optimizer/peakshare.py"
       provides: "PeakShareProvider class + find_discharge_window() algorithm"
@@ -183,7 +183,7 @@ Change `DEFAULT_DISCHARGE_POWER_KW = 5.0` (from 3.0). Existing installs keep the
 
 **3. Update `config_flow.py`**:
 
-Bump `VERSION = 12` (from 10). NOTE: The actual version in __init__.py migration chain was 10 last, but there may be intermediate versions from quick tasks. Check the actual max version in `async_migrate_entry` and add migration for all versions up to 12.
+Current config_flow.py has `VERSION = 10`. Set to `VERSION = 12`. The migration chain in __init__.py ends at `< 10`. Add migration for `< 12`.
 
 **4. Update `__init__.py`**:
 
@@ -287,6 +287,19 @@ ws = datetime(2026, 4, 16, 16, 0, tzinfo=timezone.utc)
 we = datetime(2026, 4, 17, 4, 0, tzinfo=timezone.utc)
 result = find_discharge_window(hours, 10.0, 5.0, ws, we, 0)
 assert result is not None, 'Expected a discharge window'
+# Test date-lock: get_discharge_plan returns cached result on same day
+p = PeakShareProvider.__new__(PeakShareProvider)
+p._cache = {'communities': [{'name': 'BEG', 'hours': hours}]}
+p._cache_time = datetime.now(timezone.utc)
+p._jitter_today = 0
+p._jitter_date = '2026-04-16'
+p._discharge_plan = None
+p._discharge_plan_date = None
+sunset = datetime(2026, 4, 16, 18, 30, tzinfo=timezone.utc)
+now1 = datetime(2026, 4, 16, 18, 1, tzinfo=timezone.utc)
+r1 = p.get_discharge_plan('BEG', 10.0, 5.0, sunset, now1)
+r2 = p.get_discharge_plan('BEG', 10.0, 5.0, sunset, now1)
+assert r1 == r2, 'Date-lock failed: same-day calls should return cached result'
 print('All backend checks passed')
 "
     </automated>
