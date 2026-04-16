@@ -660,6 +660,21 @@ class EegOptimizerPanel extends HTMLElement {
     // Event delegation on shadow root
     // Legend hover: highlight matching weekday line
     this._shadow.addEventListener("mouseover", (e) => {
+      const dot = e.target.closest(".ps-dot, .ps-dot-hit");
+      if (dot) {
+        const wrapper = dot.closest(".ps-chart-card");
+        const tt = wrapper?.querySelector(".ps-tooltip");
+        if (tt) {
+          const dotRect = dot.getBoundingClientRect();
+          const wrapRect = wrapper.getBoundingClientRect();
+          const inWin = dot.dataset.inWindow === "1";
+          const badge = inWin ? ` <span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:8px;background:#4CAF50;color:#fff;font-size:10px;font-weight:500">Entladung</span>` : "";
+          tt.innerHTML = `<div style="font-weight:600;margin-bottom:2px">${dot.dataset.hour}${badge}</div><div style="color:var(--secondary-text-color)">Bedarf: <strong style="color:var(--primary-text-color)">${dot.dataset.deficit} kWh</strong></div>`;
+          tt.style.display = "block";
+          tt.style.left = `${dotRect.left - wrapRect.left + dotRect.width / 2}px`;
+          tt.style.top = `${dotRect.top - wrapRect.top - 8}px`;
+        }
+      }
       const legendItem = e.target.closest(".wl-legend");
       if (!legendItem) return;
       const idx = legendItem.dataset.idx;
@@ -670,6 +685,12 @@ class EegOptimizerPanel extends HTMLElement {
       if (target) target.classList.add("wl-legend-hover");
     });
     this._shadow.addEventListener("mouseout", (e) => {
+      const dot = e.target.closest(".ps-dot, .ps-dot-hit");
+      if (dot) {
+        const wrapper = dot.closest(".ps-chart-card");
+        const tt = wrapper?.querySelector(".ps-tooltip");
+        if (tt) tt.style.display = "none";
+      }
       const legendItem = e.target.closest(".wl-legend");
       if (!legendItem) return;
       const svg = legendItem.closest("svg");
@@ -1499,7 +1520,7 @@ class EegOptimizerPanel extends HTMLElement {
     } else {
       planHtml = `<div style="background:var(--secondary-text-color)22;padding:10px 14px;border-radius:10px;margin-bottom:12px;font-size:14px;color:var(--secondary-text-color)">
         <ha-icon icon="mdi:clock-outline" style="--mdc-icon-size:18px;vertical-align:middle"></ha-icon>
-        Entladefenster wird um Sonnenuntergang berechnet
+        Keine Entladung geplant
       </div>`;
     }
 
@@ -1581,12 +1602,14 @@ class EegOptimizerPanel extends HTMLElement {
     }
     const lineEl = `<path d="${linePath}" fill="none" stroke="var(--primary-color, #03a9f4)" stroke-width="2.5" stroke-linejoin="round"/>`;
 
-    // Data points with tooltips
+    // Data points with custom HTML tooltips
     let dots = "";
     points.forEach(p => {
-      const tip = `${String(p.hour).padStart(2, "0")}:00\nBedarf: ${p.deficit.toFixed(0)} kWh`;
+      const hourStr = `${String(p.hour).padStart(2, "0")}:00`;
       const color = _inPlanWindow(p.min) ? "#4CAF50" : "var(--primary-color, #03a9f4)";
-      dots += `<circle cx="${p.x}" cy="${p.y}" r="4" fill="${color}" stroke="var(--card-background-color,#fff)" stroke-width="1.5" style="cursor:pointer"><title>${tip}</title></circle>`;
+      const inWindow = _inPlanWindow(p.min) ? "1" : "0";
+      dots += `<circle class="ps-dot" cx="${p.x}" cy="${p.y}" r="4" fill="${color}" stroke="var(--card-background-color,#fff)" stroke-width="1.5" data-hour="${hourStr}" data-deficit="${p.deficit.toFixed(0)}" data-in-window="${inWindow}" style="cursor:pointer"></circle>`;
+      dots += `<circle class="ps-dot-hit" cx="${p.x}" cy="${p.y}" r="12" fill="transparent" data-hour="${hourStr}" data-deficit="${p.deficit.toFixed(0)}" data-in-window="${inWindow}" style="cursor:pointer"></circle>`;
     });
 
     // X-axis labels
@@ -1621,9 +1644,10 @@ class EegOptimizerPanel extends HTMLElement {
     }
 
     const chartTitle = `<div style="font-size:14px;font-weight:500;color:var(--primary-text-color);margin-bottom:4px">Energiebedarf ${displayCommunity} <span style="font-weight:400;font-size:12px;color:var(--secondary-text-color)">(Quelle: PeakShare, ${cacheText})</span></div>`;
-    const chartHtml = `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${yLines}${yLabel}${areaFill}${windowArea}${lineEl}${dots}${xLabels}${legendHtml}</svg>`;
+    const chartHtml = `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;overflow:visible">${yLines}${yLabel}${areaFill}${windowArea}${lineEl}${dots}${xLabels}${legendHtml}</svg>`;
+    const tooltipHtml = `<div class="ps-tooltip" style="position:absolute;display:none;pointer-events:none;background:var(--card-background-color,#fff);color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,0.18);transform:translate(-50%,-100%);white-space:nowrap;z-index:10"></div>`;
 
-    return planHtml + `<div class="chart-card" style="margin-top:4px">${chartTitle}${chartHtml}</div>`;
+    return planHtml + `<div class="chart-card ps-chart-card" style="margin-top:4px;position:relative">${chartTitle}${chartHtml}${tooltipHtml}</div>`;
   }
 
   async _loadMoreActivity() {
@@ -4094,7 +4118,7 @@ class EegOptimizerPanel extends HTMLElement {
           <div data-action="toggle-peakshare-data" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
             <h3 style="margin:0">
               <ha-icon icon="mdi:transmission-tower" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
-              Bedarf ${psDisplay}
+              Energiebedarf ${psDisplay}
             </h3>
             <ha-icon icon="mdi:chevron-${this._peakshareDataOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
           </div>
