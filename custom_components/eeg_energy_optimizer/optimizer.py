@@ -696,6 +696,9 @@ class EEGOptimizer:
             return (False, min_soc, ["Nachtverbrauch zu hoch"])
 
         # Check time — PeakShare or fixed start time
+        # Pre-init guards so neither branch can leave them unbound (past bug: UnboundLocalError)
+        past_midnight_in_window = False
+        past_midnight = False
         peakshare_plan = None
         if self._enable_peakshare and self._peakshare is not None:
             # PeakShare mode: compute discharge window based on community demand
