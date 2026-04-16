@@ -2694,14 +2694,14 @@ class EegOptimizerPanel extends HTMLElement {
           <input type="text" data-field="discharge_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${this._wizardData.discharge_start_time}" style="width:80px">
           <div class="help-text">Ab wann abends die Batterie ins Netz entladen wird.</div>
-        </div>
+        </div>`}
         <div class="field-group">
           <label>Entladeleistung (kW)</label>
           <input type="number" data-field="discharge_power_kw"
                  value="${this._wizardData.discharge_power_kw}"
                  min="${this._wizardData.inverter_type === "solaredge_storedge" ? "5.0" : "0.5"}" max="10.0" step="0.5">
-          <div class="help-text">Leistung der Batterieentladung ins Netz.${this._wizardData.inverter_type === "solaredge_storedge" ? " Bei SolarEdge min. 5 kW." : ""}</div>
-        </div>`}
+          <div class="help-text">Leistung der Batterieentladung ins Netz.${peakshare ? " Bestimmt die Dauer des Entladefensters (Energie \u00f7 Leistung)." : ""}${this._wizardData.inverter_type === "solaredge_storedge" ? " Bei SolarEdge min. 5 kW." : ""}</div>
+        </div>
         <div class="field-group">
           <label>Minimaler Ladezustand (%)</label>
           <input type="number" data-field="min_soc"
@@ -2925,14 +2925,14 @@ class EegOptimizerPanel extends HTMLElement {
           <input type="text" data-field="settings_discharge_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${d.discharge_start_time || "20:00"}" style="width:80px">
           <div class="help-text">Ab wann abends die Batterie ins Netz entladen wird.</div>
-        </div>
+        </div>`}
         <div class="field-group">
           <label>Entladeleistung (kW)</label>
           <input type="number" data-field="settings_discharge_power_kw"
                  value="${d.discharge_power_kw || 5.0}"
                  min="${d.inverter_type === "solaredge_storedge" ? "5.0" : "0.5"}" max="10.0" step="0.5">
-          <div class="help-text">Leistung der Batterieentladung ins Netz.${d.inverter_type === "solaredge_storedge" ? " Bei SolarEdge min. 5 kW." : ""}</div>
-        </div>`}
+          <div class="help-text">Leistung der Batterieentladung ins Netz.${settingsPeakshare ? " Bestimmt die Dauer des Entladefensters (Energie \u00f7 Leistung)." : ""}${d.inverter_type === "solaredge_storedge" ? " Bei SolarEdge min. 5 kW." : ""}</div>
+        </div>
         <div class="field-group">
           <label>Minimaler Ladezustand (%)</label>
           <input type="number" data-field="settings_min_soc"
