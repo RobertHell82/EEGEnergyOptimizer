@@ -9,6 +9,7 @@ import voluptuous as vol
 
 from homeassistant.components import websocket_api
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 
 from .const import (
     CONF_BATTERY_CAPACITY_SENSOR,
@@ -23,6 +24,7 @@ from .const import (
     INVERTER_TYPE_HUAWEI,
     INVERTER_TYPE_SOLAX,
     INVERTER_TYPE_SOLAREDGE,
+    INVERTER_TYPE_FRONIUS,
 )
 
 if TYPE_CHECKING:
@@ -99,6 +101,17 @@ SOLAREDGE_CONTROL_SUFFIXES: dict[str, list[tuple[str, str]]] = {
         ("number", "storage_backup_reserve"),
         ("number", "backup_reserve"),
     ],
+}
+
+# Fronius native integration sensor suffixes — used to find entities.
+# The Fronius integration creates entities like sensor.{device_name}_{key}.
+# Prefix varies by installation (e.g. "solarnet_", "power_flow_0_192_168_100_211_").
+FRONIUS_SENSOR_SUFFIXES: dict[str, list[str]] = {
+    CONF_BATTERY_SOC_SENSOR: ["state_of_charge"],
+    CONF_PV_POWER_SENSOR: ["power_photovoltaics"],
+    CONF_GRID_POWER_SENSOR: ["power_grid"],
+    CONF_BATTERY_POWER_SENSOR: ["power_battery"],
+    CONF_BATTERY_CAPACITY_SENSOR: ["capacity_maximum"],
 }
 
 
@@ -238,6 +251,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_clear_test_overrides)
     websocket_api.async_register_command(hass, ws_get_activity_log)
     websocket_api.async_register_command(hass, ws_get_feedin_statistics)
+    websocket_api.async_register_command(hass, ws_get_peakshare_communities)
+    websocket_api.async_register_command(hass, ws_get_peakshare_data)
 
 
 @websocket_api.websocket_command(
@@ -300,6 +315,33 @@ async def ws_save_config(
         if discharge_kw is not None and float(discharge_kw) < 5.0:
             new_data["discharge_power_kw"] = 5.0
 
+    # Fronius: server-side validation of the Modbus endpoint. The frontend
+    # already checks "non-empty host", but we cannot trust the WebSocket
+    # client. An empty/garbage host or out-of-range port would later surface
+    # as opaque pymodbus connection errors; reject it here with a clear code.
+    if new_data.get("inverter_type") == INVERTER_TYPE_FRONIUS:
+        host = new_data.get("fronius_modbus_host", "")
+        if not isinstance(host, str) or not host.strip() or len(host) > 255:
+            connection.send_error(
+                msg["id"], "invalid_config", "Invalid Fronius Modbus host"
+            )
+            return
+        new_data["fronius_modbus_host"] = host.strip()
+        port_raw = new_data.get("fronius_modbus_port", 502)
+        try:
+            port = int(port_raw)
+        except (TypeError, ValueError):
+            connection.send_error(
+                msg["id"], "invalid_config", "Invalid Fronius Modbus port"
+            )
+            return
+        if not 1 <= port <= 65535:
+            connection.send_error(
+                msg["id"], "invalid_config", "Fronius Modbus port out of range"
+            )
+            return
+        new_data["fronius_modbus_port"] = port
+
     hass.config_entries.async_update_entry(entry, data=new_data)
     connection.send_result(msg["id"], {"success": True})
 
@@ -316,7 +358,7 @@ async def ws_check_prerequisites(
     msg: dict,
 ) -> None:
     """Check which prerequisite integrations are installed and loaded."""
-    check_domains = ["huawei_solar", "solax_modbus", "solaredge_modbus_multi", "solcast_solar", "forecast_solar"]
+    check_domains = ["huawei_solar", "solax_modbus", "solaredge_modbus_multi", "fronius", "solcast_solar", "forecast_solar"]
     result = {}
 
     for domain in check_domains:
@@ -456,7 +498,47 @@ async def ws_detect_sensors(
         connection.send_result(msg["id"], result)
         return
 
-    # Neither Huawei, SolaX, nor SolarEdge detected
+    # Check if Fronius native integration is loaded
+    fronius_entries = hass.config_entries.async_entries("fronius")
+    fronius_loaded = any(e.state.value == "loaded" for e in fronius_entries)
+
+    if fronius_loaded:
+        # Detect Fronius sensors by restricting to entities owned by the
+        # `fronius` Core integration. Pure suffix matching plus loose name
+        # heuristics (fronius/solarnet/power_flow/byd) used to leak in
+        # standalone BYD BMS entities or other integrations that happen to
+        # ship a `state_of_charge` sensor — only used as wizard suggestions
+        # but confusing for users with mixed setups.
+        fronius_entry_ids = {e.entry_id for e in fronius_entries}
+        ent_reg = er.async_get(hass)
+        fronius_entity_ids = {
+            entry.entity_id
+            for entry in ent_reg.entities.values()
+            if entry.config_entry_id in fronius_entry_ids
+        }
+
+        sensors = {}
+        for conf_key, suffixes in FRONIUS_SENSOR_SUFFIXES.items():
+            for suffix in suffixes:
+                for state in hass.states.async_all("sensor"):
+                    if state.entity_id not in fronius_entity_ids:
+                        continue
+                    if (state.entity_id.endswith(suffix)
+                            and state.state not in ("unavailable", "unknown")):
+                        sensors[conf_key] = state.entity_id
+                        break
+                if conf_key in sensors:
+                    break
+
+        result = {
+            CONF_INVERTER_TYPE: INVERTER_TYPE_FRONIUS,
+            "detected": True,
+            "sensors": sensors,
+        }
+        connection.send_result(msg["id"], result)
+        return
+
+    # Neither Huawei, SolaX, SolarEdge, nor Fronius detected
     connection.send_result(msg["id"], {"detected": False, "sensors": {}})
 
 
@@ -793,4 +875,104 @@ async def ws_get_feedin_statistics(
         "month": stats.get_summary(days=30),
         "year": stats.get_summary(days=365),
         "total": stats.get_summary(days=None),
+    })
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/get_peakshare_communities",
+    }
+)
+@websocket_api.async_response
+async def ws_get_peakshare_communities(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Return list of PeakShare community names for the dropdown."""
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+
+    peakshare = data.get("peakshare")
+    if not peakshare:
+        # Fetch directly if no provider yet (during setup wizard)
+        from .peakshare import PeakShareProvider
+
+        temp = PeakShareProvider(hass, "temp")
+        api_data = await temp.async_fetch()
+        communities = [
+            c["name"]
+            for c in (api_data or {}).get("communities", [])
+            if isinstance(c, dict) and "name" in c
+        ]
+    else:
+        communities = peakshare.get_communities()
+        if not communities:
+            await peakshare.async_fetch()
+            communities = peakshare.get_communities()
+
+    connection.send_result(msg["id"], {"communities": communities})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/get_peakshare_data",
+    }
+)
+@websocket_api.async_response
+async def ws_get_peakshare_data(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Return PeakShare forecast data for dashboard display."""
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+
+    peakshare = data.get("peakshare")
+    config = dict(entry.data)
+    community_name = config.get("peakshare_community", "BEG")
+
+    if not peakshare or not peakshare._cache:
+        connection.send_result(msg["id"], {
+            "community": community_name,
+            "hours": [],
+            "cache_age_minutes": None,
+            "discharge_plan": None,
+        })
+        return
+
+    # Find selected community hours
+    communities = peakshare._cache.get("communities", [])
+    hours = []
+    for c in communities:
+        if isinstance(c, dict) and c.get("name") == community_name:
+            hours = c.get("hours", [])
+            break
+
+    # Cache age
+    cache_age = None
+    if peakshare._cache_time:
+        from datetime import datetime, timezone
+        age_sec = (datetime.now(timezone.utc) - peakshare._cache_time).total_seconds()
+        cache_age = round(age_sec / 60)
+
+    # Discharge plan if computed
+    plan_info = None
+    if peakshare._discharge_plan_date and peakshare._discharge_plan:
+        plan_start, plan_end = peakshare._discharge_plan
+        plan_info = {
+            "start": plan_start.strftime("%H:%M"),
+            "end": plan_end.strftime("%H:%M"),
+            "date": peakshare._discharge_plan_date,
+            "jitter": peakshare._jitter_today,
+        }
+
+    connection.send_result(msg["id"], {
+        "community": community_name,
+        "hours": hours,
+        "cache_age_minutes": cache_age,
+        "discharge_plan": plan_info,
     })

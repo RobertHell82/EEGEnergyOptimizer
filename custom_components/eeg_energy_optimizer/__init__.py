@@ -364,6 +364,21 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data.setdefault("enable_manual_control", is_expert)
         hass.config_entries.async_update_entry(entry, data=new_data, version=10)
 
+    if entry.version < 11:
+        # v11 only bumps the schema version to mark Fronius support — no
+        # data backfill needed because fronius_modbus_host/port are written
+        # by the wizard when (and only when) the user actually selects
+        # Fronius. Existing Huawei/SolaX/SolarEdge entries get the bump
+        # without their data dict being touched.
+        hass.config_entries.async_update_entry(entry, data=entry.data, version=11)
+
+    if entry.version < 12:
+        new_data = {**entry.data}
+        new_data.setdefault("enable_peakshare", True)
+        new_data.setdefault("peakshare_community", "BEG")
+        # Don't change existing discharge_power_kw — only default for new installs is 5.0
+        hass.config_entries.async_update_entry(entry, data=new_data, version=12)
+
     return True
 
 
@@ -465,8 +480,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = data.get("coordinator")
     provider = data.get("provider")
 
+    # Create PeakShare provider (before optimizer so it can be passed in)
+    from .peakshare import PeakShareProvider
+    peakshare_provider = PeakShareProvider(hass, entry.entry_id)
+    await peakshare_provider.async_load()
+    await peakshare_provider.async_fetch()
+    data["peakshare"] = peakshare_provider
+
     if coordinator and provider:
-        optimizer = EEGOptimizer(hass, entry.entry_id, config, inverter, coordinator, provider)
+        optimizer = EEGOptimizer(hass, entry.entry_id, config, inverter, coordinator, provider, peakshare=peakshare_provider)
         data["optimizer"] = optimizer
 
         # Feed-in statistics tracker
@@ -641,9 +663,11 @@ async def _async_update_listener(
         inverter = data.get("inverter")
         coordinator = data.get("coordinator")
         provider = data.get("provider")
+        peakshare_provider = data.get("peakshare")  # preserve across hot-reloads
         if inverter and coordinator and provider:
             new_optimizer = EEGOptimizer(
-                hass, entry.entry_id, config, inverter, coordinator, provider
+                hass, entry.entry_id, config, inverter, coordinator, provider,
+                peakshare=peakshare_provider,
             )
             new_optimizer._prev_zustand = optimizer._prev_zustand
             new_optimizer._startup_time = optimizer._startup_time
@@ -675,5 +699,17 @@ async def async_unload_entry(
         unload_ok = True
 
     if unload_ok:
+        # Close inverter resources (e.g. Fronius pymodbus TCP socket)
+        # before dropping the entry. Other inverters use HA-managed
+        # services/entities and do not need explicit cleanup.
+        inverter = data.get("inverter")
+        disconnect = getattr(inverter, "async_disconnect", None)
+        if disconnect is not None:
+            try:
+                await disconnect()
+            except Exception:
+                _LOGGER.exception(
+                    "EEG Energy Optimizer: error disconnecting inverter on unload"
+                )
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unload_ok

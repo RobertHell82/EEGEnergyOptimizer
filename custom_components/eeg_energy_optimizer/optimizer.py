@@ -21,17 +21,21 @@ from .const import (
     CONF_DISCHARGE_START_TIME,
     CONF_ENABLE_MORNING_DELAY,
     CONF_ENABLE_NIGHT_DISCHARGE,
+    CONF_ENABLE_PEAKSHARE,
     CONF_GRID_POWER_SENSOR,
     CONF_INVERTER_TYPE,
     CONF_MIN_SOC,
     CONF_MORNING_END_TIME,
     CONF_MORNING_START_OFFSET,
+    CONF_PEAKSHARE_COMMUNITY,
     CONF_SAFETY_BUFFER_PCT,
     DEFAULT_DISCHARGE_POWER_KW,
     DEFAULT_DISCHARGE_START_TIME,
+    DEFAULT_ENABLE_PEAKSHARE,
     DEFAULT_MIN_SOC,
     DEFAULT_MORNING_END_TIME,
     DEFAULT_MORNING_START_OFFSET,
+    DEFAULT_PEAKSHARE_COMMUNITY,
     DEFAULT_SAFETY_BUFFER_PCT,
     INVERTER_SIGN_CONVENTIONS,
     MODE_EIN,
@@ -138,6 +142,9 @@ class Decision:
     discharge_demand_total_kwh: float = 0.0
     discharge_power_kw: float = 0.0
     discharge_start_time: str = ""
+    discharge_peakshare_active: bool = False
+    discharge_window_start: str = ""
+    discharge_window_end: str = ""
 
 
 class EEGOptimizer:
@@ -151,6 +158,7 @@ class EEGOptimizer:
         inverter: Any,
         coordinator: Any,
         provider: Any,
+        peakshare: Any = None,
     ) -> None:
         self._hass = hass
         self._entry_id = entry_id
@@ -158,6 +166,9 @@ class EEGOptimizer:
         self._inverter = inverter
         self._coordinator = coordinator
         self._provider = provider
+        self._peakshare = peakshare
+        self._enable_peakshare = config.get(CONF_ENABLE_PEAKSHARE, DEFAULT_ENABLE_PEAKSHARE)
+        self._peakshare_community = config.get(CONF_PEAKSHARE_COMMUNITY, DEFAULT_PEAKSHARE_COMMUNITY)
 
         # Config values
         self._morning_start_offset_h = config.get(
@@ -530,7 +541,16 @@ class EEGOptimizer:
         Returns a dict with: status, reasons, soc, min_soc, pv_tomorrow_kwh,
         demand_tomorrow_kwh, power_kw, start_time.
         """
-        start_time_str = f"{self._discharge_start_h:02d}:{self._discharge_start_m:02d}"
+        # Show PeakShare window times if a plan was computed today
+        ps_plan = None
+        if self._enable_peakshare and self._peakshare is not None:
+            ps_plan_date = getattr(self._peakshare, "_discharge_plan_date", None)
+            if ps_plan_date == snap.now.strftime("%Y-%m-%d"):
+                ps_plan = getattr(self._peakshare, "_discharge_plan", None)
+        if ps_plan is not None:
+            start_time_str = f"{ps_plan[0].strftime('%H:%M')}-{ps_plan[1].strftime('%H:%M')} (PeakShare)"
+        else:
+            start_time_str = f"{self._discharge_start_h:02d}:{self._discharge_start_m:02d}"
         pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
         overnight_kwh = snap.consumption_overnight_kwh
 
@@ -666,7 +686,7 @@ class EEGOptimizer:
         - PV tomorrow >= tomorrow_demand (including battery charge needs)
         """
         if not self._enable_night_discharge:
-            return (False, float(self._min_soc), ["Nachteinspeisung deaktiviert"])
+            return (False, float(self._min_soc), ["Abend-Entladung deaktiviert"])
         min_soc = self._calc_min_soc(snap)
         reasons: list[str] = []
 
@@ -675,25 +695,57 @@ class EEGOptimizer:
         if min_soc >= 100.0:
             return (False, min_soc, ["Nachtverbrauch zu hoch"])
 
-        # Check time — discharge window runs from discharge_start until sunrise
-        discharge_start = snap.now.replace(
-            hour=self._discharge_start_h,
-            minute=self._discharge_start_m,
-            second=0,
-            microsecond=0,
-        )
-        # Past midnight: discharge_start points to tonight (future), but we're
-        # already in the discharge window that began yesterday evening.
-        # Guard: sunrise must be < 12h away — otherwise we're in the afternoon
-        # and next_rising points to tomorrow (false positive).
-        past_midnight_in_window = (
-            snap.now < discharge_start
-            and snap.sunrise is not None
-            and snap.now < snap.sunrise
-            and (snap.sunrise - snap.now).total_seconds() < 12 * 3600
-        )
-        if snap.now < discharge_start and not past_midnight_in_window:
-            reasons.append(f"Startzeit {self._discharge_start_h:02d}:{self._discharge_start_m:02d} noch nicht erreicht")
+        # Check time — PeakShare or fixed start time
+        peakshare_plan = None
+        if self._enable_peakshare and self._peakshare is not None:
+            # PeakShare mode: compute discharge window based on community demand
+            available_kwh = (snap.battery_soc - min_soc) / 100 * snap.battery_capacity_kwh
+            if available_kwh > 0:
+                peakshare_plan = self._peakshare.get_discharge_plan(
+                    self._peakshare_community,
+                    available_kwh,
+                    self._discharge_power_kw,
+                    snap.sunset_today,
+                    snap.now,
+                )
+
+        if peakshare_plan is not None:
+            # PeakShare window check
+            plan_start, plan_end = peakshare_plan
+            if snap.now < plan_start:
+                reasons.append(f"PeakShare-Fenster ab {plan_start.strftime('%H:%M')} noch nicht erreicht")
+            elif snap.now >= plan_end:
+                reasons.append(f"PeakShare-Fenster ({plan_start.strftime('%H:%M')}-{plan_end.strftime('%H:%M')}) abgelaufen")
+            # Hard cutoff at 04:00 still applies
+            cutoff = snap.now.replace(hour=4, minute=0, second=0, microsecond=0)
+            past_midnight = snap.now.hour < 12 and plan_start.hour >= 12
+            if past_midnight and snap.now >= cutoff:
+                reasons.append("Entladung endet um 04:00")
+        else:
+            # Fixed start time check (fallback or PeakShare disabled)
+            discharge_start = snap.now.replace(
+                hour=self._discharge_start_h,
+                minute=self._discharge_start_m,
+                second=0,
+                microsecond=0,
+            )
+            # Past midnight: discharge_start points to tonight (future), but we're
+            # already in the discharge window that began yesterday evening.
+            # Guard: sunrise must be < 12h away — otherwise we're in the afternoon
+            # and next_rising points to tomorrow (false positive).
+            past_midnight_in_window = (
+                snap.now < discharge_start
+                and snap.sunrise is not None
+                and snap.now < snap.sunrise
+                and (snap.sunrise - snap.now).total_seconds() < 12 * 3600
+            )
+            if snap.now < discharge_start and not past_midnight_in_window:
+                reasons.append(f"Startzeit {self._discharge_start_h:02d}:{self._discharge_start_m:02d} noch nicht erreicht")
+
+            # Hard cutoff: discharge ends at 04:00 at the latest
+            cutoff = snap.now.replace(hour=4, minute=0, second=0, microsecond=0)
+            if past_midnight_in_window and snap.now >= cutoff:
+                reasons.append("Entladung endet um 04:00")
 
         # Hard cutoff: discharge ends at 04:00 at the latest
         cutoff = snap.now.replace(hour=4, minute=0, second=0, microsecond=0)
@@ -774,10 +826,20 @@ class EEGOptimizer:
                 f"{self._morning_end_hour:02d}:{self._morning_end_min:02d}"
             )
         elif zustand == STATE_ABEND_ENTLADUNG:
-            nächste_aktion = (
-                f"Abend-Entladung {self._discharge_start_h:02d}:"
-                f"{self._discharge_start_m:02d}"
-            )
+            # Show PeakShare window times if available
+            ps_plan = self._peakshare.get_discharge_plan(
+                self._peakshare_community, 0, 0, None, snap.now
+            ) if self._enable_peakshare and self._peakshare and self._peakshare._discharge_plan_date == snap.now.strftime("%Y-%m-%d") else None
+            if ps_plan:
+                nächste_aktion = (
+                    f"Abend-Entladung {ps_plan[0].strftime('%H:%M')}-"
+                    f"{ps_plan[1].strftime('%H:%M')} (PeakShare)"
+                )
+            else:
+                nächste_aktion = (
+                    f"Abend-Entladung {self._discharge_start_h:02d}:"
+                    f"{self._discharge_start_m:02d}"
+                )
         else:
             nächste_aktion = "Normalbetrieb"
 
@@ -824,6 +886,15 @@ class EEGOptimizer:
             discharge_power_kw=self._discharge_power_kw,
             discharge_start_time=discharge_info["start_time"],
         )
+
+        # Populate PeakShare fields if a plan was computed today
+        if self._enable_peakshare and self._peakshare is not None:
+            ps_plan_date = getattr(self._peakshare, "_discharge_plan_date", None)
+            ps_plan = getattr(self._peakshare, "_discharge_plan", None)
+            if ps_plan_date == snap.now.strftime("%Y-%m-%d") and ps_plan is not None:
+                decision.discharge_peakshare_active = True
+                decision.discharge_window_start = ps_plan[0].strftime("%H:%M")
+                decision.discharge_window_end = ps_plan[1].strftime("%H:%M")
 
         decision.markdown = self._build_markdown(snap, decision)
         return decision
@@ -1005,6 +1076,10 @@ class EEGOptimizer:
         5. Return Decision
         """
         try:
+            # Pre-fetch PeakShare data (async) before sync evaluation
+            if self._enable_peakshare and self._peakshare is not None:
+                await self._peakshare.async_fetch()
+
             snap = self._gather_snapshot()
             decision = self._evaluate(snap, mode)
 
