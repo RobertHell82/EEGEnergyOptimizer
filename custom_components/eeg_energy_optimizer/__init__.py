@@ -484,6 +484,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .peakshare import PeakShareProvider
     peakshare_provider = PeakShareProvider(hass, entry.entry_id)
     await peakshare_provider.async_load()
+    await peakshare_provider.async_fetch()
     data["peakshare"] = peakshare_provider
 
     if coordinator and provider:

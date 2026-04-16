@@ -252,6 +252,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_activity_log)
     websocket_api.async_register_command(hass, ws_get_feedin_statistics)
     websocket_api.async_register_command(hass, ws_get_peakshare_communities)
+    websocket_api.async_register_command(hass, ws_get_peakshare_data)
 
 
 @websocket_api.websocket_command(
@@ -912,3 +913,66 @@ async def ws_get_peakshare_communities(
             communities = peakshare.get_communities()
 
     connection.send_result(msg["id"], {"communities": communities})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/get_peakshare_data",
+    }
+)
+@websocket_api.async_response
+async def ws_get_peakshare_data(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Return PeakShare forecast data for dashboard display."""
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+
+    peakshare = data.get("peakshare")
+    config = dict(entry.data)
+    community_name = config.get("peakshare_community", "BEG")
+
+    if not peakshare or not peakshare._cache:
+        connection.send_result(msg["id"], {
+            "community": community_name,
+            "hours": [],
+            "cache_age_minutes": None,
+            "discharge_plan": None,
+        })
+        return
+
+    # Find selected community hours
+    communities = peakshare._cache.get("communities", [])
+    hours = []
+    for c in communities:
+        if isinstance(c, dict) and c.get("name") == community_name:
+            hours = c.get("hours", [])
+            break
+
+    # Cache age
+    cache_age = None
+    if peakshare._cache_time:
+        from datetime import datetime, timezone
+        age_sec = (datetime.now(timezone.utc) - peakshare._cache_time).total_seconds()
+        cache_age = round(age_sec / 60)
+
+    # Discharge plan if computed
+    plan_info = None
+    if peakshare._discharge_plan_date and peakshare._discharge_plan:
+        plan_start, plan_end = peakshare._discharge_plan
+        plan_info = {
+            "start": plan_start.strftime("%H:%M"),
+            "end": plan_end.strftime("%H:%M"),
+            "date": peakshare._discharge_plan_date,
+            "jitter": peakshare._jitter_today,
+        }
+
+    connection.send_result(msg["id"], {
+        "community": community_name,
+        "hours": hours,
+        "cache_age_minutes": cache_age,
+        "discharge_plan": plan_info,
+    })

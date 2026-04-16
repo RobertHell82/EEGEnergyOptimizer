@@ -628,8 +628,12 @@ class EegOptimizerPanel extends HTMLElement {
     this._simulationOpen = false;
     this._feedinStats = null;
     this._feedinStatsLoaded = false;
-    this._feedinStatsOpen = true;
+    this._feedinStatsOpen = false;
     this._feedinStatsPeriod = "month";
+    this._profilOpen = false;
+    this._peakshareDataOpen = false;
+    this._peakshareData = null;
+    this._peakshareDataLoaded = false;
     this._settingsData = {};
     this._peakshareCommunitiesCache = [];
     this._peakshareCommunitiesLoading = false;
@@ -1080,6 +1084,17 @@ class EegOptimizerPanel extends HTMLElement {
         this._feedinStatsOpen = !this._feedinStatsOpen;
         this._render();
         break;
+      case "toggle-profil":
+        this._profilOpen = !this._profilOpen;
+        this._render();
+        break;
+      case "toggle-peakshare-data":
+        this._peakshareDataOpen = !this._peakshareDataOpen;
+        if (this._peakshareDataOpen && !this._peakshareDataLoaded) {
+          this._loadPeakShareData();
+        }
+        this._render();
+        break;
       case "feedin-period-week":
         this._feedinStatsPeriod = "week";
         this._render();
@@ -1437,6 +1452,115 @@ class EegOptimizerPanel extends HTMLElement {
     } finally {
       this._peakshareCommunitiesLoading = false;
     }
+  }
+
+  async _loadPeakShareData() {
+    if (!this._hass) return;
+    try {
+      const result = await this._hass.callWS({
+        type: "eeg_optimizer/get_peakshare_data",
+      });
+      this._peakshareData = result;
+      this._peakshareDataLoaded = true;
+      this._render();
+    } catch (e) {
+      console.error("Failed to load PeakShare data:", e);
+    }
+  }
+
+  _renderPeakShareDashboard() {
+    const d = this._peakshareData;
+    if (!d || !d.hours || d.hours.length === 0) {
+      return `<p style="color:var(--secondary-text-color);font-size:14px">Keine PeakShare-Daten verf\u00fcgbar. Die Daten werden beim n\u00e4chsten API-Abruf geladen.</p>`;
+    }
+
+    const community = d.community || "---";
+    const cacheAge = d.cache_age_minutes != null ? d.cache_age_minutes : null;
+    const cacheText = cacheAge != null ? (cacheAge < 60 ? `vor ${cacheAge} Min` : `vor ${Math.round(cacheAge / 60)}h`) : "---";
+    const plan = d.discharge_plan;
+
+    // Plan info
+    let planHtml = "";
+    if (plan) {
+      planHtml = `<div style="background:var(--primary-color);color:#fff;padding:10px 14px;border-radius:10px;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <ha-icon icon="mdi:battery-arrow-down" style="--mdc-icon-size:20px"></ha-icon>
+        <strong>Entladefenster: ${plan.start}\u2013${plan.end}</strong>
+        <span style="opacity:0.8;font-size:13px">(Jitter: ${plan.jitter >= 0 ? "+" : ""}${plan.jitter} Min)</span>
+      </div>`;
+    } else {
+      planHtml = `<div style="background:var(--secondary-text-color)22;padding:10px 14px;border-radius:10px;margin-bottom:12px;font-size:14px;color:var(--secondary-text-color)">
+        <ha-icon icon="mdi:clock-outline" style="--mdc-icon-size:18px;vertical-align:middle"></ha-icon>
+        Entladefenster wird um Sonnenuntergang berechnet
+      </div>`;
+    }
+
+    // Bar chart of hourly deficit
+    const hours = d.hours.filter(h => h.timestamp && h.deficitKwh != null);
+    if (hours.length === 0) return planHtml + `<p style="color:var(--secondary-text-color);font-size:13px">Keine Stundendaten vorhanden</p>`;
+
+    const width = 700, height = 250, padding = {top: 25, right: 20, bottom: 40, left: 55};
+    const chartW = width - padding.left - padding.right;
+    const chartH = height - padding.top - padding.bottom;
+    const maxVal = Math.max(...hours.map(h => Math.max(0, h.deficitKwh)), 1) * 1.15;
+    const barW = Math.min(chartW / hours.length * 0.8, 25);
+
+    let bars = "";
+    hours.forEach((h, i) => {
+      const ts = new Date(h.timestamp);
+      const hour = ts.getHours();
+      const deficit = Math.max(0, h.deficitKwh);
+      const slotW = chartW / hours.length;
+      const x = padding.left + i * slotW + (slotW - barW) / 2;
+      const barH = (deficit / maxVal) * chartH;
+      const y = padding.top + chartH - barH;
+
+      // Highlight hours in discharge plan window
+      let fill = "var(--primary-color, #03a9f4)";
+      if (plan) {
+        const planStartH = parseInt(plan.start.split(":")[0]);
+        const planEndH = parseInt(plan.end.split(":")[0]);
+        // Handle overnight: plan might go from 20:00 to 00:15
+        if (planStartH <= planEndH) {
+          if (hour >= planStartH && hour < planEndH) fill = "#4CAF50";
+        } else {
+          if (hour >= planStartH || hour < planEndH) fill = "#4CAF50";
+        }
+      }
+
+      const tip = `${String(hour).padStart(2, "0")}:00\nBedarf: ${deficit.toFixed(0)} kWh`;
+      bars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="${fill}" rx="2" style="cursor:pointer"><title>${tip}</title></rect>`;
+
+      // Label every 2-3 hours
+      const labelEvery = hours.length > 16 ? 3 : 2;
+      if (i % labelEvery === 0) {
+        bars += `<text x="${padding.left + i * slotW + slotW / 2}" y="${height - 10}" text-anchor="middle" font-size="10" fill="var(--secondary-text-color)">${String(hour).padStart(2, "0")}:00</text>`;
+      }
+    });
+
+    // Y-axis
+    let yLines = "";
+    for (let i = 0; i <= 4; i++) {
+      const y = padding.top + (chartH / 4) * i;
+      const val = (maxVal * (4 - i) / 4).toFixed(0);
+      yLines += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--divider-color)" stroke-dasharray="4"/>`;
+      yLines += `<text x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
+    }
+
+    // Legend
+    const legendHtml = plan ? `
+      <rect x="${width - 220}" y="6" width="10" height="10" fill="var(--primary-color, #03a9f4)" rx="2"/>
+      <text x="${width - 206}" y="14" font-size="11" fill="var(--primary-text-color)">Bedarf</text>
+      <rect x="${width - 130}" y="6" width="10" height="10" fill="#4CAF50" rx="2"/>
+      <text x="${width - 116}" y="14" font-size="11" fill="var(--primary-text-color)">Entladefenster</text>` : "";
+
+    const chartHtml = `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${yLines}${bars}${legendHtml}</svg>`;
+
+    const infoRow = `<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--secondary-text-color);margin-top:8px">
+      <span><strong>Community:</strong> ${community}</span>
+      <span><strong>Daten:</strong> ${cacheText}</span>
+    </div>`;
+
+    return planHtml + `<div class="chart-card" style="margin-top:4px">${chartHtml}</div>` + infoRow;
   }
 
   async _loadMoreActivity() {
@@ -3886,21 +4010,31 @@ class EegOptimizerPanel extends HTMLElement {
           ${this._feedinStatsOpen ? this._renderFeedinStatistics() : ""}
         </div>
 
-        <!-- Hourly Profile Chart -->
-        <div class="card chart-card">
-          <h3 class="status-card-title" style="margin-top:0">
-            <ha-icon icon="mdi:chart-line" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4)"></ha-icon>
-            Verbrauchsprofil (Wochentage)
-            <span class="info-popup-trigger">
-              <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color);cursor:pointer"></ha-icon>
-              <div class="info-popup">
-                <strong>Verbrauchsprofil</strong>
-                <p>Das Diagramm zeigt den durchschnittlichen Energieverbrauch der letzten Wochen (konfigurierbar, Standard: 4 Wochen) pro Wochentag im Tagesverlauf. So wird sichtbar, zu welchen Uhrzeiten an welchen Wochentagen der Verbrauch typischerweise am h\u00f6chsten ist.</p>
-              </div>
-            </span>
-          </h3>
-          ${this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0)}
+        <!-- Hourly Profile Chart (collapsible) -->
+        <div class="card">
+          <div data-action="toggle-profil" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
+            <h3 style="margin:0">
+              <ha-icon icon="mdi:chart-line" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
+              Verbrauchsprofil (Wochentage)
+            </h3>
+            <ha-icon icon="mdi:chevron-${this._profilOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
+          </div>
+          ${this._profilOpen ? this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0) : ""}
         </div>
+
+        ${this._config?.enable_peakshare !== false ? `
+        <!-- PeakShare Community-Bedarf (collapsible) -->
+        <div class="card">
+          <div data-action="toggle-peakshare-data" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
+            <h3 style="margin:0">
+              <ha-icon icon="mdi:transmission-tower" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
+              PeakShare Community-Bedarf
+            </h3>
+            <ha-icon icon="mdi:chevron-${this._peakshareDataOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
+          </div>
+          ${this._peakshareDataOpen ? this._renderPeakShareDashboard() : ""}
+        </div>
+        ` : ""}
         `}
 
         <!-- Activity Timeline -->
