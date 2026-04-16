@@ -73,7 +73,8 @@ def find_discharge_window(
 
     required_hours = max(1, math.ceil(available_kwh / discharge_power_kw))
 
-    # Filter hours to eligible window with positive deficit
+    # Filter hours to eligible window — keep ALL hours (including deficit=0)
+    # to preserve contiguity information for the sliding window.
     eligible: list[dict] = []
     for h in hours:
         ts_str = h.get("timestamp", "")
@@ -85,8 +86,8 @@ def find_discharge_window(
             ts_local = _as_local(ts)
         except (ValueError, TypeError):
             continue
-        if window_start <= ts_local < window_end and deficit > 0:
-            eligible.append({"ts": ts_local, "deficit": float(deficit)})
+        if window_start <= ts_local < window_end:
+            eligible.append({"ts": ts_local, "deficit": max(0.0, float(deficit))})
 
     if len(eligible) < required_hours:
         return None
@@ -94,23 +95,38 @@ def find_discharge_window(
     # Sort by timestamp to ensure chronological order
     eligible.sort(key=lambda e: e["ts"])
 
-    # Sliding window: find contiguous block with maximum deficit sum
-    current_sum = sum(eligible[i]["deficit"] for i in range(required_hours))
-    best_sum = current_sum
-    best_start = 0
+    # Sliding window: find contiguous block with maximum deficit sum.
+    # Hours must be truly consecutive (1h apart) — skip windows with gaps.
+    def _is_contiguous(start_idx: int, length: int) -> bool:
+        """Check that all hours in the block are exactly 1h apart."""
+        for j in range(start_idx, start_idx + length - 1):
+            gap = (eligible[j + 1]["ts"] - eligible[j]["ts"]).total_seconds()
+            if gap != 3600:
+                return False
+        return True
 
-    for i in range(1, len(eligible) - required_hours + 1):
-        current_sum -= eligible[i - 1]["deficit"]
-        current_sum += eligible[i + required_hours - 1]["deficit"]
-        if current_sum > best_sum:
-            best_sum = current_sum
+    best_sum = -1.0
+    best_start = -1
+
+    for i in range(len(eligible) - required_hours + 1):
+        if not _is_contiguous(i, required_hours):
+            continue
+        window_sum = sum(eligible[i + k]["deficit"] for k in range(required_hours))
+        if window_sum > best_sum:
+            best_sum = window_sum
             best_start = i
+
+    if best_start < 0:
+        return None
 
     # Apply jitter to start time, clamped to window_start
     start_time = eligible[best_start]["ts"] + timedelta(minutes=jitter_minutes)
     if start_time < window_start:
         start_time = window_start
     end_time = start_time + timedelta(hours=required_hours)
+    # Clamp end_time to window_end (04:00 hard cutoff)
+    if end_time > window_end:
+        end_time = window_end
 
     return (start_time, end_time)
 
@@ -253,7 +269,7 @@ class PeakShareProvider:
         The jitter is persisted in the Store alongside cache data so that
         HA restarts within the same day don't re-roll.
         """
-        today = date.today().isoformat()
+        today = _as_local(_utcnow()).date().isoformat()
         if self._jitter_date != today:
             self._jitter_today = random.randint(-60, 60)
             self._jitter_date = today
