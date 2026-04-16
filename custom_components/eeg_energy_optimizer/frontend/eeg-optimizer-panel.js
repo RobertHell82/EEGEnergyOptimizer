@@ -1481,6 +1481,9 @@ class EegOptimizerPanel extends HTMLElement {
     }
 
     const community = d.community || "---";
+    const isBeg = community === "BEG";
+    const displayCommunity = (isBeg || community === "---") ? community : `EEG ${community}`;
+    const legendLabel = isBeg ? "Energiebedarf in der BEG" : "Energiebedarf in der EEG";
     const cacheAge = d.cache_age_minutes != null ? d.cache_age_minutes : null;
     const cacheText = cacheAge != null ? (cacheAge < 60 ? `vor ${cacheAge} Min` : `vor ${Math.round(cacheAge / 60)}h`) : "---";
     const plan = d.discharge_plan;
@@ -1609,15 +1612,15 @@ class EegOptimizerPanel extends HTMLElement {
 
     // Legend
     let legendHtml = `
-      <rect x="${width - 220}" y="6" width="10" height="10" fill="var(--primary-color, #03a9f4)" rx="2"/>
-      <text x="${width - 206}" y="14" font-size="11" fill="var(--primary-text-color)">Community-Bedarf</text>`;
+      <rect x="${width - 280}" y="6" width="10" height="10" fill="var(--primary-color, #03a9f4)" rx="2"/>
+      <text x="${width - 266}" y="14" font-size="11" fill="var(--primary-text-color)">${legendLabel}</text>`;
     if (plan) {
       legendHtml += `
       <rect x="${width - 100}" y="6" width="10" height="10" fill="#4CAF50" rx="2" fill-opacity="0.5"/>
       <text x="${width - 86}" y="14" font-size="11" fill="var(--primary-text-color)">Entladung</text>`;
     }
 
-    const chartTitle = `<div style="font-size:14px;font-weight:500;color:var(--primary-text-color);margin-bottom:4px">Energiebedarf ${community} <span style="font-weight:400;font-size:12px;color:var(--secondary-text-color)">(Quelle: PeakShare, ${cacheText})</span></div>`;
+    const chartTitle = `<div style="font-size:14px;font-weight:500;color:var(--primary-text-color);margin-bottom:4px">Energiebedarf ${displayCommunity} <span style="font-weight:400;font-size:12px;color:var(--secondary-text-color)">(Quelle: PeakShare, ${cacheText})</span></div>`;
     const chartHtml = `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${yLines}${yLabel}${areaFill}${windowArea}${lineEl}${dots}${xLabels}${legendHtml}</svg>`;
 
     return planHtml + `<div class="chart-card" style="margin-top:4px">${chartTitle}${chartHtml}</div>`;
@@ -2673,7 +2676,7 @@ class EegOptimizerPanel extends HTMLElement {
       if (communities.length === 0) return `<div class="help-text" style="margin-top:4px">Communities werden geladen...</div>`;
       const opts = communities.map(c => `<option value="${c}" ${c === selected ? "selected" : ""}>${c}</option>`).join("");
       return `<div class="field-group">
-          <label>Community</label>
+          <label>Deine Energiegemeinschaft</label>
           <select data-field="peakshare_community">${opts}</select>
           <div class="help-text">W\u00e4hle die Energiegemeinschaft, nach deren Bedarf der Entladezeitpunkt optimiert wird.</div>
         </div>`;
@@ -2855,7 +2858,7 @@ class EegOptimizerPanel extends HTMLElement {
         ${d.enable_night_discharge ? `
           ${d.enable_peakshare !== false ? `
             ${row("Modus", "PeakShare-Bedarfssteuerung")}
-            ${row("Community", d.peakshare_community || "BEG")}
+            ${row("Deine Energiegemeinschaft", d.peakshare_community || "BEG")}
           ` : `
             ${row("Startzeit", d.discharge_start_time)}
             ${row("Leistung", d.discharge_power_kw + " kW")}
@@ -2904,7 +2907,7 @@ class EegOptimizerPanel extends HTMLElement {
       if (communities.length === 0) return `<div class="help-text" style="margin-top:4px">Communities werden geladen...</div>`;
       const opts = communities.map(c => `<option value="${c}" ${c === selected ? "selected" : ""}>${c}</option>`).join("");
       return `<div class="field-group">
-          <label>Community</label>
+          <label>Deine Energiegemeinschaft</label>
           <select data-field="settings_peakshare_community">${opts}</select>
           <div class="help-text">W\u00e4hle die Energiegemeinschaft, nach deren Bedarf der Entladezeitpunkt optimiert wird.</div>
         </div>`;
@@ -4084,13 +4087,14 @@ class EegOptimizerPanel extends HTMLElement {
 
         ${this._config?.enable_peakshare !== false ? (() => {
           const psComm = this._config?.peakshare_community || "BEG";
+          const psDisplay = psComm === "BEG" ? "BEG" : `EEG ${psComm}`;
           return `
-        <!-- PeakShare Community-Bedarf (collapsible) -->
+        <!-- PeakShare Energiebedarf (collapsible) -->
         <div class="card">
           <div data-action="toggle-peakshare-data" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
             <h3 style="margin:0">
               <ha-icon icon="mdi:transmission-tower" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
-              Bedarf ${psComm}
+              Bedarf ${psDisplay}
             </h3>
             <ha-icon icon="mdi:chevron-${this._peakshareDataOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
           </div>
