@@ -1337,6 +1337,12 @@ class EegOptimizerPanel extends HTMLElement {
       await this._hass.callWS({ type: "eeg_optimizer/save_config", config: changed });
       // Update local config immediately (no full reload anymore)
       this._config = {...this._config, ...changed};
+      // Reload PeakShare data if community or enable_peakshare changed
+      if ("peakshare_community" in changed || "enable_peakshare" in changed) {
+        this._peakshareDataLoaded = false;
+        this._peakshareData = null;
+        if (this._peakshareDataOpen) this._loadPeakShareData();
+      }
       this._view = "dashboard";
       this._render();
     } catch (err) {
@@ -1611,14 +1617,10 @@ class EegOptimizerPanel extends HTMLElement {
       <text x="${width - 86}" y="14" font-size="11" fill="var(--primary-text-color)">Entladung</text>`;
     }
 
+    const chartTitle = `<div style="font-size:14px;font-weight:500;color:var(--primary-text-color);margin-bottom:4px">Energiebedarf ${community} <span style="font-weight:400;font-size:12px;color:var(--secondary-text-color)">(Quelle: PeakShare, ${cacheText})</span></div>`;
     const chartHtml = `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${yLines}${yLabel}${areaFill}${windowArea}${lineEl}${dots}${xLabels}${legendHtml}</svg>`;
 
-    const infoRow = `<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--secondary-text-color);margin-top:8px">
-      <span><strong>Community:</strong> ${community}</span>
-      <span><strong>Daten:</strong> ${cacheText}</span>
-    </div>`;
-
-    return planHtml + `<div class="chart-card" style="margin-top:4px">${chartHtml}</div>` + infoRow;
+    return planHtml + `<div class="chart-card" style="margin-top:4px">${chartTitle}${chartHtml}</div>`;
   }
 
   async _loadMoreActivity() {
@@ -4080,19 +4082,21 @@ class EegOptimizerPanel extends HTMLElement {
           ${this._profilOpen ? this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0) : ""}
         </div>
 
-        ${this._config?.enable_peakshare !== false ? `
+        ${this._config?.enable_peakshare !== false ? (() => {
+          const psComm = this._config?.peakshare_community || "BEG";
+          return `
         <!-- PeakShare Community-Bedarf (collapsible) -->
         <div class="card">
           <div data-action="toggle-peakshare-data" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
             <h3 style="margin:0">
               <ha-icon icon="mdi:transmission-tower" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
-              PeakShare Community-Bedarf
+              Bedarf ${psComm}
             </h3>
             <ha-icon icon="mdi:chevron-${this._peakshareDataOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
           </div>
           ${this._peakshareDataOpen ? this._renderPeakShareDashboard() : ""}
-        </div>
-        ` : ""}
+        </div>`;
+        })() : ""}
         `}
 
         <!-- Activity Timeline -->

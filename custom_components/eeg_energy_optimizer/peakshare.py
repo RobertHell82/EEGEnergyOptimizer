@@ -231,6 +231,10 @@ class PeakShareProvider:
                         else:
                             self._cache = data
                             self._cache_time = now
+                            # Invalidate discharge plan so it recalculates
+                            # with fresh data on next cycle
+                            self._discharge_plan = None
+                            self._discharge_plan_date = None
                             if self._store is not None:
                                 await self._store.async_save(
                                     {
@@ -296,21 +300,20 @@ class PeakShareProvider:
         sunset_time: datetime | None,
         now: datetime,
     ) -> tuple[datetime, datetime] | None:
-        """Compute discharge window once per day (locked by date string).
+        """Compute discharge window, recalculating when fresh API data arrives.
 
-        Calls ``find_discharge_window()`` only after sunset - 30min. Returns
+        The plan is date-locked: once computed for today, it is cached until
+        new API data invalidates it (see ``async_fetch``). Returns
         ``(start_time, end_time)`` or None.
         """
         today_str = now.strftime("%Y-%m-%d")
 
-        # Already computed today: return cached plan
+        # Already computed today (and not invalidated by fresh fetch):
+        # return cached plan
         if self._discharge_plan_date == today_str:
             return self._discharge_plan
 
-        # Too early: wait until sunset - 30min
         if sunset_time is None:
-            return None
-        if now < sunset_time - timedelta(minutes=30):
             return None
 
         # Find community data
