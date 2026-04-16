@@ -582,9 +582,14 @@ class EEGOptimizer:
             result["status"] = "aktiv"
             return result
 
-        # Not discharging: separate time-reason from condition-reasons
-        time_reasons = [r for r in discharge_reasons if "Startzeit" in r]
-        condition_reasons = [r for r in discharge_reasons if "Startzeit" not in r]
+        # Not discharging: separate time-reason from condition-reasons.
+        # Both fixed-time ("Startzeit ... noch nicht erreicht") and PeakShare
+        # ("PeakShare-Fenster ab ... noch nicht erreicht") count as time-reasons
+        # so the card shows "Geplant" (blue) instead of "Nicht geplant" (red).
+        def _is_time_reason(r: str) -> bool:
+            return "noch nicht erreicht" in r
+        time_reasons = [r for r in discharge_reasons if _is_time_reason(r)]
+        condition_reasons = [r for r in discharge_reasons if not _is_time_reason(r)]
 
         if not condition_reasons and time_reasons:
             # Only time is blocking -> planned

@@ -3313,13 +3313,17 @@ class EegOptimizerPanel extends HTMLElement {
       }
     } else if (dStatus === "nicht_geplant") {
       dColorClass = "red";
-      // Build reason text from reasons array
+      // Build reason text from reasons array — unknown reasons pass through verbatim
       const reasons = ma.discharge_reasons || [];
       let reasonParts = [];
       reasons.forEach(r => {
         if (r.includes("Nachtverbrauch")) reasonParts.push("Nachtverbrauch zu hoch");
         else if (r.includes("SOC")) reasonParts.push("SOC zu niedrig");
-        else if (r.includes("PV")) reasonParts.push("PV morgen nicht ausreichend");
+        else if (r.includes("PV-Prognose morgen")) reasonParts.push("PV morgen nicht ausreichend");
+        else if (r.includes("abgelaufen")) reasonParts.push("Entladefenster abgelaufen");
+        else if (r.includes("04:00")) reasonParts.push("Entladung endet um 04:00");
+        else if (r.includes("Netzbezug")) reasonParts.push("Netzbezug-Schutz aktiv");
+        else reasonParts.push(r);
       });
       const reasonText = reasonParts.length > 0 ? reasonParts.join(", ") : "Bedingungen nicht erfüllt";
       dIndicator = `\u2715 Nicht geplant \u2014 ${reasonText}`;
