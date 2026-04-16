@@ -75,6 +75,8 @@ const WIZARD_DEFAULTS = {
   solaredge_storage_charge_limit: "",
   solaredge_storage_discharge_limit: "",
   solaredge_storage_backup_reserve: "",
+  fronius_modbus_host: "",
+  fronius_modbus_port: 502,
   forecast_source: "solcast_solar",
   forecast_remaining_entity: "",
   forecast_tomorrow_entity: "",
@@ -91,8 +93,10 @@ const WIZARD_DEFAULTS = {
   morning_start_offset: 0,
   morning_end_time: "11:00",
   enable_night_discharge: true,
+  enable_peakshare: true,
+  peakshare_community: "BEG",
   discharge_start_time: "20:00",
-  discharge_power_kw: 3.0,
+  discharge_power_kw: 5.0,
   min_soc: 10,
   safety_buffer_pct: 25,
   expert_mode: false,
@@ -482,6 +486,73 @@ const DIALOG_CONTENT = {
         </tr>
       </table>`,
   },
+  fronius: {
+    title: "Fronius Gen24 einrichten",
+    content: `
+      <h3 style="margin:16px 0 8px">1. Fronius Integration in Home Assistant</h3>
+      <p style="margin-bottom:8px">Die native Fronius Integration wird f&uuml;r das Lesen der Sensoren (PV, Batterie, SOC, Netz) ben&ouml;tigt:</p>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Wird normalerweise <strong>automatisch via Auto-Discovery</strong> erkannt
+          <br><span style="color:var(--secondary-text-color)">Falls nicht: Einstellungen &rarr; Ger&auml;te &amp; Dienste &rarr; Integration hinzuf&uuml;gen &rarr; &ldquo;Fronius&rdquo;</span>
+        </li>
+        <li>IP-Adresse des Wechselrichters angeben</li>
+        <li>Die <strong>Solar API</strong> muss im Fronius Web-Interface aktiviert sein (Standard ab FW 1.14.1)</li>
+      </ol>
+
+      <h3 style="margin:16px 0 8px">2. Modbus TCP am Wechselrichter aktivieren</h3>
+      <p style="margin-bottom:8px">Der EEG Energy Optimizer steuert die Batterie &uuml;ber Modbus TCP (SunSpec Model 124). Daf&uuml;r muss Modbus am Wechselrichter aktiviert werden:</p>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Fronius Web-Interface &ouml;ffnen: <code>http://&lt;IP des Wechselrichters&gt;</code></li>
+        <li><strong>Communication &rarr; Modbus &rarr; Aktivieren</strong></li>
+        <li>Mode: <strong>TCP Server</strong></li>
+        <li>SunSpec Model Type: <strong>int + SF</strong>
+          <br><span style="color:var(--secondary-text-color)">Wichtig: Nicht &ldquo;float&rdquo; w&auml;hlen &mdash; die Register-Adressen unterscheiden sich!</span>
+        </li>
+        <li>Port: <strong>502</strong> (Standard)</li>
+        <li><strong>Allow Control via Modbus: EIN</strong>
+          <br><span style="color:var(--secondary-text-color)">Ohne diese Einstellung werden alle Schreibzugriffe abgelehnt!</span>
+        </li>
+      </ol>
+      <div style="background:var(--warning-color,#ff9800);color:#fff;padding:8px 12px;border-radius:8px;margin:12px 0;font-size:13px">
+        <strong>&#9888; Wichtig:</strong> Alle Scheduled (Dis)Charging Zeitpl&auml;ne im Web-Interface deaktivieren! Modbus und Web-Interface konkurrieren &mdash; der h&ouml;here Wert gewinnt.
+      </div>
+      <div style="background:var(--info-color,#2196f3);color:#fff;padding:8px 12px;border-radius:8px;margin:12px 0;font-size:13px">
+        <strong>&#9432; Hinweis:</strong> Der Wechselrichter beh&auml;lt Modbus-Einstellungen (z.B. Lade-/Entladesperre) auch nach einem Absturz oder Neustart des Optimizers bei, bis ein neuer Schreibbefehl kommt oder der Wechselrichter selbst neu gestartet wird. Im Normalbetrieb stellt der Optimizer den Ausgangszustand automatisch wieder her.
+      </div>
+
+      <h3 style="margin:16px 0 8px">3. Firmware</h3>
+      <ul style="padding-left:20px;line-height:1.8">
+        <li><strong>Minimum:</strong> >= 1.34.6-1</li>
+        <li><strong>Empfohlen:</strong> >= 1.40.0</li>
+      </ul>
+
+      <h3 style="margin:16px 0 8px">4. Pr&uuml;fen</h3>
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Unter <strong>Einstellungen &rarr; Integrationen</strong>: Fronius zeigt <strong>&ldquo;geladen&rdquo;</strong></li>
+        <li><strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: Suche nach <code>power_photovoltaics</code> und <code>state_of_charge</code></li>
+        <li>Kehre hierher zur&uuml;ck &mdash; die Sensoren werden automatisch erkannt</li>
+      </ol>
+
+      <h3 style="margin:16px 0 8px">H&auml;ufige Probleme</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Modbus Connection refused</strong></td>
+          <td style="padding:4px 8px">Modbus TCP nicht aktiviert oder &ldquo;Allow Control&rdquo; nicht EIN &rarr; Schritt 2 wiederholen</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Alle Werte 0 oder unsinnig</strong></td>
+          <td style="padding:4px 8px">Falscher SunSpec-Modus &rarr; &ldquo;int + SF&rdquo; statt &ldquo;float&rdquo; einstellen</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--divider-color)">
+          <td style="padding:4px 8px"><strong>Keine Fronius-Sensoren in HA</strong></td>
+          <td style="padding:4px 8px">Fronius Integration pr&uuml;fen: Solar API im Web-Interface aktiviert?</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 8px"><strong>Steuerung funktioniert manchmal nicht</strong></td>
+          <td style="padding:4px 8px">Scheduled Charging/Discharging im Web-Interface deaktivieren (konkurriert mit Modbus)</td>
+        </tr>
+      </table>`,
+  },
 };
 
 // Suppress HA-internal unhandled promise rejections that crash the panel
@@ -560,6 +631,8 @@ class EegOptimizerPanel extends HTMLElement {
     this._feedinStatsOpen = true;
     this._feedinStatsPeriod = "month";
     this._settingsData = {};
+    this._peakshareCommunitiesCache = [];
+    this._peakshareCommunitiesLoading = false;
     this._lastHassUpdate = Date.now();
 
     // Recover from network switches / long sleep when tab becomes visible
@@ -711,6 +784,9 @@ class EegOptimizerPanel extends HTMLElement {
           const type = target.type;
           if (type === "checkbox") {
             this._settingsData[realField] = target.checked;
+            if (realField === "enable_peakshare" && target.checked && this._peakshareCommunitiesCache.length === 0) {
+              this._loadPeakShareCommunities();
+            }
           } else if (type === "number") {
             let numVal = parseFloat(target.value) || 0;
             if (realField === "discharge_power_kw" && this._config?.inverter_type === "solaredge_storedge" && numVal < 5.0) {
@@ -740,6 +816,15 @@ class EegOptimizerPanel extends HTMLElement {
           this._render();
           return;
         }
+        if (field === "enable_peakshare") {
+          this._wizardData[field] = target.checked;
+          if (target.checked && this._peakshareCommunitiesCache.length === 0) {
+            this._loadPeakShareCommunities();
+          }
+          this._saveWizardProgress();
+          this._render();
+          return;
+        }
         if (target.tagName === "SELECT") {
           this._wizardData[field] = target.value;
           if (field === "forecast_source") {
@@ -762,6 +847,9 @@ class EegOptimizerPanel extends HTMLElement {
       case "open-settings":
         this._settingsData = {...this._config};
         this._view = "settings";
+        if (this._settingsData.enable_peakshare !== false && this._peakshareCommunitiesCache.length === 0) {
+          this._loadPeakShareCommunities();
+        }
         this._render();
         break;
       case "restart-wizard":
@@ -872,7 +960,7 @@ class EegOptimizerPanel extends HTMLElement {
       case "manual-discharge":
         this._executeManualAction("discharge", {
           type: "eeg_optimizer/manual_discharge",
-          power_kw: this._manualDischargeKw || this._config?.discharge_power_kw || 3.0,
+          power_kw: this._manualDischargeKw || this._config?.discharge_power_kw || 5.0,
           target_soc: this._manualDischargeSoc,
         });
         break;
@@ -1070,6 +1158,10 @@ class EegOptimizerPanel extends HTMLElement {
     if (step === 3) {
       await this._ensureEntityPicker();
     }
+    // Load PeakShare communities when entering step 4 with PeakShare enabled
+    if (step === 4 && this._wizardData.enable_peakshare !== false && this._peakshareCommunitiesCache.length === 0) {
+      this._loadPeakShareCommunities();
+    }
     this._render();
   }
 
@@ -1111,6 +1203,14 @@ class EegOptimizerPanel extends HTMLElement {
         }
         if (invType === "solaredge_storedge" && invP && !invP.solaredge_modbus_multi) {
           this._showValidationError("SolarEdge Modbus Multi Integration muss zuerst installiert werden.");
+          return false;
+        }
+        if (invType === "fronius_gen24" && invP && !invP.fronius) {
+          this._showValidationError("Fronius Integration nicht gefunden. Diese wird f\u00fcr die Sensoren ben\u00f6tigt. Klicke auf 'Anleitung' f\u00fcr Hilfe.");
+          return false;
+        }
+        if (invType === "fronius_gen24" && !this._wizardData.fronius_modbus_host) {
+          this._showValidationError("Bitte gib die Modbus IP-Adresse des Fronius Wechselrichters ein.");
           return false;
         }
         return true;
@@ -1323,6 +1423,22 @@ class EegOptimizerPanel extends HTMLElement {
     }
   }
 
+  async _loadPeakShareCommunities() {
+    if (!this._hass || this._peakshareCommunitiesLoading) return;
+    this._peakshareCommunitiesLoading = true;
+    try {
+      const result = await this._hass.callWS({
+        type: "eeg_optimizer/get_peakshare_communities",
+      });
+      this._peakshareCommunitiesCache = result?.communities || [];
+      this._render();
+    } catch (e) {
+      console.error("Failed to load PeakShare communities:", e);
+    } finally {
+      this._peakshareCommunitiesLoading = false;
+    }
+  }
+
   async _loadMoreActivity() {
     if (this._activityLoadingMore || !this._activityHasMore) return;
     this._activityLoadingMore = true;
@@ -1398,6 +1514,7 @@ class EegOptimizerPanel extends HTMLElement {
         p.huawei_solar && { key: "huawei_sun2000", label: "Huawei" },
         p.solax_modbus && { key: "solax_gen4", label: "SolaX" },
         p.solaredge_modbus_multi && { key: "solaredge_storedge", label: "SolarEdge" },
+        p.fronius && { key: "fronius_gen24", label: "Fronius" },
       ].filter(Boolean).sort((a, b) => a.label.localeCompare(b.label));
       if (detected.length > 0) {
         this._wizardData.inverter_type = detected[0].key;
@@ -1977,6 +2094,7 @@ class EegOptimizerPanel extends HTMLElement {
         <li>Huawei SUN2000 mit LUNA2000 Batteriespeicher</li>
         <li>SolaX Gen4+ mit Triple Power Batteriespeicher</li>
         <li>SolarEdge mit StorEdge Batteriespeicher (LG RESU, BYD, Energy Bank)</li>
+        <li>Fronius Gen24 mit BYD Batteriespeicher</li>
       </ul>`;
   }
 
@@ -1987,10 +2105,12 @@ class EegOptimizerPanel extends HTMLElement {
     const huaweiOk = p && p.huawei_solar;
     const solaxOk = p && p.solax_modbus;
     const solaredgeOk = p && p.solaredge_modbus_multi;
+    const froniusOk = p && p.fronius;
     const selected = this._wizardData.inverter_type || "";
     const huaweiSelected = selected === "huawei_sun2000";
     const solaxSelected = selected === "solax_gen4";
     const solaredgeSelected = selected === "solaredge_storedge";
+    const froniusSelected = selected === "fronius_gen24";
 
     const huaweiBadge = huaweiOk
       ? '<span class="status-badge installed">Installiert</span>'
@@ -2004,22 +2124,32 @@ class EegOptimizerPanel extends HTMLElement {
       ? '<span class="status-badge installed">Installiert</span>'
       : '<span class="status-badge missing">Nicht installiert</span>';
 
+    const froniusBadge = froniusOk
+      ? '<span class="status-badge installed">Installiert</span>'
+      : '<span class="status-badge missing">Nicht installiert</span>';
+
     const huaweiAutoDetect = "";
 
     const pvHelp = huaweiSelected
       ? "Aktuelle PV-Produktion in W oder kW (Huawei: sensor.inverter_eingangsleistung)."
       : solaredgeSelected
       ? "Aktuelle PV-Produktion in W (SolarEdge: sensor.solaredge_[i1_]ac_power)."
+      : froniusSelected
+      ? "Aktuelle PV-Produktion in W (Fronius: sensor.*_power_photovoltaics)."
       : "Aktuelle PV-Produktion in W (SolaX: sensor.solax_energy_dashboard_solax_solar_power).";
     const batteryHelp = huaweiSelected
       ? "Lade- und Entladeleistung der Batterie in W oder kW (Huawei: sensor.batteries_lade_entladeleistung)."
       : solaredgeSelected
       ? "Lade- und Entladeleistung der Batterie in W (SolarEdge: sensor.solaredge_[i1_]b1_dc_power)."
+      : froniusSelected
+      ? "Lade- und Entladeleistung der Batterie in W (Fronius: sensor.*_power_battery)."
       : "Lade- und Entladeleistung der Batterie in W (SolaX: sensor.solax_energy_dashboard_solax_battery_power).";
     const gridHelp = huaweiSelected
       ? "Wirkleistung am Netzanschluss in W oder kW (Huawei: sensor.power_meter_wirkleistung)."
       : solaredgeSelected
       ? "Wirkleistung am Netzanschluss in W (SolarEdge: sensor.solaredge_[i1_]m1_ac_power)."
+      : froniusSelected
+      ? "Wirkleistung am Netzanschluss in W (Fronius: sensor.*_power_grid)."
       : "Wirkleistung am Netzanschluss in W (SolaX: sensor.solax_energy_dashboard_solax_grid_power).";
 
     // Build inverter cards, sort: detected first (alphabetically), then undetected (alphabetically)
@@ -2030,6 +2160,8 @@ class EegOptimizerPanel extends HTMLElement {
         logo: `<span style="font-size:32px">SolaX</span>` },
       { key: "solaredge_storedge", label: "SolarEdge", subtitle: "StorEdge Batteriespeicher", detected: solaredgeOk, badge: solaredgeBadge, dialog: "solaredge",
         logo: `<img src="https://brands.home-assistant.io/_/solaredge/logo.png" alt="SolarEdge" style="max-width:120px;max-height:60px;height:auto" onerror="this.outerHTML='<span style=font-size:32px>SolarEdge</span>'">` },
+      { key: "fronius_gen24", label: "Fronius Gen24", subtitle: "mit BYD Batteriespeicher", detected: froniusOk, badge: froniusBadge, dialog: "fronius",
+        logo: `<img src="https://brands.home-assistant.io/fronius/logo.png" alt="Fronius" style="max-width:120px;max-height:60px;height:auto" onerror="this.outerHTML='<span style=font-size:32px>Fronius</span>'">` },
     ];
     inverterDefs.sort((a, b) => {
       if (a.detected !== b.detected) return a.detected ? -1 : 1;
@@ -2049,10 +2181,10 @@ class EegOptimizerPanel extends HTMLElement {
 
     return `
       <p style="margin-bottom:12px;color:var(--secondary-text-color)">Wähle deinen Wechselrichter-Typ:</p>
-      <div class="prereq-cards" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="prereq-cards" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));gap:16px;margin-bottom:16px">
         ${inverterCards}
       </div>
-      ${huaweiSelected || solaxSelected || solaredgeSelected ? `
+      ${huaweiSelected || solaxSelected || solaredgeSelected || froniusSelected ? `
       <div class="card" style="padding:16px;margin-bottom:16px">
         <h3 style="margin:0 0 4px">Hausverbrauch-Sensoren</h3>
         <p style="font-size:13px;color:var(--secondary-text-color);margin:0 0 12px">
@@ -2087,6 +2219,27 @@ class EegOptimizerPanel extends HTMLElement {
           "sensor"
         ) : ""}
       </div>
+      ${froniusSelected ? `
+      <div class="card" style="padding:16px;margin-bottom:16px">
+        <h3 style="margin:0 0 4px">Modbus TCP Verbindung</h3>
+        <p style="font-size:13px;color:var(--secondary-text-color);margin:0 0 12px">
+          IP-Adresse und Port f\u00fcr die direkte Modbus-Verbindung zum Wechselrichter (f\u00fcr Batterie-Steuerung).
+        </p>
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-weight:500;margin-bottom:4px">Modbus IP-Adresse *</label>
+          <input type="text" value="${this._wizardData.fronius_modbus_host || ""}"
+                 data-field="fronius_modbus_host" placeholder="z.B. 192.168.1.100"
+                 style="width:100%;padding:8px;border:1px solid var(--divider-color);border-radius:4px;background:var(--card-background-color);color:var(--primary-text-color)">
+          <div class="help-text">Die IP-Adresse des Fronius Wechselrichters (gleiche wie im Fronius Web-Interface).</div>
+        </div>
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-weight:500;margin-bottom:4px">Modbus Port</label>
+          <input type="number" value="${this._wizardData.fronius_modbus_port || 502}"
+                 data-field="fronius_modbus_port" min="1" max="65535"
+                 style="width:100%;padding:8px;border:1px solid var(--divider-color);border-radius:4px;background:var(--card-background-color);color:var(--primary-text-color)">
+          <div class="help-text">Standard: 502. Manche Installationen nutzen 1502.</div>
+        </div>
+      </div>` : ""}
       ` : ""}
       <button class="btn-secondary" data-action="recheck-prerequisites">Erneut prüfen</button>`;
   }
@@ -2329,8 +2482,29 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
       </div>` : "";
 
+    const peakshare = this._wizardData.enable_peakshare !== false;
+    const peakshareCommunitiesHtml = (() => {
+      const communities = this._peakshareCommunitiesCache || [];
+      const selected = this._wizardData.peakshare_community || "BEG";
+      if (communities.length === 0) return `<div class="help-text" style="margin-top:4px">Communities werden geladen...</div>`;
+      const opts = communities.map(c => `<option value="${c}" ${c === selected ? "selected" : ""}>${c}</option>`).join("");
+      return `<div class="field-group">
+          <label>Community</label>
+          <select data-field="peakshare_community">${opts}</select>
+          <div class="help-text">W\u00e4hle die Energiegemeinschaft, nach deren Bedarf der Entladezeitpunkt optimiert wird.</div>
+        </div>`;
+    })();
+
     const dischargeFields = nDischarge ? `
       <div class="feature-params">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px">
+          <input type="checkbox" data-field="enable_peakshare" ${peakshare ? "checked" : ""}>
+          <div>
+            <div style="font-weight:500">PeakShare-Bedarfssteuerung</div>
+            <div class="help-text" style="margin-top:2px">Entladezeitpunkt wird automatisch nach dem Bedarf der Energiegemeinschaft optimiert.</div>
+          </div>
+        </label>
+        ${peakshare ? peakshareCommunitiesHtml : `
         <div class="field-group">
           <label>Startzeit der Entladung</label>
           <input type="text" data-field="discharge_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
@@ -2343,7 +2517,7 @@ class EegOptimizerPanel extends HTMLElement {
                  value="${this._wizardData.discharge_power_kw}"
                  min="${this._wizardData.inverter_type === "solaredge_storedge" ? "5.0" : "0.5"}" max="10.0" step="0.5">
           <div class="help-text">Leistung der Batterieentladung ins Netz.${this._wizardData.inverter_type === "solaredge_storedge" ? " Bei SolarEdge min. 5 kW." : ""}</div>
-        </div>
+        </div>`}
         <div class="field-group">
           <label>Minimaler Ladezustand (%)</label>
           <input type="number" data-field="min_soc"
@@ -2377,7 +2551,7 @@ class EegOptimizerPanel extends HTMLElement {
           <div class="feature-card-header">
             <ha-icon icon="mdi:battery-arrow-down-outline"></ha-icon>
             <div class="feature-card-text">
-              <span class="feature-title">Nachteinspeisung</span>
+              <span class="feature-title">Abend-Entladung</span>
               <span class="feature-desc">Abends wird \u00fcbersch\u00fcssige Energie aus der Batterie ins Netz entladen. Jedoch nur wenn die Prognose des morgigen Tags so gut ist, dass die Batterie morgen wieder vollgeladen werden kann. Und nur so viel, dass man die Nacht auf Basis der bekannten Verbrauchsdaten trotzdem mit dem eigenen Strom auskommt.</span>
             </div>
             <div class="feature-badge ${nDischarge ? "on" : "off"}">${nDischarge ? "Aktiv" : "Aus"}</div>
@@ -2459,7 +2633,7 @@ class EegOptimizerPanel extends HTMLElement {
 
       <div class="summary-section">
         <h3>Wechselrichter</h3>
-        ${row("Typ", ({"huawei_sun2000": "Huawei SUN2000", "solax_gen4": "SolaX Gen4+", "solaredge_storedge": "SolarEdge StorEdge"})[d.inverter_type] || d.inverter_type)}
+        ${row("Typ", ({"huawei_sun2000": "Huawei SUN2000", "solax_gen4": "SolaX Gen4+", "solaredge_storedge": "SolarEdge StorEdge", "fronius_gen24": "Fronius Gen24"})[d.inverter_type] || d.inverter_type)}
       </div>
 
       <div class="summary-section">
@@ -2492,11 +2666,16 @@ class EegOptimizerPanel extends HTMLElement {
       </div>
 
       <div class="summary-section">
-        <h3>Nachteinspeisung</h3>
+        <h3>Abend-Entladung</h3>
         ${row("Status", d.enable_night_discharge ? "Aktiv" : "Deaktiviert")}
         ${d.enable_night_discharge ? `
-          ${row("Startzeit", d.discharge_start_time)}
-          ${row("Leistung", d.discharge_power_kw + " kW")}
+          ${d.enable_peakshare !== false ? `
+            ${row("Modus", "PeakShare-Bedarfssteuerung")}
+            ${row("Community", d.peakshare_community || "BEG")}
+          ` : `
+            ${row("Startzeit", d.discharge_start_time)}
+            ${row("Leistung", d.discharge_power_kw + " kW")}
+          `}
           ${row("Min SOC", d.min_soc + " %")}
         ` : ""}
       </div>
@@ -2534,8 +2713,29 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
       </div>` : "";
 
+    const settingsPeakshare = d.enable_peakshare !== false;
+    const settingsPeakshareCommunitiesHtml = (() => {
+      const communities = this._peakshareCommunitiesCache || [];
+      const selected = d.peakshare_community || "BEG";
+      if (communities.length === 0) return `<div class="help-text" style="margin-top:4px">Communities werden geladen...</div>`;
+      const opts = communities.map(c => `<option value="${c}" ${c === selected ? "selected" : ""}>${c}</option>`).join("");
+      return `<div class="field-group">
+          <label>Community</label>
+          <select data-field="settings_peakshare_community">${opts}</select>
+          <div class="help-text">W\u00e4hle die Energiegemeinschaft, nach deren Bedarf der Entladezeitpunkt optimiert wird.</div>
+        </div>`;
+    })();
+
     const dischargeFields = nDischarge ? `
       <div class="feature-params">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px">
+          <input type="checkbox" data-field="settings_enable_peakshare" ${settingsPeakshare ? "checked" : ""}>
+          <div>
+            <div style="font-weight:500">PeakShare-Bedarfssteuerung</div>
+            <div class="help-text" style="margin-top:2px">Entladezeitpunkt wird automatisch nach dem Bedarf der Energiegemeinschaft optimiert.</div>
+          </div>
+        </label>
+        ${settingsPeakshare ? settingsPeakshareCommunitiesHtml : `
         <div class="field-group">
           <label>Startzeit der Entladung</label>
           <input type="text" data-field="settings_discharge_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
@@ -2545,10 +2745,10 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="field-group">
           <label>Entladeleistung (kW)</label>
           <input type="number" data-field="settings_discharge_power_kw"
-                 value="${d.discharge_power_kw || 3.0}"
+                 value="${d.discharge_power_kw || 5.0}"
                  min="${d.inverter_type === "solaredge_storedge" ? "5.0" : "0.5"}" max="10.0" step="0.5">
           <div class="help-text">Leistung der Batterieentladung ins Netz.${d.inverter_type === "solaredge_storedge" ? " Bei SolarEdge min. 5 kW." : ""}</div>
-        </div>
+        </div>`}
         <div class="field-group">
           <label>Minimaler Ladezustand (%)</label>
           <input type="number" data-field="settings_min_soc"
@@ -2598,7 +2798,7 @@ class EegOptimizerPanel extends HTMLElement {
               <div class="feature-card-header">
                 <ha-icon icon="mdi:battery-arrow-down-outline"></ha-icon>
                 <div class="feature-card-text">
-                  <span class="feature-title">Nachteinspeisung</span>
+                  <span class="feature-title">Abend-Entladung</span>
                   <span class="feature-desc">Abends wird \u00fcbersch\u00fcssige Energie aus der Batterie ins Netz entladen.</span>
                 </div>
                 <div class="feature-badge ${nDischarge ? "on" : "off"}">${nDischarge ? "Aktiv" : "Aus"}</div>
@@ -2679,12 +2879,13 @@ class EegOptimizerPanel extends HTMLElement {
         <p>Der Stromverbrauch wird anhand des durchschnittlichen Verbrauchs desselben Wochentags der letzten Wochen berechnet (konfigurierbar, Standard: 4 Wochen).</p>
         <p>Reicht die PV-Prognose nicht aus, um den Gesamtbedarf zu decken, wird die Batterie sofort geladen \u2014 damit der Haushalt bis zum Abend versorgt ist.</p>`
     } : {
-      title: "Abend-Entladung (Nachteinspeisung)",
+      title: "Abend-Entladung",
       image: "/eeg_optimizer_panel/evening-discharge.svg",
       content: `
         <p>Speist unter Tags gewonnene Energie, die der eigene Haushalt nicht ben\u00f6tigt, um \u00fcber die Nacht zu kommen, in die Energiegemeinschaft ein. So steht Strom zu einem Zeitpunkt zur Verf\u00fcgung, an dem ansonsten keine PV-Erzeugung im Netz vorhanden ist.</p>
         <strong>Funktionsweise</strong>
-        <p>Ab der konfigurierten Startzeit (Standard: 20:00 Uhr) wird die Batterie mit einstellbarer Leistung entladen, bis der dynamisch berechnete Ziel-SOC erreicht ist.</p>
+        <p>Im PeakShare-Modus wird der Entladezeitpunkt automatisch nach dem Bedarf der Energiegemeinschaft optimiert. Ohne PeakShare wird ab der konfigurierten festen Startzeit entladen.</p>
+        <p>Die Batterie wird mit einstellbarer Leistung entladen, bis der dynamisch berechnete Ziel-SOC erreicht ist.</p>
         <strong>Der Ziel-SOC ergibt sich aus</strong>
         <ul>
           <li>Konfigurierter Mindest-SOC der Batterie</li>
@@ -2859,11 +3060,19 @@ class EegOptimizerPanel extends HTMLElement {
       dColorClass = "green";
       const pw = ma.discharge_power_kw != null ? Number(ma.discharge_power_kw).toFixed(1) : "---";
       const minSoc = ma.discharge_min_soc != null ? Math.round(Number(ma.discharge_min_soc)) : "---";
-      dIndicator = `\u25CF AKTIV \u2014 ${pw} kW Entladung bis ${minSoc}% SOC`;
+      if (ma.discharge_peakshare_active && ma.discharge_window_end) {
+        dIndicator = `\u25CF AKTIV \u2014 ${pw} kW bis ${ma.discharge_window_end} / ${minSoc}% SOC (PeakShare)`;
+      } else {
+        dIndicator = `\u25CF AKTIV \u2014 ${pw} kW Entladung bis ${minSoc}% SOC`;
+      }
     } else if (dStatus === "geplant") {
       dColorClass = "blue";
       const minSoc = ma.discharge_min_soc != null ? Math.round(Number(ma.discharge_min_soc)) : "---";
-      dIndicator = `\u25CB Geplant ab ${ma.discharge_start_time || ""} bis ${minSoc}% SOC`;
+      if (ma.discharge_peakshare_active && ma.discharge_window_start) {
+        dIndicator = `\u25CB Geplant ${ma.discharge_window_start}-${ma.discharge_window_end} bis ${minSoc}% SOC (PeakShare)`;
+      } else {
+        dIndicator = `\u25CB Geplant ab ${ma.discharge_start_time || ""} bis ${minSoc}% SOC`;
+      }
     } else if (dStatus === "nicht_geplant") {
       dColorClass = "red";
       // Build reason text from reasons array
@@ -3768,7 +3977,7 @@ class EegOptimizerPanel extends HTMLElement {
               <label style="font-size:14px;display:flex;align-items:center;gap:6px">
                 Leistung:
                 <input type="number" data-field="manual_discharge_kw" min="0.5" max="12" step="0.5"
-                  value="${this._manualDischargeKw || this._config?.discharge_power_kw || 3.0}"
+                  value="${this._manualDischargeKw || this._config?.discharge_power_kw || 5.0}"
                   style="width:70px;border-radius:8px;border:1px solid var(--divider-color);padding:8px;background:var(--card-background-color);color:var(--primary-text-color);font-size:14px"> kW
               </label>
               <label style="font-size:14px;display:flex;align-items:center;gap:6px">

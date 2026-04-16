@@ -34,7 +34,7 @@ optimizer.py: async_run_cycle(mode)
         - PV forecast > demand * (1 + safety_buffer%)
      3. _should_discharge() — evening discharge check:
         - Feature enabled
-        - Time >= discharge_start and < 04:00
+        - PeakShare mode: time within computed optimal window (or fixed start time fallback)
         - SOC > dynamic min_soc (+ hysteresis on reactivation)
         - PV tomorrow >= tomorrow_demand
      4. State: Morgen-Einspeisung / Abend-Entladung / Normal
@@ -52,9 +52,11 @@ optimizer.py: async_run_cycle(mode)
 | `coordinator.py` | Loads hourly consumption averages from recorder (rolling, weekday split) |
 | `forecast_provider.py` | Abstract PV forecast provider — Solcast and Forecast.Solar implementations |
 | `config_flow.py` | Single-click config flow (full setup happens in panel) |
-| `websocket_api.py` | 13 WebSocket commands for panel (config, sensors, inverter control, activity log, feed-in statistics) |
+| `peakshare.py` | PeakShareProvider — fetches + caches PeakShare API data, sliding window algorithm for optimal discharge window |
+| `websocket_api.py` | 14 WebSocket commands for panel (config, sensors, inverter control, activity log, feed-in statistics, PeakShare communities) |
 | `inverter/base.py` | Abstract inverter interface (InverterBase ABC) |
 | `inverter/huawei.py` | Huawei SUN2000 implementation via HA services |
+| `inverter/fronius.py` | Fronius Gen24 implementation via direct Modbus TCP (SunSpec Model 124) |
 | `inverter/solax.py` | SolaX Gen4+ implementation via solax_modbus Mode 1 |
 | `inverter/solaredge.py` | SolarEdge StorEdge implementation via solaredge-modbus-multi |
 | `inverter/__init__.py` | Factory function `create_inverter()` |
@@ -113,6 +115,7 @@ optimizer.py: async_run_cycle(mode)
 | `eeg_optimizer/clear_test_overrides` | Clear simulation overrides |
 | `eeg_optimizer/get_activity_log` | Paginated activity log (offset, limit) |
 | `eeg_optimizer/get_feedin_statistics` | Feed-in statistics (days=0 for all data, includes daily + period summaries) |
+| `eeg_optimizer/get_peakshare_communities` | List of PeakShare community names for dropdown |
 
 ### Inverter Abstraction
 
@@ -125,6 +128,7 @@ InverterBase (ABC)
 
 Implementations:
   ├── HuaweiInverter — via HA huawei_solar services
+  ├── FroniusInverter — via direct Modbus TCP (SunSpec Model 124, pymodbus)
   ├── SolarEdgeInverter — via HA solaredge_modbus_multi StorEdge
   └── SolaXInverter — via HA solax_modbus Mode 1
 ```
@@ -135,6 +139,7 @@ Implementations:
 - **sun** — sunrise/sunset calculations
 - **http**, **frontend**, **websocket_api** — onboarding panel
 - **huawei_solar** (after_dependency) — Huawei inverter control
+- **fronius** (after_dependency) — Fronius sensor data via Solar API
 - **solax_modbus** (after_dependency) — SolaX inverter control
 - **solaredge_modbus_multi** (after_dependency) — SolarEdge inverter control
 - **solcast_solar**, **forecast_solar** (after_dependency) — PV forecasts
@@ -142,7 +147,7 @@ Implementations:
 ## Key Domain Concepts
 
 - **Morgen-Einspeisung** (Morning Feed-in): Prevents battery from charging during morning hours so PV surplus feeds into the grid when the EEG community needs it most. Active when PV forecast exceeds demand + safety buffer.
-- **Evening Discharge**: Discharges battery into grid during evening hours when community demand is high. Requires: sufficient SOC above dynamic min-SOC, and tomorrow's PV forecast covers tomorrow's demand. Hard cutoff at 04:00 — discharge stops regardless of other conditions.
+- **Evening Discharge (Abend-Entladung)**: Discharges battery into grid during evening hours when community demand is high. With PeakShare enabled, the discharge window is automatically optimized based on community grid import forecasts (sliding window algorithm finds the contiguous block with highest demand). Without PeakShare, a fixed start time is used. Requires: sufficient SOC above dynamic min-SOC, and tomorrow's PV forecast covers tomorrow's demand. Hard cutoff at 04:00 — discharge stops regardless of other conditions.
 - **Dynamic Min-SOC**: base_min_soc + ceil((overnight_consumption * (1 + buffer%) / capacity) * 100) — ensures enough energy for overnight household consumption.
 - **Safety Buffer** (`safety_buffer_pct`, default 25%): Applied to both morning blocking threshold and overnight consumption reserve.
 - **Hysteresis** (anti-oscillation): Tracks whether a state (Morgen-Einspeisung or Abend-Entladung) was already active on the current day. If a state was active and then deactivated, stricter thresholds apply for reactivation: evening discharge requires SOC > min_soc + 3% (instead of > min_soc), morning feed-in requires PV > demand × 1.1 (instead of > demand). While a state remains continuously active, normal thresholds apply.
@@ -161,7 +166,7 @@ The config flow is a single-click setup that creates a config entry with `setup_
 6. Inverter connection test
 7. Live dashboard with energy flow, charts, manual controls, activity log
 
-Config entry version: 10 (migrations in `__init__.py`)
+Config entry version: 12 (migrations in `__init__.py`)
 
 ## Development Notes
 
