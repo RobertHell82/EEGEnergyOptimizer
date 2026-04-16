@@ -669,7 +669,8 @@ class EegOptimizerPanel extends HTMLElement {
           const wrapRect = wrapper.getBoundingClientRect();
           const inWin = dot.dataset.inWindow === "1";
           const badge = inWin ? ` <span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:8px;background:#4CAF50;color:#fff;font-size:10px;font-weight:500">Entladung</span>` : "";
-          tt.innerHTML = `<div style="font-weight:600;margin-bottom:2px">${dot.dataset.hour}${badge}</div><div style="color:var(--secondary-text-color)">Bedarf: <strong style="color:var(--primary-text-color)">${dot.dataset.deficit} kWh</strong></div>`;
+          const dayLine = dot.dataset.day ? `<div style="color:var(--secondary-text-color);font-size:11px;margin-bottom:2px">${dot.dataset.day}</div>` : "";
+          tt.innerHTML = `${dayLine}<div style="font-weight:600;margin-bottom:2px">${dot.dataset.hour}${badge}</div><div style="color:var(--secondary-text-color)">Bedarf: <strong style="color:var(--primary-text-color)">${dot.dataset.deficit} kWh</strong></div>`;
           tt.style.display = "block";
           tt.style.left = `${dotRect.left - wrapRect.left + dotRect.width / 2}px`;
           tt.style.top = `${dotRect.top - wrapRect.top - 8}px`;
@@ -1528,7 +1529,7 @@ class EegOptimizerPanel extends HTMLElement {
     const hours = d.hours.filter(h => h.timestamp && h.deficitKwh != null);
     if (hours.length === 0) return planHtml + `<p style="color:var(--secondary-text-color);font-size:13px">Keine Stundendaten vorhanden</p>`;
 
-    const width = 700, height = 280, padding = {top: 25, right: 20, bottom: 40, left: 55};
+    const width = 700, height = 300, padding = {top: 25, right: 20, bottom: 58, left: 55};
     const chartW = width - padding.left - padding.right;
     const chartH = height - padding.top - padding.bottom;
     const values = hours.map(h => Math.max(0, h.deficitKwh));
@@ -1559,10 +1560,14 @@ class EegOptimizerPanel extends HTMLElement {
     };
 
     // Build line points
+    const _fmtDay = (dt) => dt.toLocaleDateString("de-DE", {weekday: "short", day: "2-digit", month: "2-digit"});
+    const _fmtDayShort = (dt) => dt.toLocaleDateString("de-DE", {day: "2-digit", month: "2-digit"});
+    const _dayKey = (dt) => `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
     const points = hours.map((h, i) => {
       const x = padding.left + (i / Math.max(hours.length - 1, 1)) * chartW;
       const y = padding.top + chartH - (values[i] / maxVal) * chartH;
-      return {x, y, hour: new Date(h.timestamp).getHours(), min: _hourMin(h), deficit: values[i]};
+      const dt = new Date(h.timestamp);
+      return {x, y, hour: dt.getHours(), min: _hourMin(h), deficit: values[i], dayLabel: _fmtDay(dt), dayShort: _fmtDayShort(dt), dayKey: _dayKey(dt)};
     });
 
     // Discharge window highlight area (green shaded region behind the line)
@@ -1608,17 +1613,39 @@ class EegOptimizerPanel extends HTMLElement {
       const hourStr = `${String(p.hour).padStart(2, "0")}:00`;
       const color = _inPlanWindow(p.min) ? "#4CAF50" : "var(--primary-color, #03a9f4)";
       const inWindow = _inPlanWindow(p.min) ? "1" : "0";
-      dots += `<circle class="ps-dot" cx="${p.x}" cy="${p.y}" r="4" fill="${color}" stroke="var(--card-background-color,#fff)" stroke-width="1.5" data-hour="${hourStr}" data-deficit="${p.deficit.toFixed(0)}" data-in-window="${inWindow}" style="cursor:pointer"></circle>`;
-      dots += `<circle class="ps-dot-hit" cx="${p.x}" cy="${p.y}" r="12" fill="transparent" data-hour="${hourStr}" data-deficit="${p.deficit.toFixed(0)}" data-in-window="${inWindow}" style="cursor:pointer"></circle>`;
+      dots += `<circle class="ps-dot" cx="${p.x}" cy="${p.y}" r="4" fill="${color}" stroke="var(--card-background-color,#fff)" stroke-width="1.5" data-hour="${hourStr}" data-deficit="${p.deficit.toFixed(0)}" data-in-window="${inWindow}" data-day="${p.dayLabel}" style="cursor:pointer"></circle>`;
+      dots += `<circle class="ps-dot-hit" cx="${p.x}" cy="${p.y}" r="12" fill="transparent" data-hour="${hourStr}" data-deficit="${p.deficit.toFixed(0)}" data-in-window="${inWindow}" data-day="${p.dayLabel}" style="cursor:pointer"></circle>`;
     });
 
-    // X-axis labels
+    // Day change marker at midnight (vertical dotted line + date label above)
+    let dayMarkers = "";
+    for (let i = 1; i < points.length; i++) {
+      if (points[i].dayKey !== points[i - 1].dayKey) {
+        const mx = (points[i - 1].x + points[i].x) / 2;
+        dayMarkers += `<line x1="${mx}" y1="${padding.top + 4}" x2="${mx}" y2="${padding.top + chartH}" stroke="var(--secondary-text-color)" stroke-opacity="0.35" stroke-width="1" stroke-dasharray="2,3"/>`;
+      }
+    }
+
+    // X-axis labels (hour + per-day row below)
     let xLabels = "";
     const labelEvery = hours.length > 16 ? 3 : 2;
     points.forEach((p, i) => {
       if (i % labelEvery === 0) {
-        xLabels += `<text x="${p.x}" y="${height - 10}" text-anchor="middle" font-size="10" fill="var(--secondary-text-color)">${String(p.hour).padStart(2, "0")}:00</text>`;
+        xLabels += `<text x="${p.x}" y="${padding.top + chartH + 14}" text-anchor="middle" font-size="10" fill="var(--secondary-text-color)">${String(p.hour).padStart(2, "0")}:00</text>`;
       }
+    });
+    // Per-day labels centered under each day's span
+    const dayRanges = [];
+    let curStart = 0;
+    for (let i = 1; i <= points.length; i++) {
+      if (i === points.length || points[i].dayKey !== points[curStart].dayKey) {
+        dayRanges.push({start: curStart, end: i - 1, label: points[curStart].dayLabel});
+        curStart = i;
+      }
+    }
+    dayRanges.forEach(r => {
+      const mx = (points[r.start].x + points[r.end].x) / 2;
+      xLabels += `<text x="${mx}" y="${padding.top + chartH + 30}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)" font-weight="500">${r.label}</text>`;
     });
 
     // Y-axis grid
@@ -1644,7 +1671,7 @@ class EegOptimizerPanel extends HTMLElement {
     }
 
     const chartTitle = `<div style="font-size:14px;font-weight:500;color:var(--primary-text-color);margin-bottom:4px">Energiebedarf ${displayCommunity} <span style="font-weight:400;font-size:12px;color:var(--secondary-text-color)">(Quelle: PeakShare, ${cacheText})</span></div>`;
-    const chartHtml = `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;overflow:visible">${yLines}${yLabel}${areaFill}${windowArea}${lineEl}${dots}${xLabels}${legendHtml}</svg>`;
+    const chartHtml = `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;overflow:visible">${yLines}${yLabel}${areaFill}${windowArea}${dayMarkers}${lineEl}${dots}${xLabels}${legendHtml}</svg>`;
     const tooltipHtml = `<div class="ps-tooltip" style="position:absolute;display:none;pointer-events:none;background:var(--card-background-color,#fff);color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,0.18);transform:translate(-50%,-100%);white-space:nowrap;z-index:10"></div>`;
 
     return planHtml + `<div class="chart-card ps-chart-card" style="margin-top:4px;position:relative">${chartTitle}${chartHtml}${tooltipHtml}</div>`;
