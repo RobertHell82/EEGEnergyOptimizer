@@ -6,10 +6,11 @@ HACS-kompatible Home Assistant Integration für vorausschauendes Batteriemanagem
 
 - **Morgen-Einspeisung** — blockiert die Batterieladung, damit PV-Überschüsse ins EEG-Netz eingespeist werden
 - **Abend-Entladung** — entlädt die Batterie während der Spitzenverbrauchszeiten der Gemeinschaft
+- **PeakShare-Integration** — optimiert das Entladefenster automatisch nach dem realen Bedarf deiner EEG-Community (Sliding-Window über Community-Bedarfsprognose)
 - **Dynamischer Min-SOC** — reserviert automatisch genug Batterie für den Nachtverbrauch des Haushalts
 - **PV-Prognose** — Solcast Solar und Forecast.Solar Unterstützung mit 7-Tage-Ausblick
 - **Verbrauchsprofil** — lernt stündliche Verbrauchsmuster pro Wochentag aus den HA-Recorder-Daten
-- **Live-Dashboard** — Sidebar-Panel mit Energiefluss, Diagrammen, manueller Wechselrichtersteuerung und Aktivitätsprotokoll
+- **Live-Dashboard** — Sidebar-Panel mit Energiefluss, Diagrammen, PeakShare-Bedarfskurve, manueller Wechselrichtersteuerung und Aktivitätsprotokoll
 - **Einrichtungsassistent** — schrittweises Onboarding mit automatischer Sensorerkennung
 
 ## Unterstützte Wechselrichter
@@ -45,7 +46,8 @@ Das Sidebar-Panel (`/eeg-optimizer`) führt durch die Einrichtung:
 3. Batterie- & PV-Sensoren zuordnen
 4. Prognosequelle wählen (Solcast / Forecast.Solar)
 5. Optimizer-Einstellungen (Morgenfenster, Entladezeit, Min-SOC, Sicherheitspuffer)
-6. Wechselrichter-Verbindungstest
+6. PeakShare-Community wählen (optional — aktiviert das dynamische Entladefenster)
+7. Wechselrichter-Verbindungstest
 
 ## Funktionsweise
 
@@ -72,7 +74,11 @@ Reicht die PV-Prognose nicht aus, um den Gesamtbedarf zu decken, wird die Batter
 
 Die Abend-Entladung speist unter Tags gewonnene Energie, die der eigene Haushalt nicht benötigt, um über die Nacht zu kommen, in die Energiegemeinschaft ein. So steht Strom zu einem Zeitpunkt zur Verfügung, an dem ansonsten keine PV-Erzeugung im Netz vorhanden ist.
 
-**Funktionsweise:** Ab der konfigurierten Startzeit (Standard: 20:00 Uhr) wird die Batterie mit einstellbarer Leistung entladen, bis der dynamisch berechnete Ziel-SOC erreicht ist. Die Entladung endet spätestens um 04:00 Uhr.
+**Funktionsweise:** Die Batterie wird mit einstellbarer Leistung entladen, bis der dynamisch berechnete Ziel-SOC erreicht ist. Die Entladung endet spätestens um 04:00 Uhr.
+
+Der Startzeitpunkt richtet sich nach dem gewählten Modus:
+- **Mit PeakShare (empfohlen):** Das Entladefenster wird automatisch anhand der Bedarfsprognose der EEG-Community berechnet (Sliding-Window-Algorithmus findet den Zeitblock mit dem höchsten Gemeinschaftsbedarf)
+- **Ohne PeakShare:** Feste Startzeit (Standard: 20:00 Uhr)
 
 **Der Ziel-SOC ergibt sich aus:**
 - Konfigurierter Mindest-SOC der Batterie

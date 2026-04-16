@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**EEG Energy Optimizer** (v0.7.5) — a Home Assistant custom integration for grid-friendly battery management, optimized for energy communities (Energiegemeinschaften / EEG) in the DACH region. It controls when a PV battery charges and discharges to maximize feed-in during EEG-relevant time windows (mornings and evenings).
+**EEG Energy Optimizer** (v1.0.5) — a Home Assistant custom integration for grid-friendly battery management, optimized for energy communities (Energiegemeinschaften / EEG) in the DACH region. It controls when a PV battery charges and discharges to maximize feed-in during EEG-relevant time windows (mornings and evenings).
 
 **Language**: Python (async, Home Assistant framework) + plain JS (panel)
 **Distribution**: HACS-compatible repository structure
@@ -48,12 +48,12 @@ optimizer.py: async_run_cycle(mode)
 | `__init__.py` | Entry setup, 30s optimizer timer, activity log, feed-in statistics, panel registration, config migration |
 | `optimizer.py` | Decision engine — Snapshot/Decision dataclasses, Morgen-Einspeisung, discharge logic |
 | `statistics.py` | Feed-in statistics tracker — tracks grid export kWh, session count & duration during active states |
-| `sensor.py` | 16 sensors: consumption profile, forecasts, battery, PV, Hausverbrauch, decision, feed-in energy |
+| `sensor.py` | 20 sensors: consumption profile, forecasts, battery, PV, Hausverbrauch, power flows, register writes, decision, feed-in energy |
 | `coordinator.py` | Loads hourly consumption averages from recorder (rolling, weekday split) |
 | `forecast_provider.py` | Abstract PV forecast provider — Solcast and Forecast.Solar implementations |
 | `config_flow.py` | Single-click config flow (full setup happens in panel) |
 | `peakshare.py` | PeakShareProvider — fetches + caches PeakShare API data, sliding window algorithm for optimal discharge window |
-| `websocket_api.py` | 14 WebSocket commands for panel (config, sensors, inverter control, activity log, feed-in statistics, PeakShare communities) |
+| `websocket_api.py` | 15 WebSocket commands for panel (config, sensors, inverter control, activity log, feed-in statistics, PeakShare communities & data) |
 | `inverter/base.py` | Abstract inverter interface (InverterBase ABC) |
 | `inverter/huawei.py` | Huawei SUN2000 implementation via HA services |
 | `inverter/fronius.py` | Fronius Gen24 implementation via direct Modbus TCP (SunSpec Model 124) |
@@ -64,7 +64,7 @@ optimizer.py: async_run_cycle(mode)
 | `const.py` | All constants, defaults, mode enums, state names |
 | `frontend/eeg-optimizer-panel.js` | Dashboard + onboarding panel (plain HTMLElement, Shadow DOM) |
 
-### Sensors (16 total)
+### Sensors (20 total)
 
 | # | Sensor | Update | Description |
 |---|--------|--------|-------------|
@@ -75,9 +75,13 @@ optimizer.py: async_run_cycle(mode)
 | 11 | PV-Prognose heute | fast | Remaining PV today from forecast provider |
 | 12 | PV-Prognose morgen | fast | PV forecast tomorrow |
 | 13 | Hausverbrauch | fast | Calculated: PV - Battery - Grid (kW, MEASUREMENT) |
-| 14 | Entscheidung | 30s | Current optimizer state + Markdown dashboard |
-| 15 | Morgen-Einspeisung Energie heute | fast | Grid feed-in kWh during Morgen-Einspeisung (TOTAL, resets daily) |
-| 16 | Abend-Entladung Energie heute | fast | Grid feed-in kWh during evening discharge (TOTAL, resets daily) |
+| 14 | PV-Leistung | fast | Current PV production (kW, MEASUREMENT) |
+| 15 | Netzleistung | fast | Current grid power — positive = import, negative = export (kW, MEASUREMENT) |
+| 16 | Batterieleistung | fast | Current battery power — positive = charge, negative = discharge (kW, MEASUREMENT) |
+| 17 | Register-Writes | fast | Cumulative inverter Modbus write counter (used for SolarEdge NVRAM monitoring) |
+| 18 | Entscheidung | 30s | Current optimizer state + Markdown dashboard |
+| 19 | Morgen-Einspeisung Energie heute | fast | Grid feed-in kWh during Morgen-Einspeisung (TOTAL, resets daily) |
+| 20 | Abend-Entladung Energie heute | fast | Grid feed-in kWh during evening discharge (TOTAL, resets daily) |
 
 ### Select Entity
 
@@ -93,12 +97,12 @@ optimizer.py: async_run_cycle(mode)
 
 ### Activity Log
 
-- **Ring buffer**: 2500 entries (`collections.deque`), persisted via `homeassistant.helpers.storage.Store`
+- **Ring buffer**: 5000 entries (`collections.deque`), persisted via `homeassistant.helpers.storage.Store`
 - **Logging**: At full hours (:00) as heartbeat + on every state change
 - **API**: Paginated WebSocket endpoint (`get_activity_log` with `offset`/`limit`)
 - **Frontend**: Loads 100 entries initially, "Mehr laden" fetches 100 more per click, live events via subscription
 
-### WebSocket API (13 commands)
+### WebSocket API (15 commands)
 
 | Command | Description |
 |---------|-------------|
@@ -116,6 +120,7 @@ optimizer.py: async_run_cycle(mode)
 | `eeg_optimizer/get_activity_log` | Paginated activity log (offset, limit) |
 | `eeg_optimizer/get_feedin_statistics` | Feed-in statistics (days=0 for all data, includes daily + period summaries) |
 | `eeg_optimizer/get_peakshare_communities` | List of PeakShare community names for dropdown |
+| `eeg_optimizer/get_peakshare_data` | PeakShare community demand forecast + optimal discharge window |
 
 ### Inverter Abstraction
 
