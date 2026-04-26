@@ -189,7 +189,7 @@ class TestShouldDischarge:
             consumption_tomorrow_kwh=12.0,
             consumption_overnight_kwh=3.0,
         )
-        should, min_soc, reasons = opt._should_discharge(snap)
+        should, min_soc, reasons, _ = opt._should_discharge(snap)
         assert should is True
         assert len(reasons) == 0
 
@@ -205,7 +205,7 @@ class TestShouldDischarge:
             consumption_tomorrow_kwh=12.0,
             consumption_overnight_kwh=3.0,
         )
-        should, min_soc, reasons = opt._should_discharge(snap)
+        should, min_soc, reasons, _ = opt._should_discharge(snap)
         assert should is False
         assert any("SOC" in r for r in reasons)
 
@@ -222,7 +222,7 @@ class TestShouldDischarge:
             consumption_tomorrow_kwh=12.0,
             consumption_overnight_kwh=3.0,
         )
-        should, min_soc, reasons = opt._should_discharge(snap)
+        should, min_soc, reasons, _ = opt._should_discharge(snap)
         assert should is False
         assert any("morgen" in r.lower() or "prognose" in r.lower() for r in reasons)
 
@@ -236,7 +236,7 @@ class TestShouldDischarge:
             pv_tomorrow_kwh=40.0,
             consumption_tomorrow_kwh=12.0,
         )
-        should, min_soc, reasons = opt._should_discharge(snap)
+        should, min_soc, reasons, _ = opt._should_discharge(snap)
         assert should is False
         assert any("zeit" in r.lower() or "uhrzeit" in r.lower() or "start" in r.lower() for r in reasons)
 
@@ -571,7 +571,7 @@ class TestDaylightConsumption:
             pv_tomorrow_kwh=40.0,
             consumption_overnight_kwh=3.0,
         )
-        should, min_soc, reasons = opt._should_discharge(snap)
+        should, min_soc, reasons, _ = opt._should_discharge(snap)
         assert should is True  # uses full-day 12.0 not daylight 8.0
 
     def test_discharge_detail_still_uses_full_day(
@@ -639,14 +639,14 @@ class TestHysteresis:
             consumption_tomorrow_daylight_kwh=9.0,
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
         )
-        should, min_soc, reasons = opt._should_discharge(snap)
+        should, min_soc, reasons, _ = opt._should_discharge(snap)
         assert should is True
         assert not any("SOC" in r for r in reasons)
 
-    def test_discharge_reactivation_requires_3pct_above_min_soc(
+    def test_discharge_reactivation_requires_5pct_above_min_soc(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
-        """After deactivation on same day: SOC must be > min_soc + 3 to reactivate."""
+        """After deactivation on same day: SOC must be > min_soc + 5 to reactivate."""
         opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
         now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
 
@@ -654,31 +654,7 @@ class TestHysteresis:
         opt._discharge_activated_date = now.strftime("%Y-%m-%d")
         opt._last_eval_zustand = STATE_NORMAL
 
-        # min_soc = 48%, SOC at 50% — only 2% above, less than 3% hysteresis
-        snap = _make_snapshot(
-            now=now,
-            battery_soc=50.0,
-            battery_capacity_kwh=10.0,
-            consumption_overnight_kwh=3.0,
-            pv_tomorrow_kwh=40.0,
-            consumption_tomorrow_daylight_kwh=9.0,
-            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
-        )
-        should, min_soc, reasons = opt._should_discharge(snap)
-        assert should is False
-        assert any("SOC" in r for r in reasons)
-
-    def test_discharge_reactivation_succeeds_with_enough_margin(
-        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
-    ):
-        """After deactivation: SOC > min_soc + 3 should reactivate discharge."""
-        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
-        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
-
-        opt._discharge_activated_date = now.strftime("%Y-%m-%d")
-        opt._last_eval_zustand = STATE_NORMAL
-
-        # min_soc = 48%, SOC at 52% — 4% above, exceeds 3% hysteresis
+        # min_soc = 48%, SOC at 52% — only 4% above, less than 5% hysteresis
         snap = _make_snapshot(
             now=now,
             battery_soc=52.0,
@@ -688,7 +664,31 @@ class TestHysteresis:
             consumption_tomorrow_daylight_kwh=9.0,
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
         )
-        should, min_soc, reasons = opt._should_discharge(snap)
+        should, min_soc, reasons, _ = opt._should_discharge(snap)
+        assert should is False
+        assert any("SOC" in r for r in reasons)
+
+    def test_discharge_reactivation_succeeds_with_enough_margin(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """After deactivation: SOC > min_soc + 5 should reactivate discharge."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+
+        opt._discharge_activated_date = now.strftime("%Y-%m-%d")
+        opt._last_eval_zustand = STATE_NORMAL
+
+        # min_soc = 48%, SOC at 54% — 6% above, exceeds 5% hysteresis
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=54.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons, _ = opt._should_discharge(snap)
         assert should is True
 
     def test_discharge_no_hysteresis_while_still_active(
@@ -711,7 +711,7 @@ class TestHysteresis:
             consumption_tomorrow_daylight_kwh=9.0,
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
         )
-        should, min_soc, reasons = opt._should_discharge(snap)
+        should, min_soc, reasons, _ = opt._should_discharge(snap)
         assert should is True
 
     def test_morning_first_activation_uses_normal_threshold(
@@ -822,7 +822,7 @@ class TestHysteresis:
             consumption_tomorrow_daylight_kwh=9.0,
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
         )
-        should, min_soc, reasons = opt._should_discharge(snap)
+        should, min_soc, reasons, _ = opt._should_discharge(snap)
         assert should is True
 
     def test_evaluate_tracks_activation_dates(
@@ -862,7 +862,7 @@ class TestHysteresis:
             consumption_tomorrow_daylight_kwh=9.0,
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
         )
-        should, min_soc, reasons = opt._should_discharge(snap)
+        should, min_soc, reasons, _ = opt._should_discharge(snap)
         assert should is False
         assert any("04:00" in r for r in reasons)
 
@@ -880,5 +880,5 @@ class TestHysteresis:
             consumption_tomorrow_daylight_kwh=9.0,
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
         )
-        should, min_soc, reasons = opt._should_discharge(snap)
+        should, min_soc, reasons, _ = opt._should_discharge(snap)
         assert should is True

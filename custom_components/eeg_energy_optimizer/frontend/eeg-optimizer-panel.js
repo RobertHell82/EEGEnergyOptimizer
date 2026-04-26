@@ -631,6 +631,9 @@ class EegOptimizerPanel extends HTMLElement {
     this._feedinStatsOpen = false;
     this._feedinStatsPeriod = "month";
     this._profilOpen = false;
+    this._dischargeDetailsOpen = false;
+    this._profileRefreshing = false;
+    this._profileRefreshResult = null;
     this._peakshareDataOpen = false;
     this._peakshareData = null;
     this._peakshareDataLoaded = false;
@@ -1110,6 +1113,39 @@ class EegOptimizerPanel extends HTMLElement {
         this._profilOpen = !this._profilOpen;
         this._render();
         break;
+      case "toggle-discharge-details":
+        this._dischargeDetailsOpen = !this._dischargeDetailsOpen;
+        this._render();
+        break;
+      case "refresh-consumption-profile": {
+        if (this._profileRefreshing) break;
+        this._profileRefreshing = true;
+        this._profileRefreshResult = null;
+        this._render();
+        this._hass.callWS({ type: "eeg_optimizer/refresh_consumption_profile" })
+          .then(res => {
+            this._profileRefreshResult = res;
+          })
+          .catch(err => {
+            console.error("refresh_consumption_profile failed:", err);
+            this._profileRefreshResult = { success: false, error: String(err?.message || err) };
+          })
+          .finally(() => {
+            this._profileRefreshing = false;
+            this._render();
+            // Auto-clear das Erfolg-/Fehlerbanner nach 6 Sekunden
+            if (this._profileRefreshResult) {
+              const tag = this._profileRefreshResult;
+              setTimeout(() => {
+                if (this._profileRefreshResult === tag) {
+                  this._profileRefreshResult = null;
+                  this._render();
+                }
+              }, 6000);
+            }
+          });
+        break;
+      }
       case "toggle-peakshare-data":
         this._peakshareDataOpen = !this._peakshareDataOpen;
         if (this._peakshareDataOpen && !this._peakshareDataLoaded) {
@@ -3333,55 +3369,7 @@ class EegOptimizerPanel extends HTMLElement {
     }
 
     if (dStatus !== "deaktiviert") {
-      const soc = ma.discharge_soc != null ? Math.round(Number(ma.discharge_soc)) : "---";
-      const minSoc = ma.discharge_min_soc != null ? Math.round(Number(ma.discharge_min_soc)) : "---";
-      const pvTom = ma.discharge_pv_tomorrow_kwh != null ? Number(ma.discharge_pv_tomorrow_kwh).toFixed(1) : "---";
-      const overnightDemand = ma.discharge_demand_overnight_kwh != null ? Number(ma.discharge_demand_overnight_kwh).toFixed(1) : "---";
-      const consDaylight = ma.discharge_consumption_daylight_kwh != null ? Number(ma.discharge_consumption_daylight_kwh).toFixed(1) : "---";
-      const safetyBuffer = ma.discharge_safety_buffer_kwh != null ? Number(ma.discharge_safety_buffer_kwh).toFixed(1) : "---";
-      const battCharge = ma.discharge_battery_charge_needed_kwh != null ? Number(ma.discharge_battery_charge_needed_kwh).toFixed(1) : "---";
-      const demandTotal = ma.discharge_demand_total_kwh != null ? Number(ma.discharge_demand_total_kwh).toFixed(1) : "---";
-      const socOk = Number(ma.discharge_soc || 0) > Number(ma.discharge_min_soc || 0);
-      const pvOk = Number(ma.discharge_pv_tomorrow_kwh || 0) >= Number(ma.discharge_demand_total_kwh || 0);
-      dConditionsHtml = `
-        <hr class="status-divider">
-        <div class="condition-row">
-          <span>Aktueller SOC</span>
-          <span>${soc}% <span class="${socOk ? "check" : "cross"}">${socOk ? "\u2713" : "\u2717"}</span></span>
-        </div>
-        <div class="condition-row">
-          <span>Entlade-Ziel SOC (Nachtverbr.: ${overnightDemand} kWh)</span>
-          <span>${minSoc}%</span>
-        </div>
-        <hr class="status-divider">
-        <div class="condition-row">
-          <span>Bedarf SA\u2192SU</span>
-          <span>${consDaylight} kWh</span>
-        </div>
-        <div class="condition-row">
-          <span>Sicherheitspuffer</span>
-          <span>${safetyBuffer} kWh</span>
-        </div>
-        <div class="condition-row">
-          <span>Batterieladung</span>
-          <span>${battCharge} kWh</span>
-        </div>
-        <div class="condition-row" style="font-weight:500">
-          <span>Gesamtbedarf</span>
-          <span>${demandTotal} kWh</span>
-        </div>
-        <div class="condition-row">
-          <span>PV-Prognose</span>
-          <span>${pvTom} kWh <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}</span></span>
-        </div>`;
-      if (dStatus === "aktiv") {
-        const pw = ma.discharge_power_kw != null ? Number(ma.discharge_power_kw).toFixed(1) : "---";
-        dConditionsHtml += `
-        <div class="condition-row">
-          <span>Entladeleistung</span>
-          <span>${pw} kW</span>
-        </div>`;
-      }
+      dConditionsHtml = this._renderDischargeConditions(ma, dStatus);
     }
 
     return `
@@ -3734,6 +3722,199 @@ class EegOptimizerPanel extends HTMLElement {
     </style>`;
 
     return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${mobileStyle}${yLines}${bars}${legend}</svg>`;
+  }
+
+  _renderDischargeConditions(ma, dStatus) {
+    const soc = Number(ma.discharge_soc || 0);
+    const minSoc = Number(ma.discharge_min_soc || 0);
+    const hyst = !!ma.discharge_hysteresis_active;
+    const effectiveMin = hyst ? minSoc + 5 : minSoc;
+    const overnightDemand = ma.discharge_demand_overnight_kwh != null ? Number(ma.discharge_demand_overnight_kwh).toFixed(1) : "---";
+
+    const pvTom = Number(ma.discharge_pv_tomorrow_kwh || 0);
+    const consDaylight = ma.discharge_consumption_daylight_kwh != null ? Number(ma.discharge_consumption_daylight_kwh).toFixed(1) : "---";
+    const safetyBuffer = ma.discharge_safety_buffer_kwh != null ? Number(ma.discharge_safety_buffer_kwh).toFixed(1) : "---";
+    const battCharge = ma.discharge_battery_charge_needed_kwh != null ? Number(ma.discharge_battery_charge_needed_kwh).toFixed(1) : "---";
+    const demandTotal = Number(ma.discharge_demand_total_kwh || 0);
+
+    const socOk = soc > effectiveMin;
+    const pvOk = pvTom >= demandTotal;
+
+    // --- Tile 1: Nachtreserve (SOC vs. effective min) ---
+    const socPct = Math.max(0, Math.min(100, soc));
+    const minMarkerPct = Math.max(0, Math.min(100, effectiveMin));
+    const socReserve = soc - effectiveMin;
+    const socReserveStr = (socReserve >= 0 ? "+" : "") + socReserve.toFixed(0) + " %";
+    const tile1Color = socOk ? "var(--success-color, #4caf50)" : "var(--error-color, #f44336)";
+
+    const hystBadge = hyst
+      ? `<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;
+          background:var(--warning-color,#ff9800);color:#fff;font-size:11px;font-weight:500"
+          title="Eine erneute Entladung erfordert SOC > Min-SOC + 5 % (Hysterese aktiv)">+5 % Hysterese</span>`
+      : "";
+
+    const tile1 = `
+      <div class="cond-tile">
+        <div class="cond-tile-header">
+          <span class="${socOk ? "check" : "cross"}" style="font-size:18px">${socOk ? "✓" : "✗"}</span>
+          <span class="cond-tile-title">Nachtreserve</span>
+          ${hystBadge}
+        </div>
+        <div class="cond-tile-sub">${socOk ? "SOC reicht über die Nacht" : "SOC zu niedrig für die Nacht"}</div>
+        <div class="cond-tile-bar">
+          <div class="cond-tile-bar-fill" style="width:${socPct}%;background:${tile1Color}"></div>
+          <div class="cond-tile-bar-marker" style="left:${minMarkerPct}%"
+            title="Min-SOC ${effectiveMin.toFixed(0)} %"></div>
+        </div>
+        <div class="cond-tile-row">
+          <span><strong>${soc.toFixed(0)} %</strong> <span class="cond-tile-muted">aktuell</span></span>
+          <span class="cond-tile-muted">Min ${effectiveMin.toFixed(0)} %</span>
+        </div>
+        <div class="cond-tile-reserve" style="color:${tile1Color}">
+          Reserve: ${socReserveStr}
+        </div>
+      </div>`;
+
+    // --- Tile 2: Morgen-Deckung (PV morgen vs. Gesamtbedarf) ---
+    const scaleMax = Math.max(pvTom, demandTotal, 0.1) * 1.1;
+    const pvBarPct = Math.max(0, Math.min(100, (pvTom / scaleMax) * 100));
+    const demandMarkerPct = Math.max(0, Math.min(100, (demandTotal / scaleMax) * 100));
+    const pvReserve = pvTom - demandTotal;
+    const pvReserveStr = (pvReserve >= 0 ? "+" : "") + pvReserve.toFixed(1) + " kWh";
+    const tile2Color = pvOk ? "var(--success-color, #4caf50)" : "var(--error-color, #f44336)";
+
+    const tile2 = `
+      <div class="cond-tile">
+        <div class="cond-tile-header">
+          <span class="${pvOk ? "check" : "cross"}" style="font-size:18px">${pvOk ? "✓" : "✗"}</span>
+          <span class="cond-tile-title">Morgen-Deckung</span>
+        </div>
+        <div class="cond-tile-sub">${pvOk ? "PV morgen deckt den Bedarf" : "PV morgen reicht nicht"}</div>
+        <div class="cond-tile-bar">
+          <div class="cond-tile-bar-fill" style="width:${pvBarPct}%;background:${tile2Color}"></div>
+          <div class="cond-tile-bar-marker" style="left:${demandMarkerPct}%"
+            title="Gesamtbedarf ${demandTotal.toFixed(1)} kWh"></div>
+        </div>
+        <div class="cond-tile-row">
+          <span><strong>${pvTom.toFixed(1)} kWh</strong> <span class="cond-tile-muted">PV morgen</span></span>
+          <span class="cond-tile-muted">Bedarf ${demandTotal.toFixed(1)} kWh</span>
+        </div>
+        <div class="cond-tile-reserve" style="color:${tile2Color}">
+          Reserve: ${pvReserveStr}
+        </div>
+      </div>`;
+
+    // --- Optional: Entladeleistung-Zeile bei aktivem Status ---
+    let activeRow = "";
+    if (dStatus === "aktiv") {
+      const pw = ma.discharge_power_kw != null ? Number(ma.discharge_power_kw).toFixed(1) : "---";
+      activeRow = `
+        <div class="cond-tile-row" style="margin-top:8px;font-size:13px">
+          <span class="cond-tile-muted">Entladeleistung</span>
+          <span><strong>${pw} kW</strong></span>
+        </div>`;
+    }
+
+    // --- Collapsible Details ---
+    const open = this._dischargeDetailsOpen;
+    const details = `
+      <div class="cond-details">
+        <div data-action="toggle-discharge-details" class="cond-details-toggle">
+          <ha-icon icon="mdi:chevron-${open ? "up" : "down"}" style="--mdc-icon-size:18px"></ha-icon>
+          <span>Details ${open ? "ausblenden" : "anzeigen"}</span>
+        </div>
+        ${open ? `
+          <div class="cond-details-body">
+            <div class="cond-details-line">
+              <strong>Min-SOC</strong> = Basis ${this._config?.min_soc ?? 10} % +
+              ⌈Nachtverbrauch ${overnightDemand} kWh × 1,25 / Kapazität × 100⌉
+              = <strong>${minSoc.toFixed(0)} %</strong>${hyst ? ` (+ 5 % Hysterese → ${effectiveMin.toFixed(0)} %)` : ""}
+            </div>
+            <div class="cond-details-line">
+              <strong>Gesamtbedarf morgen</strong> = ${consDaylight} (Tag) +
+              ${safetyBuffer} (${this._config?.safety_buffer_pct ?? 25} % Puffer) +
+              ${battCharge} (Batterie nachladen)
+              = <strong>${demandTotal.toFixed(1)} kWh</strong>
+            </div>
+          </div>` : ""}
+      </div>`;
+
+    return `
+      <hr class="status-divider">
+      <div class="cond-tiles">
+        ${tile1}
+        ${tile2}
+      </div>
+      ${activeRow}
+      ${details}`;
+  }
+
+  _renderConsumptionProfileStatus(profilState) {
+    const attrs = profilState?.attributes || {};
+    const statsCount = attrs.stats_count ?? 0;
+    const lookback = attrs.lookback_weeks ?? this._config?.lookback_weeks ?? "?";
+    const lastRefresh = attrs.last_refresh;
+    const durationMs = attrs.last_duration_ms;
+
+    const fmtRefresh = (iso) => {
+      if (!iso) return "noch nie";
+      try {
+        return new Date(iso).toLocaleString("de-DE", {
+          day: "2-digit", month: "2-digit", year: "numeric",
+          hour: "2-digit", minute: "2-digit", second: "2-digit",
+        });
+      } catch { return "---"; }
+    };
+
+    let resultBanner = "";
+    const r = this._profileRefreshResult;
+    if (r) {
+      if (r.success) {
+        const dur = r.duration_ms != null ? `${(r.duration_ms / 1000).toFixed(1)} s` : "";
+        const cnt = r.stats_count != null ? `${r.stats_count} Datenpunkte` : "";
+        const parts = [cnt, dur].filter(Boolean).join(", ");
+        resultBanner = `<div class="inverter-test-result success" style="margin-top:8px">
+          <ha-icon icon="mdi:check-circle"></ha-icon> Verbrauchsprofil aktualisiert${parts ? ` (${parts})` : ""}.
+        </div>`;
+      } else if (r.busy) {
+        resultBanner = `<div class="inverter-test-result error" style="margin-top:8px">
+          <ha-icon icon="mdi:timer-sand"></ha-icon> Eine Neuberechnung läuft bereits — bitte kurz warten.
+        </div>`;
+      } else {
+        resultBanner = `<div class="inverter-test-result error" style="margin-top:8px">
+          <ha-icon icon="mdi:alert-circle"></ha-icon> ${r.error || "Neuberechnung fehlgeschlagen."}
+        </div>`;
+      }
+    }
+
+    const running = this._profileRefreshing;
+    const btnLabel = running ? "Wird neu berechnet…" : "Verbrauchsprofil neu berechnen";
+    const durationHint = durationMs != null ? ` · letzte Dauer: ${(durationMs / 1000).toFixed(1)} s` : "";
+
+    return `
+      <div style="margin-top:12px;padding:12px;background:var(--secondary-background-color);border-radius:8px">
+        <div style="display:flex;flex-wrap:wrap;gap:12px 24px;font-size:13px;color:var(--secondary-text-color)">
+          <div><strong style="color:var(--primary-text-color)">Datenpunkte:</strong> ${statsCount}</div>
+          <div><strong style="color:var(--primary-text-color)">Fenster:</strong> ${lookback} Wochen (laut gespeicherter Konfig)</div>
+          <div><strong style="color:var(--primary-text-color)">Letzte Berechnung:</strong> ${fmtRefresh(lastRefresh)}${durationHint}</div>
+        </div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <button data-action="refresh-consumption-profile"
+            ${running ? "disabled" : ""}
+            style="padding:8px 14px;border-radius:8px;border:none;cursor:${running ? "default" : "pointer"};
+              background:var(--primary-color,#03a9f4);color:#fff;font-size:14px;font-weight:500;
+              opacity:${running ? "0.6" : "1"};display:inline-flex;align-items:center;gap:8px">
+            ${running
+              ? `<div class="manual-spinner" style="width:14px;height:14px;border-width:2px"></div>`
+              : `<ha-icon icon="mdi:refresh" style="--mdc-icon-size:18px"></ha-icon>`}
+            <span>${btnLabel}</span>
+          </button>
+          <span style="font-size:12px;color:var(--secondary-text-color)">
+            Liest die Verbrauchsstatistik der letzten ${lookback} Wochen aus dem Recorder neu ein.
+          </span>
+        </div>
+        ${resultBanner}
+      </div>`;
   }
 
   _renderLineChart(datasets, highlightIndex = 0) {
@@ -4137,6 +4318,7 @@ class EegOptimizerPanel extends HTMLElement {
             </h3>
             <ha-icon icon="mdi:chevron-${this._profilOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
           </div>
+          ${this._renderConsumptionProfileStatus(profilState)}
           ${this._profilOpen ? this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0) : ""}
         </div>
 
@@ -4657,6 +4839,43 @@ class EegOptimizerPanel extends HTMLElement {
         .condition-row .check { color: var(--success-color, #4caf50); }
         .condition-row .cross { color: var(--error-color, #f44336); }
         .status-divider { border: none; border-top: 1px solid var(--divider-color, #e0e0e0); margin: 8px 0; }
+        /* Discharge condition tiles */
+        .cond-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+        .cond-tile { background: var(--secondary-background-color, rgba(0,0,0,0.03)); border-radius: 10px; padding: 10px 12px; }
+        .cond-tile-header { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+        .cond-tile-header .check { color: var(--success-color, #4caf50); }
+        .cond-tile-header .cross { color: var(--error-color, #f44336); }
+        .cond-tile-title { font-weight: 600; font-size: 14px; }
+        .cond-tile-sub { font-size: 12px; color: var(--secondary-text-color, #999); margin-bottom: 8px; }
+        .cond-tile-bar { position: relative; height: 8px; background: var(--divider-color, #e0e0e0); border-radius: 4px; overflow: visible; margin: 6px 0 4px; }
+        .cond-tile-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; }
+        .cond-tile-bar-marker {
+          position: absolute; top: -3px; width: 2px; height: 14px;
+          background: var(--primary-text-color, #333); border-radius: 1px;
+          pointer-events: auto; cursor: help;
+        }
+        .cond-tile-bar-marker::after {
+          content: ""; position: absolute; top: -4px; left: -4px;
+          width: 10px; height: 4px; background: var(--primary-text-color, #333); border-radius: 1px;
+        }
+        .cond-tile-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; margin-top: 4px; }
+        .cond-tile-muted { color: var(--secondary-text-color, #999); font-size: 12px; }
+        .cond-tile-reserve { font-size: 13px; font-weight: 600; margin-top: 4px; }
+        .cond-details { margin-top: 12px; }
+        .cond-details-toggle {
+          display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+          color: var(--secondary-text-color, #999); font-size: 13px; user-select: none;
+          padding: 4px 0;
+        }
+        .cond-details-toggle:hover { color: var(--primary-text-color, #333); }
+        .cond-details-body {
+          margin-top: 6px; padding: 10px 12px; background: var(--secondary-background-color, rgba(0,0,0,0.03));
+          border-radius: 8px; font-size: 12.5px; color: var(--primary-text-color, #333); line-height: 1.5;
+        }
+        .cond-details-line { padding: 2px 0; }
+        @media (max-width: 540px) {
+          .cond-tiles { grid-template-columns: 1fr; }
+        }
         .timestamps-row { display: flex; justify-content: space-between; padding: 4px 8px; font-size: 12px; color: var(--secondary-text-color, #999); }
         .header-card { padding: 16px; }
         .header-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }

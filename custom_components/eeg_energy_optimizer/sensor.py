@@ -13,6 +13,7 @@ Creates 14 sensors:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
@@ -226,6 +227,9 @@ class VerbrauchsprofilSensor(SensorEntity):
             f"Durchschnitt {self._coordinator.stats_count} Datenpunkte"
         )
         attrs["stats_count"] = self._coordinator.stats_count
+        attrs["lookback_weeks"] = self._coordinator.lookback_weeks
+        attrs["last_refresh"] = self._coordinator.last_update_iso
+        attrs["last_duration_ms"] = self._coordinator.last_duration_ms
         self._attr_extra_state_attributes = attrs
 
 
@@ -821,6 +825,7 @@ class EntscheidungsSensor(SensorEntity):
             "discharge_demand_total_kwh": decision.discharge_demand_total_kwh,
             "discharge_power_kw": decision.discharge_power_kw,
             "discharge_start_time": decision.discharge_start_time,
+            "discharge_hysteresis_active": decision.discharge_hysteresis_active,
         }
         self.async_write_ha_state()
 
@@ -972,6 +977,25 @@ async def async_setup_entry(
         for sensor in fast_sensors:
             await sensor.async_update()
             sensor.async_write_ha_state()
+
+    # Manueller Refresh des Verbrauchsprofils (vom Panel via WebSocket aufgerufen).
+    # Aktualisiert Coordinator + alle profilabhängigen Sensoren (Profil, Tages-
+    # prognosen, Sonnenaufgangs-Prognose). Wird über einen Lock serialisiert,
+    # damit kein paralleler Slow-Timer-Lauf reinpfuscht.
+    refresh_lock = asyncio.Lock()
+    profile_dependent_sensors: list[SensorEntity] = (
+        [profil_sensor, sunrise_sensor] + daily_sensors
+    )
+
+    async def _refresh_consumption_profile() -> None:
+        async with refresh_lock:
+            await coordinator.async_update()
+            for sensor in profile_dependent_sensors:
+                await sensor.async_update()
+                sensor.async_write_ha_state()
+
+    data["refresh_consumption_profile"] = _refresh_consumption_profile
+    data["consumption_refresh_lock"] = refresh_lock
 
     if async_track_time_interval is not None:
         unsub_slow = async_track_time_interval(
