@@ -145,6 +145,7 @@ class Decision:
     discharge_peakshare_active: bool = False
     discharge_window_start: str = ""
     discharge_window_end: str = ""
+    discharge_hysteresis_active: bool = False
 
 
 class EEGOptimizer:
@@ -681,7 +682,7 @@ class EEGOptimizer:
 
     def _should_discharge(
         self, snap: Snapshot
-    ) -> tuple[bool, float, list[str]]:
+    ) -> tuple[bool, float, list[str], bool]:
         """Determine if evening discharge should be active.
 
         Per D-05 to D-09:
@@ -691,14 +692,14 @@ class EEGOptimizer:
         - PV tomorrow >= tomorrow_demand (including battery charge needs)
         """
         if not self._enable_night_discharge:
-            return (False, float(self._min_soc), ["Abend-Entladung deaktiviert"])
+            return (False, float(self._min_soc), ["Abend-Entladung deaktiviert"], False)
         min_soc = self._calc_min_soc(snap)
         reasons: list[str] = []
 
         # Special case: min_soc >= 100% means overnight consumption requires
         # the entire battery — discharge is fundamentally impossible
         if min_soc >= 100.0:
-            return (False, min_soc, ["Nachtverbrauch zu hoch"])
+            return (False, min_soc, ["Nachtverbrauch zu hoch"], False)
 
         # Check time — PeakShare or fixed start time
         # Pre-init guards so neither branch can leave them unbound (past bug: UnboundLocalError)
@@ -762,13 +763,13 @@ class EEGOptimizer:
 
         # Check SOC
         # Hysteresis: if discharge was already active today and then deactivated,
-        # require SOC to be 3 percentage points above min_soc to reactivate
+        # require SOC to be 5 percentage points above min_soc to reactivate
         today_str = snap.now.strftime("%Y-%m-%d")
         is_reactivation = (
             self._discharge_activated_date == today_str
             and self._last_eval_zustand != STATE_ABEND_ENTLADUNG
         )
-        effective_min_soc = min_soc + 3 if is_reactivation else min_soc
+        effective_min_soc = min_soc + 5 if is_reactivation else min_soc
 
         if snap.battery_soc <= effective_min_soc:
             reasons.append(f"SOC {snap.battery_soc:.0f}% <= Min-SOC {effective_min_soc:.0f}%")
@@ -795,13 +796,13 @@ class EEGOptimizer:
             if self._discharge_aborted_date == today_str:
                 reasons.append("Entladung heute wegen Netzbezug abgebrochen")
 
-        return (len(reasons) == 0, min_soc, reasons)
+        return (len(reasons) == 0, min_soc, reasons, is_reactivation)
 
     def _evaluate(self, snap: Snapshot, mode: str) -> Decision:
         """Evaluate snapshot and produce a Decision."""
         bedarf = self._calc_energiebedarf(snap)
         block = self._should_block_charging(snap)
-        should_discharge, min_soc, discharge_reasons = self._should_discharge(snap)
+        should_discharge, min_soc, discharge_reasons, hysteresis_active = self._should_discharge(snap)
 
         # Determine state
         if block:
@@ -893,6 +894,7 @@ class EEGOptimizer:
             discharge_demand_total_kwh=discharge_info["demand_total_kwh"],
             discharge_power_kw=self._discharge_power_kw,
             discharge_start_time=discharge_info["start_time"],
+            discharge_hysteresis_active=hysteresis_active,
         )
 
         # Populate PeakShare fields if a plan was computed today

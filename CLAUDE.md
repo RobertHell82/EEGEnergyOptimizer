@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**EEG Energy Optimizer** (v1.0.5) — a Home Assistant custom integration for grid-friendly battery management, optimized for energy communities (Energiegemeinschaften / EEG) in the DACH region. It controls when a PV battery charges and discharges to maximize feed-in during EEG-relevant time windows (mornings and evenings).
+**EEG Energy Optimizer** (v1.0.8-dev) — a Home Assistant custom integration for grid-friendly battery management, optimized for energy communities (Energiegemeinschaften / EEG) in the DACH region. It controls when a PV battery charges and discharges to maximize feed-in during EEG-relevant time windows (mornings and evenings).
 
 **Language**: Python (async, Home Assistant framework) + plain JS (panel)
 **Distribution**: HACS-compatible repository structure
@@ -53,10 +53,9 @@ optimizer.py: async_run_cycle(mode)
 | `forecast_provider.py` | Abstract PV forecast provider — Solcast and Forecast.Solar implementations |
 | `config_flow.py` | Single-click config flow (full setup happens in panel) |
 | `peakshare.py` | PeakShareProvider — fetches + caches PeakShare API data, sliding window algorithm for optimal discharge window |
-| `websocket_api.py` | 15 WebSocket commands for panel (config, sensors, inverter control, activity log, feed-in statistics, PeakShare communities & data) |
+| `websocket_api.py` | 17 WebSocket commands for panel (config, sensors, inverter control, activity log, feed-in statistics, PeakShare communities & data, consumption profile status & refresh) |
 | `inverter/base.py` | Abstract inverter interface (InverterBase ABC) |
 | `inverter/huawei.py` | Huawei SUN2000 implementation via HA services |
-| `inverter/fronius.py` | Fronius Gen24 implementation via direct Modbus TCP (SunSpec Model 124) |
 | `inverter/solax.py` | SolaX Gen4+ implementation via solax_modbus Mode 1 |
 | `inverter/solaredge.py` | SolarEdge StorEdge implementation via solaredge-modbus-multi |
 | `inverter/__init__.py` | Factory function `create_inverter()` |
@@ -102,7 +101,7 @@ optimizer.py: async_run_cycle(mode)
 - **API**: Paginated WebSocket endpoint (`get_activity_log` with `offset`/`limit`)
 - **Frontend**: Loads 100 entries initially, "Mehr laden" fetches 100 more per click, live events via subscription
 
-### WebSocket API (15 commands)
+### WebSocket API (17 commands)
 
 | Command | Description |
 |---------|-------------|
@@ -121,6 +120,8 @@ optimizer.py: async_run_cycle(mode)
 | `eeg_optimizer/get_feedin_statistics` | Feed-in statistics (days=0 for all data, includes daily + period summaries) |
 | `eeg_optimizer/get_peakshare_communities` | List of PeakShare community names for dropdown |
 | `eeg_optimizer/get_peakshare_data` | PeakShare community demand forecast + optimal discharge window |
+| `eeg_optimizer/get_consumption_profile_status` | Status of consumption profile (datapoints, lookback, last refresh) |
+| `eeg_optimizer/refresh_consumption_profile` | Manually recompute the consumption profile from recorder statistics |
 
 ### Inverter Abstraction
 
@@ -133,7 +134,6 @@ InverterBase (ABC)
 
 Implementations:
   ├── HuaweiInverter — via HA huawei_solar services
-  ├── FroniusInverter — via direct Modbus TCP (SunSpec Model 124, pymodbus)
   ├── SolarEdgeInverter — via HA solaredge_modbus_multi StorEdge
   └── SolaXInverter — via HA solax_modbus Mode 1
 ```
@@ -144,7 +144,6 @@ Implementations:
 - **sun** — sunrise/sunset calculations
 - **http**, **frontend**, **websocket_api** — onboarding panel
 - **huawei_solar** (after_dependency) — Huawei inverter control
-- **fronius** (after_dependency) — Fronius sensor data via Solar API
 - **solax_modbus** (after_dependency) — SolaX inverter control
 - **solaredge_modbus_multi** (after_dependency) — SolarEdge inverter control
 - **solcast_solar**, **forecast_solar** (after_dependency) — PV forecasts
@@ -155,7 +154,7 @@ Implementations:
 - **Evening Discharge (Abend-Entladung)**: Discharges battery into grid during evening hours when community demand is high. With PeakShare enabled, the discharge window is automatically optimized based on community grid import forecasts (sliding window algorithm finds the contiguous block with highest demand). Without PeakShare, a fixed start time is used. Requires: sufficient SOC above dynamic min-SOC, and tomorrow's PV forecast covers tomorrow's demand. Hard cutoff at 04:00 — discharge stops regardless of other conditions.
 - **Dynamic Min-SOC**: base_min_soc + ceil((overnight_consumption * (1 + buffer%) / capacity) * 100) — ensures enough energy for overnight household consumption.
 - **Safety Buffer** (`safety_buffer_pct`, default 25%): Applied to both morning blocking threshold and overnight consumption reserve.
-- **Hysteresis** (anti-oscillation): Tracks whether a state (Morgen-Einspeisung or Abend-Entladung) was already active on the current day. If a state was active and then deactivated, stricter thresholds apply for reactivation: evening discharge requires SOC > min_soc + 3% (instead of > min_soc), morning feed-in requires PV > demand × 1.1 (instead of > demand). While a state remains continuously active, normal thresholds apply.
+- **Hysteresis** (anti-oscillation): Tracks whether a state (Morgen-Einspeisung or Abend-Entladung) was already active on the current day. If a state was active and then deactivated, stricter thresholds apply for reactivation: evening discharge requires SOC > min_soc + 5% (instead of > min_soc), morning feed-in requires PV > demand × 1.1 (instead of > demand). While a state remains continuously active, normal thresholds apply.
 - **Consumption Profile**: Hourly averages from recorder, split by 7 individual weekdays (mo–so), rolling window (default 4 weeks), with weekday fallback chain for missing data.
 - **Dual Update Timers**: Slow sensors (profile) every 15min, fast sensors (forecasts, battery, Hausverbrauch) every 1min.
 

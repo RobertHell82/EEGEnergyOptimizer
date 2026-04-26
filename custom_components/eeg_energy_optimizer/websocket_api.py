@@ -253,6 +253,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_feedin_statistics)
     websocket_api.async_register_command(hass, ws_get_peakshare_communities)
     websocket_api.async_register_command(hass, ws_get_peakshare_data)
+    websocket_api.async_register_command(hass, ws_get_consumption_profile_status)
+    websocket_api.async_register_command(hass, ws_refresh_consumption_profile)
 
 
 @websocket_api.websocket_command(
@@ -976,3 +978,95 @@ async def ws_get_peakshare_data(
         "cache_age_minutes": cache_age,
         "discharge_plan": plan_info,
     })
+
+
+def _consumption_status_payload(coordinator) -> dict:
+    return {
+        "last_refresh": coordinator.last_update_iso,
+        "duration_ms": coordinator.last_duration_ms,
+        "stats_count": coordinator.stats_count,
+        "lookback_weeks": coordinator.lookback_weeks,
+        "is_running": coordinator.is_running,
+    }
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/get_consumption_profile_status",
+    }
+)
+@websocket_api.async_response
+async def ws_get_consumption_profile_status(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Status der Verbrauchsprofil-Berechnung (für Panel-Anzeige)."""
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+
+    coordinator = data.get("coordinator")
+    if coordinator is None:
+        connection.send_result(msg["id"], {
+            "available": False,
+        })
+        return
+
+    payload = _consumption_status_payload(coordinator)
+    payload["available"] = True
+    connection.send_result(msg["id"], payload)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/refresh_consumption_profile",
+    }
+)
+@websocket_api.async_response
+async def ws_refresh_consumption_profile(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Verbrauchsprofil komplett neu aus dem Recorder berechnen.
+
+    Berücksichtigt das aktuell gespeicherte Lookback-Fenster (lookback_weeks).
+    Liefert nach Abschluss den aktualisierten Status. Wenn bereits ein
+    Refresh läuft, wird sofort mit busy=True geantwortet (kein Warten).
+    """
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+
+    refresh = data.get("refresh_consumption_profile")
+    coordinator = data.get("coordinator")
+    lock = data.get("consumption_refresh_lock")
+
+    if refresh is None or coordinator is None:
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": "Verbrauchsprofil-Komponente nicht initialisiert.",
+        })
+        return
+
+    if lock is not None and lock.locked():
+        payload = _consumption_status_payload(coordinator)
+        payload["success"] = False
+        payload["busy"] = True
+        connection.send_result(msg["id"], payload)
+        return
+
+    try:
+        await refresh()
+    except Exception as exc:
+        _LOGGER.exception("Consumption profile refresh failed")
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": f"Fehler bei der Neuberechnung: {exc}",
+        })
+        return
+
+    payload = _consumption_status_payload(coordinator)
+    payload["success"] = True
+    connection.send_result(msg["id"], payload)

@@ -8,6 +8,7 @@ calculate_period() to forecast consumption for arbitrary time ranges.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -78,6 +79,15 @@ class ConsumptionCoordinator:
         self.hourly_avg: dict[str, dict[int, float]] = {}
         self.stats_count: int = 0
 
+        # Status für Refresh-Anzeige im Panel
+        self.is_running: bool = False
+        self.last_update_iso: str | None = None
+        self.last_duration_ms: int | None = None
+
+    @property
+    def lookback_weeks(self) -> int:
+        return self._lookback_weeks
+
     async def async_update(self) -> None:
         """Reload hourly averages from recorder statistics.
 
@@ -86,6 +96,16 @@ class ConsumptionCoordinator:
         - state_class=total_increasing (energy sensors, kWh): uses 'sum' statistics
           and calculates hourly consumption from consecutive sum differences
         """
+        self.is_running = True
+        t0 = time.monotonic()
+        try:
+            await self._async_update_impl()
+        finally:
+            self.last_duration_ms = int((time.monotonic() - t0) * 1000)
+            self.last_update_iso = datetime.now(timezone.utc).isoformat()
+            self.is_running = False
+
+    async def _async_update_impl(self) -> None:
         _ensure_recorder_imports()
 
         if get_instance is None or statistics_during_period is None:

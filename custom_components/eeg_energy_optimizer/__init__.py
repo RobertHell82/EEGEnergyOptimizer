@@ -665,6 +665,15 @@ async def _async_update_listener(
         provider = data.get("provider")
         peakshare_provider = data.get("peakshare")  # preserve across hot-reloads
         if inverter and coordinator and provider:
+            # Sync lookback_weeks into coordinator if changed; trigger
+            # background refresh so profile + dependent sensors reflect new window.
+            new_lookback = config.get(CONF_LOOKBACK_WEEKS, DEFAULT_LOOKBACK_WEEKS)
+            if getattr(coordinator, "_lookback_weeks", None) != new_lookback:
+                coordinator._lookback_weeks = new_lookback
+                refresh_fn = data.get("refresh_consumption_profile")
+                if refresh_fn is not None:
+                    hass.async_create_task(refresh_fn())
+
             new_optimizer = EEGOptimizer(
                 hass, entry.entry_id, config, inverter, coordinator, provider,
                 peakshare=peakshare_provider,
