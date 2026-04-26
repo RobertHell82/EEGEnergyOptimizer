@@ -584,6 +584,9 @@ window.addEventListener("error", (e) => {
   }
 });
 
+// Format a number with German decimal comma instead of dot.
+const fmtDe = (value, decimals = 1) => Number(value).toFixed(decimals).replace(".", ",");
+
 class EegOptimizerPanel extends HTMLElement {
   constructor() {
     super();
@@ -622,6 +625,7 @@ class EegOptimizerPanel extends HTMLElement {
     this._activityHasMore = false;
     this._activityLoadingMore = false;
     this._activityShowAll = false;
+    this._activityFilter = ""; // "" = alle, "Morgen-Einspeisung", "Abend-Entladung"
     this._loadConfigPending = false;
     this._connectionLostSeen = false;
     this._manualControlOpen = false;
@@ -810,6 +814,11 @@ class EegOptimizerPanel extends HTMLElement {
           this._render();
           return;
         }
+        if (field === "activity_filter") {
+          this._activityFilter = target.value;
+          this._render();
+          return;
+        }
         if (field.startsWith("settings_")) {
           const realField = field.replace("settings_", "");
           const type = target.type;
@@ -818,6 +827,10 @@ class EegOptimizerPanel extends HTMLElement {
             if (realField === "enable_peakshare" && target.checked && this._peakshareCommunitiesCache.length === 0) {
               this._loadPeakShareCommunities();
             }
+            // Re-render only for toggles that change UI visibility (e.g. enable_peakshare reveals the community dropdown).
+            // For simple number/text inputs we skip _render() — otherwise a click on "Speichern" right after editing
+            // a value triggers blur→change→render, which replaces the save button DOM node and swallows the click.
+            this._render();
           } else if (type === "number") {
             let numVal = parseFloat(target.value) || 0;
             if (realField === "discharge_power_kw" && this._config?.inverter_type === "solaredge_storedge" && numVal < 5.0) {
@@ -828,7 +841,6 @@ class EegOptimizerPanel extends HTMLElement {
           } else {
             this._settingsData[realField] = target.value;
           }
-          this._render();
           return;
         }
         if (field === "expert_mode") {
@@ -1659,8 +1671,8 @@ class EegOptimizerPanel extends HTMLElement {
       const hourStr = `${String(p.hour).padStart(2, "0")}:00`;
       const color = _inPlanWindow(p.min) ? "#4CAF50" : "var(--primary-color, #03a9f4)";
       const inWindow = _inPlanWindow(p.min) ? "1" : "0";
-      dots += `<circle class="ps-dot" cx="${p.x}" cy="${p.y}" r="4" fill="${color}" stroke="var(--card-background-color,#fff)" stroke-width="1.5" data-hour="${hourStr}" data-deficit="${p.deficit.toFixed(0)}" data-in-window="${inWindow}" data-day="${p.dayLabel}" style="cursor:pointer"></circle>`;
-      dots += `<circle class="ps-dot-hit" cx="${p.x}" cy="${p.y}" r="12" fill="transparent" data-hour="${hourStr}" data-deficit="${p.deficit.toFixed(0)}" data-in-window="${inWindow}" data-day="${p.dayLabel}" style="cursor:pointer"></circle>`;
+      dots += `<circle class="ps-dot" cx="${p.x}" cy="${p.y}" r="4" fill="${color}" stroke="var(--card-background-color,#fff)" stroke-width="1.5" data-hour="${hourStr}" data-deficit="${fmtDe(p.deficit, 0)}" data-in-window="${inWindow}" data-day="${p.dayLabel}" style="cursor:pointer"></circle>`;
+      dots += `<circle class="ps-dot-hit" cx="${p.x}" cy="${p.y}" r="12" fill="transparent" data-hour="${hourStr}" data-deficit="${fmtDe(p.deficit, 0)}" data-in-window="${inWindow}" data-day="${p.dayLabel}" style="cursor:pointer"></circle>`;
     });
 
     // Day change marker at midnight (vertical dotted line + date label above)
@@ -3307,7 +3319,7 @@ class EegOptimizerPanel extends HTMLElement {
 
     if (dStatus === "aktiv") {
       dColorClass = "green";
-      const pw = ma.discharge_power_kw != null ? Number(ma.discharge_power_kw).toFixed(1) : "---";
+      const pw = ma.discharge_power_kw != null ? fmtDe(ma.discharge_power_kw, 1) : "---";
       const minSoc = ma.discharge_min_soc != null ? Math.round(Number(ma.discharge_min_soc)) : "---";
       if (ma.discharge_peakshare_active && ma.discharge_window_end) {
         dIndicator = `\u25CF AKTIV \u2014 ${pw} kW bis ${ma.discharge_window_end} / ${minSoc}% SOC (PeakShare)`;
@@ -3410,7 +3422,7 @@ class EegOptimizerPanel extends HTMLElement {
             <ha-icon icon="mdi:weather-sunny" style="--mdc-icon-size:16px;color:#FF9800;vertical-align:middle"></ha-icon>
             Morgen-Einspeisung
           </div>
-          <div style="font-size:24px;font-weight:600;color:var(--primary-text-color)">${m.kwh.toFixed(1)} <span style="font-size:14px;font-weight:400">kWh</span></div>
+          <div style="font-size:24px;font-weight:600;color:var(--primary-text-color)">${fmtDe(m.kwh, 1)} <span style="font-size:14px;font-weight:400">kWh</span></div>
           <div style="font-size:12px;color:var(--secondary-text-color);margin-top:4px">${m.count}\u00d7 aktiv \u00b7 ${fmtDur(m.duration_min)}</div>
         </div>
         <div style="background:var(--card-background-color,#fff);border:1px solid var(--divider-color);border-radius:12px;padding:14px">
@@ -3418,7 +3430,7 @@ class EegOptimizerPanel extends HTMLElement {
             <ha-icon icon="mdi:weather-night" style="--mdc-icon-size:16px;color:#2196F3;vertical-align:middle"></ha-icon>
             Abend-Entladung
           </div>
-          <div style="font-size:24px;font-weight:600;color:var(--primary-text-color)">${e.kwh.toFixed(1)} <span style="font-size:14px;font-weight:400">kWh</span></div>
+          <div style="font-size:24px;font-weight:600;color:var(--primary-text-color)">${fmtDe(e.kwh, 1)} <span style="font-size:14px;font-weight:400">kWh</span></div>
           <div style="font-size:12px;color:var(--secondary-text-color);margin-top:4px">${e.count}\u00d7 aktiv \u00b7 ${fmtDur(e.duration_min)}</div>
         </div>
       </div>`;
@@ -3516,9 +3528,9 @@ class EegOptimizerPanel extends HTMLElement {
       if (d.morning > 0) {
         const barH1 = (d.morning / maxVal) * chartH;
         const y1 = padding.top + chartH - barH1;
-        const mTip = `${d.label} Morgen-Einspeisung\nEnergie: ${d.morning.toFixed(2)} kWh\nDauer: ${fmtDur(d.morningDur || 0)}`;
+        const mTip = `${d.label} Morgen-Einspeisung\nEnergie: ${fmtDe(d.morning, 2)} kWh\nDauer: ${fmtDur(d.morningDur || 0)}`;
         bars += `<rect x="${x1}" y="${y1}" width="${barW}" height="${barH1}" fill="#FF9800" rx="3" style="cursor:pointer"><title>${mTip}</title></rect>`;
-        if (entries.length <= 14) bars += `<text x="${x1 + barW/2}" y="${y1 - 4}" text-anchor="middle" font-size="10" fill="var(--primary-text-color)" style="pointer-events:none">${d.morning.toFixed(1)}</text>`;
+        if (entries.length <= 14) bars += `<text x="${x1 + barW/2}" y="${y1 - 4}" text-anchor="middle" font-size="10" fill="var(--primary-text-color)" style="pointer-events:none">${fmtDe(d.morning, 1)}</text>`;
       }
 
       // Evening bar (right, blue)
@@ -3526,9 +3538,9 @@ class EegOptimizerPanel extends HTMLElement {
       if (d.evening > 0) {
         const barH2 = (d.evening / maxVal) * chartH;
         const y2 = padding.top + chartH - barH2;
-        const eTip = `${d.label} Abend-Entladung\nEnergie: ${d.evening.toFixed(2)} kWh\nDauer: ${fmtDur(d.eveningDur || 0)}`;
+        const eTip = `${d.label} Abend-Entladung\nEnergie: ${fmtDe(d.evening, 2)} kWh\nDauer: ${fmtDur(d.eveningDur || 0)}`;
         bars += `<rect x="${x2}" y="${y2}" width="${barW}" height="${barH2}" fill="#2196F3" rx="3" style="cursor:pointer"><title>${eTip}</title></rect>`;
-        if (entries.length <= 14) bars += `<text x="${x2 + barW/2}" y="${y2 - 4}" text-anchor="middle" font-size="10" fill="var(--primary-text-color)" style="pointer-events:none">${d.evening.toFixed(1)}</text>`;
+        if (entries.length <= 14) bars += `<text x="${x2 + barW/2}" y="${y2 - 4}" text-anchor="middle" font-size="10" fill="var(--primary-text-color)" style="pointer-events:none">${fmtDe(d.evening, 1)}</text>`;
       }
 
       // Skip some labels if too many entries
@@ -3542,7 +3554,7 @@ class EegOptimizerPanel extends HTMLElement {
     let yLines = "";
     for (let i = 0; i <= 4; i++) {
       const y = padding.top + (chartH / 4) * i;
-      const val = (maxVal * (4 - i) / 4).toFixed(1);
+      const val = fmtDe(maxVal * (4 - i) / 4, 1);
       yLines += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--divider-color)" stroke-dasharray="4"/>`;
       yLines += `<text x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
     }
@@ -3579,14 +3591,26 @@ class EegOptimizerPanel extends HTMLElement {
     };
 
     // Already sorted newest-first from server
-    const entries = this._activityShowAll
+    const baseEntries = this._activityShowAll
       ? this._activityLog
       : this._activityLog.filter(e => e.reason !== "Heartbeat");
 
+    // Optional state filter: show entries of the chosen state plus the
+    // "Normal" entry that follows it (i.e. the return to normal mode).
+    // Newest-first array \u2192 "follower" entry sits at index i, predecessor at i+1.
+    const entries = this._activityFilter
+      ? baseEntries.filter((e, i, arr) => {
+          if (e.zustand === this._activityFilter) return true;
+          if (e.zustand === "Normal" && i + 1 < arr.length && arr[i + 1].zustand === this._activityFilter) return true;
+          return false;
+        })
+      : baseEntries;
+
     if (entries.length === 0) {
-      return `<p style="color:var(--secondary-text-color);font-size:14px;text-align:center;margin:16px 0">
-        Keine Status\u00e4nderungen vorhanden. Aktiviere "Alle Eintr\u00e4ge", um auch Heartbeats zu sehen.
-      </p>`;
+      const emptyMsg = this._activityFilter
+        ? `Keine Eintr\u00e4ge f\u00fcr "${this._activityFilter}".`
+        : `Keine Status\u00e4nderungen vorhanden. Aktiviere "Alle Eintr\u00e4ge", um auch Heartbeats zu sehen.`;
+      return `<p style="color:var(--secondary-text-color);font-size:14px;text-align:center;margin:16px 0">${emptyMsg}</p>`;
     }
 
     const rows = entries.map(e => {
@@ -3603,7 +3627,7 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="activity-dot" style="background:${color}">${icon}</div>
         <div class="activity-content">
           <div class="activity-header">${reason} ${changeBadge} ${testBadge}</div>
-          <div class="activity-details">SOC ${e.soc}%${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${e.min_soc}%` : ""} &middot; ${e.zustand === "Abend-Entladung" ? `PV morgen ${e.discharge_pv != null ? e.discharge_pv : e.pv_tomorrow} kWh &middot; Gesamtbedarf ${e.discharge_bedarf != null ? e.discharge_bedarf : e.bedarf} kWh` : `PV-Prognose (Rest) ${e.pv_today} kWh &middot; Gesamtbedarf ${e.bedarf} kWh`}</div>
+          <div class="activity-details">SOC ${e.soc}%${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${fmtDe(e.min_soc, 0)}%` : ""} &middot; ${e.zustand === "Abend-Entladung" ? `PV morgen ${fmtDe(e.discharge_pv != null ? e.discharge_pv : e.pv_tomorrow, 1)} kWh &middot; Gesamtbedarf ${fmtDe(e.discharge_bedarf != null ? e.discharge_bedarf : e.bedarf, 1)} kWh` : `PV-Prognose (Rest) ${fmtDe(e.pv_today, 1)} kWh &middot; Gesamtbedarf ${fmtDe(e.bedarf, 1)} kWh`}</div>
         </div>
       </div>`;
     }).join("");
@@ -3643,7 +3667,7 @@ class EegOptimizerPanel extends HTMLElement {
         const barH1 = (d.value / maxVal) * chartH;
         const y1 = padding.top + chartH - barH1;
         bars += `<rect x="${x1}" y="${y1}" width="${barW}" height="${barH1}" fill="var(--primary-color)" rx="3"/>`;
-        bars += `<text class="bc-val" x="${x1 + barW/2}" y="${y1 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${d.value.toFixed(1)}</text>`;
+        bars += `<text class="bc-val" x="${x1 + barW/2}" y="${y1 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${fmtDe(d.value, 1)}</text>`;
 
         // PV bar (right)
         const pvVal = pvData[i]?.value || 0;
@@ -3652,7 +3676,7 @@ class EegOptimizerPanel extends HTMLElement {
           const barH2 = (pvVal / maxVal) * chartH;
           const y2 = padding.top + chartH - barH2;
           bars += `<rect x="${x2}" y="${y2}" width="${barW}" height="${barH2}" fill="#FF9800" rx="3"/>`;
-          bars += `<text class="bc-val" x="${x2 + barW/2}" y="${y2 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${pvVal.toFixed(1)}</text>`;
+          bars += `<text class="bc-val" x="${x2 + barW/2}" y="${y2 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${fmtDe(pvVal, 1)}</text>`;
         }
 
         // Day label centered under group
@@ -3663,7 +3687,7 @@ class EegOptimizerPanel extends HTMLElement {
         const barH = (d.value / maxVal) * chartH;
         const y = padding.top + chartH - barH;
         bars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="var(--primary-color)" rx="3"/>`;
-        bars += `<text class="bc-val" x="${x + barW/2}" y="${y - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${d.value.toFixed(1)}</text>`;
+        bars += `<text class="bc-val" x="${x + barW/2}" y="${y - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${fmtDe(d.value, 1)}</text>`;
         bars += `<text class="bc-day" x="${x + barW/2}" y="${height - 10}" text-anchor="middle" font-size="11" fill="var(--secondary-text-color)">${d.label}</text>`;
       }
     });
@@ -3720,10 +3744,9 @@ class EegOptimizerPanel extends HTMLElement {
     const open = this._morningTile1Open;
     const tileDetails = open ? `
       <div class="cond-tile-details-body">
-        <strong>${demandLabel} ${threshold.toFixed(1)} kWh</strong> =
-        ${consumption.toFixed(1)} kWh (Tagesverbrauch) +
-        ${buffer.toFixed(1)} kWh (Sicherheitspuffer ${this._config?.safety_buffer_pct ?? 25} %) +
-        ${battery.toFixed(1)} kWh (Batterieladung)
+        <strong>${demandLabel} ${fmtDe(threshold, 1)} kWh</strong> =
+        ${fmtDe(consumption + buffer, 1)} kWh (Tagesverbrauch inkl. Sicherheitspuffer) +
+        ${fmtDe(battery, 1)} kWh (Batterieladung)
       </div>` : "";
 
     return `
@@ -3737,11 +3760,11 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="cond-tile-bar">
           <div class="cond-tile-bar-fill" style="width:${pvBarPct}%;background:${tileColor}"></div>
           <div class="cond-tile-bar-marker" style="left:${demandMarkerPct}%"
-            title="${demandLabel} ${threshold.toFixed(1)} kWh"></div>
+            title="${demandLabel} ${fmtDe(threshold, 1)} kWh"></div>
         </div>
         <div class="cond-tile-row">
-          <span><strong>${pvVal.toFixed(1)} kWh</strong> <span class="cond-tile-muted">${pvLabel}</span></span>
-          <span class="cond-tile-muted">Bedarf ${threshold.toFixed(1)} kWh</span>
+          <span><strong>${fmtDe(pvVal, 1)} kWh</strong> <span class="cond-tile-muted">${pvLabel}</span></span>
+          <span class="cond-tile-muted">Bedarf ${fmtDe(threshold, 1)} kWh</span>
         </div>
         <div class="cond-tile-row">
           <span class="cond-tile-muted">Fenster</span>
@@ -3760,12 +3783,12 @@ class EegOptimizerPanel extends HTMLElement {
     const minSoc = Number(ma.discharge_min_soc || 0);
     const hyst = !!ma.discharge_hysteresis_active;
     const effectiveMin = hyst ? minSoc + 5 : minSoc;
-    const overnightDemand = ma.discharge_demand_overnight_kwh != null ? Number(ma.discharge_demand_overnight_kwh).toFixed(1) : "---";
+    const overnightDemand = ma.discharge_demand_overnight_kwh != null ? fmtDe(ma.discharge_demand_overnight_kwh, 1) : "---";
 
     const pvTom = Number(ma.discharge_pv_tomorrow_kwh || 0);
-    const consDaylight = ma.discharge_consumption_daylight_kwh != null ? Number(ma.discharge_consumption_daylight_kwh).toFixed(1) : "---";
-    const safetyBuffer = ma.discharge_safety_buffer_kwh != null ? Number(ma.discharge_safety_buffer_kwh).toFixed(1) : "---";
-    const battCharge = ma.discharge_battery_charge_needed_kwh != null ? Number(ma.discharge_battery_charge_needed_kwh).toFixed(1) : "---";
+    const consDaylight = ma.discharge_consumption_daylight_kwh != null ? fmtDe(ma.discharge_consumption_daylight_kwh, 1) : "---";
+    const safetyBuffer = ma.discharge_safety_buffer_kwh != null ? fmtDe(ma.discharge_safety_buffer_kwh, 1) : "---";
+    const battCharge = ma.discharge_battery_charge_needed_kwh != null ? fmtDe(ma.discharge_battery_charge_needed_kwh, 1) : "---";
     const demandTotal = Number(ma.discharge_demand_total_kwh || 0);
 
     const socOk = soc > effectiveMin;
@@ -3783,12 +3806,14 @@ class EegOptimizerPanel extends HTMLElement {
       : "";
 
     const open1 = this._dischargeTile1Open;
+    const overnightWithBuffer = ma.discharge_demand_overnight_kwh != null
+      ? fmtDe(Number(ma.discharge_demand_overnight_kwh) * (1 + (this._config?.safety_buffer_pct ?? 25) / 100), 1)
+      : "---";
     const tile1Details = open1 ? `
       <div class="cond-tile-details-body">
-        <strong>Min-SOC ${minSoc.toFixed(0)} %</strong> =
+        <strong>Min-SOC ${fmtDe(minSoc, 0)} %</strong> =
         ${this._config?.min_soc ?? 10} % (Minimaler Ladezustand) +
-        ${overnightDemand} kWh (Nachtverbrauch) +
-        ${this._config?.safety_buffer_pct ?? 25} % (Sicherheitspuffer)${hyst ? `<br>+ 5 % Hysterese → <strong>${effectiveMin.toFixed(0)} %</strong>` : ""}
+        ${overnightWithBuffer} kWh (Nachtverbrauch inkl. Sicherheitspuffer)${hyst ? `<br>+ 5 % Hysterese → <strong>${fmtDe(effectiveMin, 0)} %</strong>` : ""}
       </div>` : "";
 
     const tile1 = `
@@ -3802,11 +3827,11 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="cond-tile-bar">
           <div class="cond-tile-bar-fill" style="width:${socPct}%;background:${tile1Color}"></div>
           <div class="cond-tile-bar-marker" style="left:${minMarkerPct}%"
-            title="Min-SOC ${effectiveMin.toFixed(0)} %"></div>
+            title="Min-SOC ${fmtDe(effectiveMin, 0)} %"></div>
         </div>
         <div class="cond-tile-row">
-          <span><strong>${soc.toFixed(0)} %</strong> <span class="cond-tile-muted">aktuell</span></span>
-          <span class="cond-tile-muted">Min ${effectiveMin.toFixed(0)} %</span>
+          <span><strong>${fmtDe(soc, 0)} %</strong> <span class="cond-tile-muted">aktuell</span></span>
+          <span class="cond-tile-muted">Min ${fmtDe(effectiveMin, 0)} %</span>
         </div>
         <div data-action="toggle-discharge-tile-1" class="cond-tile-details-toggle">
           <ha-icon icon="mdi:chevron-${open1 ? "up" : "down"}" style="--mdc-icon-size:16px"></ha-icon>
@@ -3822,11 +3847,13 @@ class EegOptimizerPanel extends HTMLElement {
     const tile2Color = pvOk ? "var(--success-color, #4caf50)" : "var(--error-color, #f44336)";
 
     const open2 = this._dischargeTile2Open;
+    const consDaylightWithBuffer = (ma.discharge_consumption_daylight_kwh != null && ma.discharge_safety_buffer_kwh != null)
+      ? fmtDe(Number(ma.discharge_consumption_daylight_kwh) + Number(ma.discharge_safety_buffer_kwh), 1)
+      : "---";
     const tile2Details = open2 ? `
       <div class="cond-tile-details-body">
-        <strong>Gesamtbedarf morgen ${demandTotal.toFixed(1)} kWh</strong> =
-        ${consDaylight} kWh (Tagesverbrauch) +
-        ${safetyBuffer} kWh (Sicherheitspuffer ${this._config?.safety_buffer_pct ?? 25} %) +
+        <strong>Gesamtbedarf morgen ${fmtDe(demandTotal, 1)} kWh</strong> =
+        ${consDaylightWithBuffer} kWh (Tagesverbrauch inkl. Sicherheitspuffer) +
         ${battCharge} kWh (Batterie nachladen)
       </div>` : "";
 
@@ -3840,11 +3867,11 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="cond-tile-bar">
           <div class="cond-tile-bar-fill" style="width:${pvBarPct}%;background:${tile2Color}"></div>
           <div class="cond-tile-bar-marker" style="left:${demandMarkerPct}%"
-            title="Gesamtbedarf ${demandTotal.toFixed(1)} kWh"></div>
+            title="Gesamtbedarf ${fmtDe(demandTotal, 1)} kWh"></div>
         </div>
         <div class="cond-tile-row">
-          <span><strong>${pvTom.toFixed(1)} kWh</strong> <span class="cond-tile-muted">PV morgen</span></span>
-          <span class="cond-tile-muted">Bedarf ${demandTotal.toFixed(1)} kWh</span>
+          <span><strong>${fmtDe(pvTom, 1)} kWh</strong> <span class="cond-tile-muted">PV morgen</span></span>
+          <span class="cond-tile-muted">Bedarf ${fmtDe(demandTotal, 1)} kWh</span>
         </div>
         <div data-action="toggle-discharge-tile-2" class="cond-tile-details-toggle">
           <ha-icon icon="mdi:chevron-${open2 ? "up" : "down"}" style="--mdc-icon-size:16px"></ha-icon>
@@ -3856,7 +3883,7 @@ class EegOptimizerPanel extends HTMLElement {
     // --- Optional: Entladeleistung-Zeile bei aktivem Status ---
     let activeRow = "";
     if (dStatus === "aktiv") {
-      const pw = ma.discharge_power_kw != null ? Number(ma.discharge_power_kw).toFixed(1) : "---";
+      const pw = ma.discharge_power_kw != null ? fmtDe(ma.discharge_power_kw, 1) : "---";
       activeRow = `
         <div class="cond-tile-row" style="margin-top:8px;font-size:13px">
           <span class="cond-tile-muted">Entladeleistung</span>
@@ -3894,7 +3921,7 @@ class EegOptimizerPanel extends HTMLElement {
     const r = this._profileRefreshResult;
     if (r) {
       if (r.success) {
-        const dur = r.duration_ms != null ? `${(r.duration_ms / 1000).toFixed(1)} s` : "";
+        const dur = r.duration_ms != null ? `${fmtDe(r.duration_ms / 1000, 1)} s` : "";
         const cnt = r.stats_count != null ? `${r.stats_count} Datenpunkte` : "";
         const parts = [cnt, dur].filter(Boolean).join(", ");
         resultBanner = `<div class="inverter-test-result success" style="margin-top:8px">
@@ -3913,7 +3940,7 @@ class EegOptimizerPanel extends HTMLElement {
 
     const running = this._profileRefreshing;
     const btnLabel = running ? "Wird neu berechnet…" : "Verbrauchsprofil neu berechnen";
-    const durationHint = durationMs != null ? ` · letzte Dauer: ${(durationMs / 1000).toFixed(1)} s` : "";
+    const durationHint = durationMs != null ? ` · letzte Dauer: ${fmtDe(durationMs / 1000, 1)} s` : "";
 
     return `
       <div style="margin-top:12px;padding:12px;background:var(--secondary-background-color);border-radius:8px">
@@ -3953,7 +3980,7 @@ class EegOptimizerPanel extends HTMLElement {
     let yLines = "";
     for (let i = 0; i <= 4; i++) {
       const y = padding.top + (chartH / 4) * i;
-      const val = (maxVal * (4 - i) / 4).toFixed(1);
+      const val = fmtDe(maxVal * (4 - i) / 4, 1);
       yLines += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--divider-color)" stroke-dasharray="4"/>`;
       yLines += `<text class="lc-axis" x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
     }
@@ -4070,7 +4097,7 @@ class EegOptimizerPanel extends HTMLElement {
 
     const nächsteAktion = decisionState?.attributes?.nächste_aktion || decisionState?.state || "---";
     const energiebedarf = decisionState?.attributes?.energiebedarf_kwh;
-    const energiebedarfText = energiebedarf != null ? `${Number(energiebedarf).toFixed(1)} kWh` : "---";
+    const energiebedarfText = energiebedarf != null ? `${fmtDe(energiebedarf, 1)} kWh` : "---";
 
     // --- Metrics ---
     const socSensor = this._config?.battery_soc_sensor;
@@ -4112,7 +4139,7 @@ class EegOptimizerPanel extends HTMLElement {
     if (pvHeute == null) {
       pvHeute = this._readFloat(this._entityIds?.pv_heute || "sensor.eeg_energy_optimizer_pv_prognose_heute");
     }
-    const pvHeuteText = pvHeute != null ? `${pvHeute.toFixed(1)}` : "---";
+    const pvHeuteText = pvHeute != null ? fmtDe(pvHeute, 1) : "---";
 
     // PV tomorrow
     let pvMorgen = null;
@@ -4124,7 +4151,7 @@ class EegOptimizerPanel extends HTMLElement {
     if (pvMorgen == null) {
       pvMorgen = this._readFloat(this._entityIds?.pv_morgen || "sensor.eeg_energy_optimizer_pv_prognose_morgen");
     }
-    const pvMorgenText = pvMorgen != null ? `${pvMorgen.toFixed(1)}` : "---";
+    const pvMorgenText = pvMorgen != null ? fmtDe(pvMorgen, 1) : "---";
 
     // 7-day PV forecast array — prefer configured sensors, then auto-detect from prefix
     const _pvDay = (dayNum) => {
@@ -4271,11 +4298,11 @@ class EegOptimizerPanel extends HTMLElement {
             </span>` : ""}
           </h3>
           <div class="header-grid">
-            <div class="hlv${pvEntity ? " hlv-clickable" : ""}" ${pvEntity ? `data-action="show-entity" data-entity="${pvEntity}"` : ""}><span class="hlv-label">PV</span><span class="hlv-val val-green">${pvKw.toFixed(2)} kW</span></div>
-            <div class="hlv${batEntity ? " hlv-clickable" : ""}" ${batEntity ? `data-action="show-entity" data-entity="${batEntity}"` : ""}><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${Math.abs(batKw).toFixed(2)} kW <small>(${batLabel})</small></span></div>
+            <div class="hlv${pvEntity ? " hlv-clickable" : ""}" ${pvEntity ? `data-action="show-entity" data-entity="${pvEntity}"` : ""}><span class="hlv-label">PV</span><span class="hlv-val val-green">${fmtDe(pvKw, 2)} kW</span></div>
+            <div class="hlv${batEntity ? " hlv-clickable" : ""}" ${batEntity ? `data-action="show-entity" data-entity="${batEntity}"` : ""}><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${fmtDe(Math.abs(batKw), 2)} kW <small>(${batLabel})</small></span></div>
             <div class="hlv${socEntity ? " hlv-clickable" : ""}" ${socEntity ? `data-action="show-entity" data-entity="${socEntity}"` : ""}><span class="hlv-label">SOC</span><span class="hlv-val ${socColor}">${socText}%</span></div>
-            <div class="hlv${gridEntity ? " hlv-clickable" : ""}" ${gridEntity ? `data-action="show-entity" data-entity="${gridEntity}"` : ""}><span class="hlv-label">Netz</span><span class="hlv-val ${gridColor}">${Math.abs(gridKw).toFixed(2)} kW <small>(${gridLabel})</small></span></div>
-            <div class="hlv hlv-clickable" data-action="show-entity" data-entity="${hausEntity}"><span class="hlv-label">Haus</span><span class="hlv-val val-blue">${hausKw.toFixed(2)} kW</span></div>
+            <div class="hlv${gridEntity ? " hlv-clickable" : ""}" ${gridEntity ? `data-action="show-entity" data-entity="${gridEntity}"` : ""}><span class="hlv-label">Netz</span><span class="hlv-val ${gridColor}">${fmtDe(Math.abs(gridKw), 2)} kW <small>(${gridLabel})</small></span></div>
+            <div class="hlv hlv-clickable" data-action="show-entity" data-entity="${hausEntity}"><span class="hlv-label">Haus</span><span class="hlv-val val-blue">${fmtDe(hausKw, 2)} kW</span></div>
             <div class="hlv header-toggle-cell">
               <div class="mode-toggle ${modeToggleClass}" data-action="toggle-mode">
                 <div class="toggle-knob"></div>
@@ -4371,7 +4398,12 @@ class EegOptimizerPanel extends HTMLElement {
               <ha-icon icon="mdi:history" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
               Aktivit\u00e4tsprotokoll
             </h3>
-            <div style="display:flex;align-items:center;gap:12px">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <select data-field="activity_filter" style="font-size:12px;padding:2px 4px;background:var(--card-background-color);color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:4px">
+                <option value="" ${this._activityFilter === "" ? "selected" : ""}>Alle Zust\u00e4nde</option>
+                <option value="Morgen-Einspeisung" ${this._activityFilter === "Morgen-Einspeisung" ? "selected" : ""}>Morgen-Einspeisung</option>
+                <option value="Abend-Entladung" ${this._activityFilter === "Abend-Entladung" ? "selected" : ""}>Abend-Entladung</option>
+              </select>
               <label data-action="toggle-activity-show-all" style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--secondary-text-color);cursor:pointer;user-select:none">
                 <input type="checkbox" ${this._activityShowAll ? "checked" : ""} style="pointer-events:none;margin:0"> Alle Eintr\u00e4ge
               </label>
