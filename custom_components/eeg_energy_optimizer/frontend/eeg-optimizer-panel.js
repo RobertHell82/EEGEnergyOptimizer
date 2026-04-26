@@ -631,7 +631,9 @@ class EegOptimizerPanel extends HTMLElement {
     this._feedinStatsOpen = false;
     this._feedinStatsPeriod = "month";
     this._profilOpen = false;
-    this._dischargeDetailsOpen = false;
+    this._dischargeTile1Open = false;
+    this._dischargeTile2Open = false;
+    this._morningTile1Open = false;
     this._profileRefreshing = false;
     this._profileRefreshResult = null;
     this._peakshareDataOpen = false;
@@ -1113,8 +1115,16 @@ class EegOptimizerPanel extends HTMLElement {
         this._profilOpen = !this._profilOpen;
         this._render();
         break;
-      case "toggle-discharge-details":
-        this._dischargeDetailsOpen = !this._dischargeDetailsOpen;
+      case "toggle-discharge-tile-1":
+        this._dischargeTile1Open = !this._dischargeTile1Open;
+        this._render();
+        break;
+      case "toggle-discharge-tile-2":
+        this._dischargeTile2Open = !this._dischargeTile2Open;
+        this._render();
+        break;
+      case "toggle-morning-tile-1":
+        this._morningTile1Open = !this._morningTile1Open;
         this._render();
         break;
       case "refresh-consumption-profile": {
@@ -3287,42 +3297,7 @@ class EegOptimizerPanel extends HTMLElement {
     }
 
     if (mStatus !== "deaktiviert") {
-      const pvVal = ma.morning_pv_today_kwh != null ? Number(ma.morning_pv_today_kwh).toFixed(1) : "---";
-      const threshold = ma.morning_threshold_kwh != null ? Number(ma.morning_threshold_kwh).toFixed(1) : "---";
-      const consumption = ma.morning_consumption_kwh != null ? Number(ma.morning_consumption_kwh).toFixed(1) : "---";
-      const buffer = ma.morning_buffer_kwh != null ? Number(ma.morning_buffer_kwh).toFixed(1) : "---";
-      const battery = ma.morning_battery_kwh != null ? Number(ma.morning_battery_kwh).toFixed(1) : "---";
-      const pvOk = Number(ma.morning_pv_today_kwh || 0) > Number(ma.morning_threshold_kwh || 0);
-      const pvLabel = (mStatus === "morgen_erwartet" || mStatus === "morgen_nicht_erwartet") ? "PV-Prognose morgen" : "PV-Prognose heute";
-      const fensterStart = ma.morning_sunrise_tomorrow || "---";
-      const fensterEnd = ma.morning_end_time || "---";
-
-      mConditionsHtml = `
-        <hr class="status-divider">
-        <div class="condition-row">
-          <span>Bedarf SA\u2192SU</span>
-          <span>${consumption} kWh</span>
-        </div>
-        <div class="condition-row">
-          <span>Sicherheitspuffer</span>
-          <span>${buffer} kWh</span>
-        </div>
-        <div class="condition-row">
-          <span>Batterieladung</span>
-          <span>${battery} kWh</span>
-        </div>
-        <div class="condition-row" style="font-weight:500">
-          <span>Gesamtbedarf</span>
-          <span>${threshold} kWh</span>
-        </div>
-        <div class="condition-row">
-          <span>${pvLabel}</span>
-          <span>${pvVal} kWh <span class="${pvOk ? "check" : "cross"}">${pvOk ? "\u2713" : "\u2717"}</span></span>
-        </div>
-        <div class="condition-row">
-          <span>Fenster</span>
-          <span>${fensterStart} bis ${fensterEnd}</span>
-        </div>`;
+      mConditionsHtml = this._renderMorningConditions(ma, mStatus);
     }
 
     // --- Right card: Abend-Entladung ---
@@ -3724,6 +3699,62 @@ class EegOptimizerPanel extends HTMLElement {
     return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${mobileStyle}${yLines}${bars}${legend}</svg>`;
   }
 
+  _renderMorningConditions(ma, mStatus) {
+    const pvVal = Number(ma.morning_pv_today_kwh || 0);
+    const threshold = Number(ma.morning_threshold_kwh || 0);
+    const consumption = ma.morning_consumption_kwh != null ? Number(ma.morning_consumption_kwh) : 0;
+    const buffer = ma.morning_buffer_kwh != null ? Number(ma.morning_buffer_kwh) : 0;
+    const battery = ma.morning_battery_kwh != null ? Number(ma.morning_battery_kwh) : 0;
+    const pvOk = pvVal > threshold;
+    const isFutureView = mStatus === "morgen_erwartet" || mStatus === "morgen_nicht_erwartet";
+    const pvLabel = isFutureView ? "PV-Prognose morgen" : "PV-Prognose heute";
+    const demandLabel = isFutureView ? "Gesamtbedarf morgen" : "Gesamtbedarf heute";
+    const fensterStart = ma.morning_sunrise_tomorrow || "---";
+    const fensterEnd = ma.morning_end_time || "---";
+
+    const scaleMax = Math.max(pvVal, threshold, 0.1) * 1.1;
+    const pvBarPct = Math.max(0, Math.min(100, (pvVal / scaleMax) * 100));
+    const demandMarkerPct = Math.max(0, Math.min(100, (threshold / scaleMax) * 100));
+    const tileColor = pvOk ? "var(--success-color, #4caf50)" : "var(--error-color, #f44336)";
+
+    const open = this._morningTile1Open;
+    const tileDetails = open ? `
+      <div class="cond-tile-details-body">
+        <strong>${demandLabel} ${threshold.toFixed(1)} kWh</strong> =
+        ${consumption.toFixed(1)} kWh (Tagesverbrauch) +
+        ${buffer.toFixed(1)} kWh (Sicherheitspuffer ${this._config?.safety_buffer_pct ?? 25} %) +
+        ${battery.toFixed(1)} kWh (Batterieladung)
+      </div>` : "";
+
+    return `
+      <hr class="status-divider">
+      <div class="cond-tile" style="margin-top:4px">
+        <div class="cond-tile-header">
+          <span class="${pvOk ? "check" : "cross"}" style="font-size:18px">${pvOk ? "✓" : "✗"}</span>
+          <span class="cond-tile-title">PV-Deckung</span>
+        </div>
+        <div class="cond-tile-sub">${pvOk ? "PV deckt den Bedarf" : "PV reicht nicht für den Bedarf"}</div>
+        <div class="cond-tile-bar">
+          <div class="cond-tile-bar-fill" style="width:${pvBarPct}%;background:${tileColor}"></div>
+          <div class="cond-tile-bar-marker" style="left:${demandMarkerPct}%"
+            title="${demandLabel} ${threshold.toFixed(1)} kWh"></div>
+        </div>
+        <div class="cond-tile-row">
+          <span><strong>${pvVal.toFixed(1)} kWh</strong> <span class="cond-tile-muted">${pvLabel}</span></span>
+          <span class="cond-tile-muted">Bedarf ${threshold.toFixed(1)} kWh</span>
+        </div>
+        <div class="cond-tile-row">
+          <span class="cond-tile-muted">Fenster</span>
+          <span class="cond-tile-muted">${fensterStart} bis ${fensterEnd}</span>
+        </div>
+        <div data-action="toggle-morning-tile-1" class="cond-tile-details-toggle">
+          <ha-icon icon="mdi:chevron-${open ? "up" : "down"}" style="--mdc-icon-size:16px"></ha-icon>
+          <span>Details ${open ? "ausblenden" : "anzeigen"}</span>
+        </div>
+        ${tileDetails}
+      </div>`;
+  }
+
   _renderDischargeConditions(ma, dStatus) {
     const soc = Number(ma.discharge_soc || 0);
     const minSoc = Number(ma.discharge_min_soc || 0);
@@ -3743,8 +3774,6 @@ class EegOptimizerPanel extends HTMLElement {
     // --- Tile 1: Nachtreserve (SOC vs. effective min) ---
     const socPct = Math.max(0, Math.min(100, soc));
     const minMarkerPct = Math.max(0, Math.min(100, effectiveMin));
-    const socReserve = soc - effectiveMin;
-    const socReserveStr = (socReserve >= 0 ? "+" : "") + socReserve.toFixed(0) + " %";
     const tile1Color = socOk ? "var(--success-color, #4caf50)" : "var(--error-color, #f44336)";
 
     const hystBadge = hyst
@@ -3752,6 +3781,15 @@ class EegOptimizerPanel extends HTMLElement {
           background:var(--warning-color,#ff9800);color:#fff;font-size:11px;font-weight:500"
           title="Eine erneute Entladung erfordert SOC > Min-SOC + 5 % (Hysterese aktiv)">+5 % Hysterese</span>`
       : "";
+
+    const open1 = this._dischargeTile1Open;
+    const tile1Details = open1 ? `
+      <div class="cond-tile-details-body">
+        <strong>Min-SOC ${minSoc.toFixed(0)} %</strong> =
+        ${this._config?.min_soc ?? 10} % (Minimaler Ladezustand) +
+        ${overnightDemand} kWh (Nachtverbrauch) +
+        ${this._config?.safety_buffer_pct ?? 25} % (Sicherheitspuffer)${hyst ? `<br>+ 5 % Hysterese → <strong>${effectiveMin.toFixed(0)} %</strong>` : ""}
+      </div>` : "";
 
     const tile1 = `
       <div class="cond-tile">
@@ -3770,24 +3808,33 @@ class EegOptimizerPanel extends HTMLElement {
           <span><strong>${soc.toFixed(0)} %</strong> <span class="cond-tile-muted">aktuell</span></span>
           <span class="cond-tile-muted">Min ${effectiveMin.toFixed(0)} %</span>
         </div>
-        <div class="cond-tile-reserve" style="color:${tile1Color}">
-          Reserve: ${socReserveStr}
+        <div data-action="toggle-discharge-tile-1" class="cond-tile-details-toggle">
+          <ha-icon icon="mdi:chevron-${open1 ? "up" : "down"}" style="--mdc-icon-size:16px"></ha-icon>
+          <span>Details ${open1 ? "ausblenden" : "anzeigen"}</span>
         </div>
+        ${tile1Details}
       </div>`;
 
-    // --- Tile 2: Morgen-Deckung (PV morgen vs. Gesamtbedarf) ---
+    // --- Tile 2: Tagesdeckung (PV morgen vs. Gesamtbedarf) ---
     const scaleMax = Math.max(pvTom, demandTotal, 0.1) * 1.1;
     const pvBarPct = Math.max(0, Math.min(100, (pvTom / scaleMax) * 100));
     const demandMarkerPct = Math.max(0, Math.min(100, (demandTotal / scaleMax) * 100));
-    const pvReserve = pvTom - demandTotal;
-    const pvReserveStr = (pvReserve >= 0 ? "+" : "") + pvReserve.toFixed(1) + " kWh";
     const tile2Color = pvOk ? "var(--success-color, #4caf50)" : "var(--error-color, #f44336)";
+
+    const open2 = this._dischargeTile2Open;
+    const tile2Details = open2 ? `
+      <div class="cond-tile-details-body">
+        <strong>Gesamtbedarf morgen ${demandTotal.toFixed(1)} kWh</strong> =
+        ${consDaylight} kWh (Tagesverbrauch) +
+        ${safetyBuffer} kWh (Sicherheitspuffer ${this._config?.safety_buffer_pct ?? 25} %) +
+        ${battCharge} kWh (Batterie nachladen)
+      </div>` : "";
 
     const tile2 = `
       <div class="cond-tile">
         <div class="cond-tile-header">
           <span class="${pvOk ? "check" : "cross"}" style="font-size:18px">${pvOk ? "✓" : "✗"}</span>
-          <span class="cond-tile-title">Morgen-Deckung</span>
+          <span class="cond-tile-title">Tagesdeckung</span>
         </div>
         <div class="cond-tile-sub">${pvOk ? "PV morgen deckt den Bedarf" : "PV morgen reicht nicht"}</div>
         <div class="cond-tile-bar">
@@ -3799,9 +3846,11 @@ class EegOptimizerPanel extends HTMLElement {
           <span><strong>${pvTom.toFixed(1)} kWh</strong> <span class="cond-tile-muted">PV morgen</span></span>
           <span class="cond-tile-muted">Bedarf ${demandTotal.toFixed(1)} kWh</span>
         </div>
-        <div class="cond-tile-reserve" style="color:${tile2Color}">
-          Reserve: ${pvReserveStr}
+        <div data-action="toggle-discharge-tile-2" class="cond-tile-details-toggle">
+          <ha-icon icon="mdi:chevron-${open2 ? "up" : "down"}" style="--mdc-icon-size:16px"></ha-icon>
+          <span>Details ${open2 ? "ausblenden" : "anzeigen"}</span>
         </div>
+        ${tile2Details}
       </div>`;
 
     // --- Optional: Entladeleistung-Zeile bei aktivem Status ---
@@ -3815,38 +3864,13 @@ class EegOptimizerPanel extends HTMLElement {
         </div>`;
     }
 
-    // --- Collapsible Details ---
-    const open = this._dischargeDetailsOpen;
-    const details = `
-      <div class="cond-details">
-        <div data-action="toggle-discharge-details" class="cond-details-toggle">
-          <ha-icon icon="mdi:chevron-${open ? "up" : "down"}" style="--mdc-icon-size:18px"></ha-icon>
-          <span>Details ${open ? "ausblenden" : "anzeigen"}</span>
-        </div>
-        ${open ? `
-          <div class="cond-details-body">
-            <div class="cond-details-line">
-              <strong>Min-SOC</strong> = Basis ${this._config?.min_soc ?? 10} % +
-              ⌈Nachtverbrauch ${overnightDemand} kWh × 1,25 / Kapazität × 100⌉
-              = <strong>${minSoc.toFixed(0)} %</strong>${hyst ? ` (+ 5 % Hysterese → ${effectiveMin.toFixed(0)} %)` : ""}
-            </div>
-            <div class="cond-details-line">
-              <strong>Gesamtbedarf morgen</strong> = ${consDaylight} (Tag) +
-              ${safetyBuffer} (${this._config?.safety_buffer_pct ?? 25} % Puffer) +
-              ${battCharge} (Batterie nachladen)
-              = <strong>${demandTotal.toFixed(1)} kWh</strong>
-            </div>
-          </div>` : ""}
-      </div>`;
-
     return `
       <hr class="status-divider">
       <div class="cond-tiles">
         ${tile1}
         ${tile2}
       </div>
-      ${activeRow}
-      ${details}`;
+      ${activeRow}`;
   }
 
   _renderConsumptionProfileStatus(profilState) {
@@ -4318,7 +4342,7 @@ class EegOptimizerPanel extends HTMLElement {
             </h3>
             <ha-icon icon="mdi:chevron-${this._profilOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
           </div>
-          ${this._renderConsumptionProfileStatus(profilState)}
+          ${this._config?.expert_mode ? this._renderConsumptionProfileStatus(profilState) : ""}
           ${this._profilOpen ? this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0) : ""}
         </div>
 
@@ -4860,19 +4884,16 @@ class EegOptimizerPanel extends HTMLElement {
         }
         .cond-tile-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; margin-top: 4px; }
         .cond-tile-muted { color: var(--secondary-text-color, #999); font-size: 12px; }
-        .cond-tile-reserve { font-size: 13px; font-weight: 600; margin-top: 4px; }
-        .cond-details { margin-top: 12px; }
-        .cond-details-toggle {
+        .cond-tile-details-toggle {
           display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
-          color: var(--secondary-text-color, #999); font-size: 13px; user-select: none;
-          padding: 4px 0;
+          color: var(--secondary-text-color, #999); font-size: 12px; user-select: none;
+          padding: 4px 0; margin-top: 6px;
         }
-        .cond-details-toggle:hover { color: var(--primary-text-color, #333); }
-        .cond-details-body {
+        .cond-tile-details-toggle:hover { color: var(--primary-text-color, #333); }
+        .cond-tile-details-body {
           margin-top: 6px; padding: 10px 12px; background: var(--secondary-background-color, rgba(0,0,0,0.03));
           border-radius: 8px; font-size: 12.5px; color: var(--primary-text-color, #333); line-height: 1.5;
         }
-        .cond-details-line { padding: 2px 0; }
         @media (max-width: 540px) {
           .cond-tiles { grid-template-columns: 1fr; }
         }
