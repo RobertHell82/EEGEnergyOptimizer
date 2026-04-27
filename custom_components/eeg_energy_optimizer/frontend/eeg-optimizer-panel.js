@@ -529,7 +529,7 @@ const DIALOG_CONTENT = {
       <h3 style="margin:16px 0 8px">4. Pr&uuml;fen</h3>
       <ol style="padding-left:20px;line-height:1.8">
         <li>Unter <strong>Einstellungen &rarr; Integrationen</strong>: Fronius zeigt <strong>&ldquo;geladen&rdquo;</strong></li>
-        <li><strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: Suche nach <code>power_photovoltaics</code> und <code>state_of_charge</code></li>
+        <li><strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: Suche nach <code>power_photovoltaics</code> / <code>pv_leistung</code> und <code>state_of_charge</code> / <code>ladezustand</code></li>
         <li>Kehre hierher zur&uuml;ck &mdash; die Sensoren werden automatisch erkannt</li>
       </ol>
 
@@ -2449,21 +2449,21 @@ class EegOptimizerPanel extends HTMLElement {
       : solaredgeSelected
       ? "Aktuelle PV-Produktion in W (SolarEdge: sensor.solaredge_[i1_]ac_power)."
       : froniusSelected
-      ? "Aktuelle PV-Produktion in W (Fronius: sensor.*_power_photovoltaics)."
+      ? "Aktuelle PV-Produktion in W (Fronius: sensor.*_power_photovoltaics oder *_pv_leistung)."
       : "Aktuelle PV-Produktion in W (SolaX: sensor.solax_energy_dashboard_solax_solar_power).";
     const batteryHelp = huaweiSelected
       ? "Lade- und Entladeleistung der Batterie in W oder kW (Huawei: sensor.batteries_lade_entladeleistung)."
       : solaredgeSelected
       ? "Lade- und Entladeleistung der Batterie in W (SolarEdge: sensor.solaredge_[i1_]b1_dc_power)."
       : froniusSelected
-      ? "Lade- und Entladeleistung der Batterie in W (Fronius: sensor.*_power_battery)."
+      ? "Lade- und Entladeleistung der Batterie in W (Fronius: sensor.*_power_battery oder *_leistung_batterie). Bei Fronius-Installationen mit getrennten Lade-/Entladesensoren bitte den signed Sensor wählen."
       : "Lade- und Entladeleistung der Batterie in W (SolaX: sensor.solax_energy_dashboard_solax_battery_power).";
     const gridHelp = huaweiSelected
       ? "Wirkleistung am Netzanschluss in W oder kW (Huawei: sensor.power_meter_wirkleistung)."
       : solaredgeSelected
       ? "Wirkleistung am Netzanschluss in W (SolarEdge: sensor.solaredge_[i1_]m1_ac_power)."
       : froniusSelected
-      ? "Wirkleistung am Netzanschluss in W (Fronius: sensor.*_power_grid)."
+      ? "Wirkleistung am Netzanschluss in W (Fronius: sensor.*_power_grid oder *_leistung_netz). Bei Fronius-Installationen mit getrennten Bezugs-/Einspeisesensoren bitte den signed Sensor wählen."
       : "Wirkleistung am Netzanschluss in W (SolaX: sensor.solax_energy_dashboard_solax_grid_power).";
 
     // Build inverter cards, sort: detected first (alphabetically), then undetected (alphabetically)

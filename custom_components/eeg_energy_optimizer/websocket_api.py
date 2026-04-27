@@ -106,12 +106,54 @@ SOLAREDGE_CONTROL_SUFFIXES: dict[str, list[tuple[str, str]]] = {
 # Fronius native integration sensor suffixes — used to find entities.
 # The Fronius integration creates entities like sensor.{device_name}_{key}.
 # Prefix varies by installation (e.g. "solarnet_", "power_flow_0_192_168_100_211_").
+#
+# Multiple suffixes per conf_key cover the different naming variants that
+# show up in the wild:
+#   - English unique-id style (post-2024 HA core integration default):
+#     state_of_charge, power_photovoltaics, power_grid, power_battery,
+#     capacity_maximum
+#   - Localized (DE) friendly-name slugs as seen on installations that
+#     were set up before HA stopped translating entity_ids, or where the
+#     user has manually renamed entities to the German friendly names:
+#     ladezustand, pv_leistung, leistung_netz, leistung_batterie,
+#     maximale_kapazitat, ausgelegte_kapazitat
+#   - "battery_level" / "soc" as widely-used short aliases
+#
+# Lookup order matters: first match wins, so the more specific / canonical
+# English suffixes are listed first.
 FRONIUS_SENSOR_SUFFIXES: dict[str, list[str]] = {
-    CONF_BATTERY_SOC_SENSOR: ["state_of_charge"],
-    CONF_PV_POWER_SENSOR: ["power_photovoltaics"],
-    CONF_GRID_POWER_SENSOR: ["power_grid"],
-    CONF_BATTERY_POWER_SENSOR: ["power_battery"],
-    CONF_BATTERY_CAPACITY_SENSOR: ["capacity_maximum"],
+    CONF_BATTERY_SOC_SENSOR: [
+        "state_of_charge",
+        "battery_state_of_charge",
+        "ladezustand",
+        "battery_level",
+        "_soc",
+    ],
+    CONF_PV_POWER_SENSOR: [
+        "power_photovoltaics",
+        "pv_power",
+        "pv_leistung",
+        "photovoltaikleistung",
+    ],
+    CONF_GRID_POWER_SENSOR: [
+        "power_grid",
+        "grid_power",
+        "leistung_netz",
+        "netzleistung",
+    ],
+    CONF_BATTERY_POWER_SENSOR: [
+        "power_battery",
+        "battery_power",
+        "leistung_batterie",
+        "batterieleistung",
+    ],
+    CONF_BATTERY_CAPACITY_SENSOR: [
+        "capacity_maximum",
+        "maximum_capacity",
+        "maximale_kapazitat",
+        "ausgelegte_kapazitat",
+        "designed_capacity",
+    ],
 }
 
 
