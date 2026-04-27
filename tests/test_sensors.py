@@ -9,7 +9,6 @@ from custom_components.eeg_energy_optimizer.const import (
     CONF_BATTERY_CAPACITY_KWH,
     CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
-    CONF_CONSUMPTION_SENSOR,
     CONF_FORECAST_REMAINING_ENTITY,
     CONF_FORECAST_SOURCE,
     CONF_FORECAST_TOMORROW_ENTITY,
@@ -209,7 +208,7 @@ class TestDailyForecastSensor:
 
     @pytest.mark.asyncio
     async def test_daily_forecast_today(self, mock_hass):
-        """Day_offset=0: calculate_period called with now..end_of_today."""
+        """Day_offset=0: calculate_period called for remaining-day AND full-day total."""
         entry = MagicMock()
         entry.entry_id = "test_entry"
         coord = _make_coordinator()
@@ -226,13 +225,22 @@ class TestDailyForecastSensor:
             await sensor.async_update()
 
         assert sensor.native_value == 8.5
-        # Verify calculate_period was called
-        coord.calculate_period.assert_called_once()
-        call_args = coord.calculate_period.call_args[0]
-        # Start should be now (14:00), end should be end of day (00:00 next day)
-        assert call_args[0] == fixed_now
-        assert call_args[1].hour == 0
-        assert call_args[1].day == 22
+        # Two calls: 1) now → midnight+1d (remaining), 2) midnight → midnight+1d (total)
+        assert coord.calculate_period.call_count == 2
+
+        first_call = coord.calculate_period.call_args_list[0][0]
+        assert first_call[0] == fixed_now
+        assert first_call[1].hour == 0
+        assert first_call[1].day == 22
+
+        second_call = coord.calculate_period.call_args_list[1][0]
+        assert second_call[0].hour == 0
+        assert second_call[0].day == 21
+        assert second_call[1].hour == 0
+        assert second_call[1].day == 22
+
+        # tagesverbrauch_gesamt_kwh attribute exposed for the dashboard chart
+        assert "tagesverbrauch_gesamt_kwh" in sensor.extra_state_attributes
 
     @pytest.mark.asyncio
     async def test_daily_forecast_tomorrow(self, mock_hass):
@@ -332,7 +340,15 @@ class TestSunriseForecastSensor:
         sensor = self._make_sensor(mock_hass, entry, coord)
 
         fixed_now = datetime(2026, 3, 21, 22, 0, 0, tzinfo=timezone.utc)
-        with patch("custom_components.eeg_energy_optimizer.sensor._now", return_value=fixed_now):
+        # Patch _as_local too: in the test environment dt_util is a MagicMock,
+        # so the production fallback (`lambda dt: dt`) does not apply.
+        with patch(
+            "custom_components.eeg_energy_optimizer.sensor._now",
+            return_value=fixed_now,
+        ), patch(
+            "custom_components.eeg_energy_optimizer.sensor._as_local",
+            side_effect=lambda dt: dt,
+        ):
             await sensor.async_update()
 
         assert sensor.native_value == 3.5
