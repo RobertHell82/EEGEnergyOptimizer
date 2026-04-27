@@ -636,6 +636,7 @@ class EegOptimizerPanel extends HTMLElement {
     this._feedinStatsPeriod = "month";
     this._profilOpen = false;
     this._profilChartVariant = "hourly";  // "hourly" or "daynight"
+    this._statusViewVariant = "values";   // "values" or "flow"
     this._dischargeTile1Open = false;
     this._dischargeTile2Open = false;
     this._morningTile1Open = false;
@@ -1132,6 +1133,14 @@ class EegOptimizerPanel extends HTMLElement {
         const variant = e.target.closest("[data-variant]")?.dataset.variant;
         if (variant && variant !== this._profilChartVariant) {
           this._profilChartVariant = variant;
+          this._render();
+        }
+        break;
+      }
+      case "set-status-view": {
+        const variant = e.target.closest("[data-variant]")?.dataset.variant;
+        if (variant && variant !== this._statusViewVariant) {
+          this._statusViewVariant = variant;
           this._render();
         }
         break;
@@ -3732,6 +3741,150 @@ class EegOptimizerPanel extends HTMLElement {
     return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${mobileStyle}${yLines}${bars}${legend}</svg>`;
   }
 
+  _renderEnergyFlow(pvKw, batKw, gridKw, hausKw, socVal, ids = {}) {
+    // --- Decompose flows from the four signed values ---
+    const pv = Math.max(pvKw, 0);
+    const batCharge = Math.max(batKw, 0);          // battery charging (sink)
+    const batDischarge = Math.max(-batKw, 0);      // battery discharging (source)
+    const gridExport = Math.max(gridKw, 0);        // feed-in to grid
+    const gridImport = Math.max(-gridKw, 0);       // import from grid
+    const haus = Math.max(hausKw, 0);
+
+    // Priority: PV → Haus → Batterie → Netz
+    const pvToHaus = Math.min(pv, haus);
+    let pvLeft = pv - pvToHaus;
+    const pvToBat = Math.min(pvLeft, batCharge);
+    pvLeft -= pvToBat;
+    const pvToGrid = Math.min(pvLeft, gridExport);
+
+    // Remaining demand on the house side
+    const hausFromBat = Math.min(haus - pvToHaus, batDischarge);
+    const hausFromGrid = Math.max(haus - pvToHaus - hausFromBat, 0);
+    // Battery filled by something other than PV (rare: from grid)
+    const batFromGrid = Math.max(batCharge - pvToBat, 0);
+
+    // --- Layout ---
+    const W = 600, H = 320;
+    const NW = 150, NH = 64;
+    const positions = {
+      pv:    { cx: 300, cy: 50 },
+      bat:   { cx: 95,  cy: 160 },
+      house: { cx: 300, cy: 270 },
+      grid:  { cx: 505, cy: 160 },
+    };
+
+    // Trim line to box edge so arrow doesn't hide under the rect
+    const trim = (from, to) => {
+      const dx = to.cx - from.cx;
+      const dy = to.cy - from.cy;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len, uy = dy / len;
+      const tFrom = Math.min((NW / 2 + 4) / Math.max(Math.abs(ux), 0.001), (NH / 2 + 4) / Math.max(Math.abs(uy), 0.001));
+      const tTo   = Math.min((NW / 2 + 4) / Math.max(Math.abs(ux), 0.001), (NH / 2 + 4) / Math.max(Math.abs(uy), 0.001));
+      return {
+        x1: from.cx + ux * tFrom,
+        y1: from.cy + uy * tFrom,
+        x2: to.cx - ux * tTo,
+        y2: to.cy - uy * tTo,
+      };
+    };
+
+    // --- Flow lines ---
+    const flows = [
+      { from: positions.pv,    to: positions.house, value: pvToHaus,      color: "#FFC107" },
+      { from: positions.pv,    to: positions.bat,   value: pvToBat,       color: "#FFC107" },
+      { from: positions.pv,    to: positions.grid,  value: pvToGrid,      color: "#4CAF50" },
+      { from: positions.bat,   to: positions.house, value: hausFromBat,   color: "#FF9800" },
+      { from: positions.grid,  to: positions.house, value: hausFromGrid,  color: "#F44336" },
+      { from: positions.grid,  to: positions.bat,   value: batFromGrid,   color: "#F44336" },
+    ];
+
+    let activeLines = "";
+    let inactiveLines = "";
+    let labels = "";
+    flows.forEach(f => {
+      const e = trim(f.from, f.to);
+      if (f.value > 0.02) {
+        const sw = Math.min(Math.max(2, f.value * 0.7), 5);
+        activeLines += `<line class="flow-line" x1="${e.x1}" y1="${e.y1}" x2="${e.x2}" y2="${e.y2}" stroke="${f.color}" stroke-width="${sw}" fill="none"/>`;
+        // Label at midpoint
+        const mx = (e.x1 + e.x2) / 2;
+        const my = (e.y1 + e.y2) / 2;
+        labels += `<g transform="translate(${mx} ${my})">
+          <rect class="ef-flow-label" x="-24" y="-10" width="48" height="20" rx="10"/>
+          <text class="ef-flow-text" x="0" y="4" text-anchor="middle">${fmtDe(f.value, 2)}</text>
+        </g>`;
+      } else {
+        inactiveLines += `<line x1="${e.x1}" y1="${e.y1}" x2="${e.x2}" y2="${e.y2}" stroke="var(--divider-color, #e0e0e0)" stroke-width="1.5" stroke-dasharray="2 5" opacity="0.5"/>`;
+      }
+    });
+
+    // --- Node renderer ---
+    const node = (pos, icon, title, mainText, subText, accent, active, entityId) => {
+      const x = pos.cx - NW / 2;
+      const y = pos.cy - NH / 2;
+      const opacity = active ? 1 : 0.55;
+      const clickable = entityId ? `data-action="show-entity" data-entity="${entityId}" style="cursor:pointer"` : "";
+      return `<g class="ef-node" opacity="${opacity}" ${clickable}>
+        <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="14"
+          fill="var(--card-background-color, #fff)"
+          stroke="${accent}" stroke-width="${active ? 2.5 : 1.5}"/>
+        <foreignObject x="${x + 10}" y="${y + (NH - 36) / 2}" width="36" height="36">
+          <div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;align-items:center;justify-content:center;width:36px;height:36px">
+            <ha-icon icon="${icon}" style="--mdc-icon-size:30px;color:${accent}"></ha-icon>
+          </div>
+        </foreignObject>
+        <text x="${x + 54}" y="${y + 22}" font-size="11" fill="var(--secondary-text-color)" style="text-transform:uppercase;letter-spacing:0.5px">${title}</text>
+        <text x="${x + 54}" y="${y + 40}" font-size="15" font-weight="600" fill="var(--primary-text-color)">${mainText}</text>
+        ${subText ? `<text x="${x + 54}" y="${y + 55}" font-size="10" fill="var(--secondary-text-color)">${subText}</text>` : ""}
+      </g>`;
+    };
+
+    // PV
+    const pvNode = node(positions.pv, "mdi:solar-power", "Photovoltaik", `${fmtDe(pv, 2)} kW`, "", "#FFC107", pv > 0.02, ids.pvEntity);
+
+    // Battery
+    let batMain = socVal != null ? `${socVal} %` : "—";
+    let batSub = "Idle";
+    let batAccent = "#9E9E9E";
+    if (batCharge > 0.02) {
+      batSub = `+${fmtDe(batCharge, 2)} kW · Ladung`;
+      batAccent = "#4CAF50";
+    } else if (batDischarge > 0.02) {
+      batSub = `${fmtDe(batDischarge, 2)} kW · Entladung`;
+      batAccent = "#FF9800";
+    }
+    const batNode = node(positions.bat, "mdi:battery", "Batterie", batMain, batSub, batAccent, batCharge > 0.02 || batDischarge > 0.02, ids.batEntity);
+
+    // House
+    const houseNode = node(positions.house, "mdi:home", "Haus", `${fmtDe(haus, 2)} kW`, "", "#2196F3", haus > 0.02, ids.hausEntity);
+
+    // Grid
+    let gridMain = "0 kW";
+    let gridSub = "";
+    let gridAccent = "#9E9E9E";
+    if (gridExport > 0.02) {
+      gridMain = `${fmtDe(gridExport, 2)} kW`;
+      gridSub = "Einspeisung";
+      gridAccent = "#4CAF50";
+    } else if (gridImport > 0.02) {
+      gridMain = `${fmtDe(gridImport, 2)} kW`;
+      gridSub = "Bezug";
+      gridAccent = "#F44336";
+    }
+    const gridNode = node(positions.grid, "mdi:transmission-tower", "Netz", gridMain, gridSub, gridAccent, gridExport > 0.02 || gridImport > 0.02, ids.gridEntity);
+
+    return `<svg class="energy-flow-svg" viewBox="0 0 ${W} ${H}">
+      ${inactiveLines}
+      ${activeLines}
+      ${labels}
+      ${pvNode}
+      ${batNode}
+      ${houseNode}
+      ${gridNode}
+    </svg>`;
+  }
+
   _renderDayNightChart(data, sunriseHour, sunsetHour) {
     if (!data || data.length === 0) return "<p>Keine Daten verfügbar</p>";
 
@@ -4435,29 +4588,41 @@ class EegOptimizerPanel extends HTMLElement {
     return `
       <div class="dashboard-grid${narrowClass}">
         ${simBanner}
-        <!-- Header Card: Live Values Grid + Toggle + Timestamps -->
+        <!-- Header Card: Live Values Grid OR Energy Flow + Mode Toggle + Timestamps -->
         <div class="card header-card">
-          <h3 class="status-card-title" style="margin-top:0;display:flex;align-items:center;gap:8px">
-            <ha-icon icon="mdi:pulse" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4)"></ha-icon>
-            Aktueller Status
-            ${this._config?.inverter_type === "solaredge_storedge" ? `<span style="cursor:pointer;display:inline-flex;align-items:center"
-              title="NVRAM-Schreibvorg\u00e4nge: ${this._readFloat("sensor.eeg_energy_optimizer_register_schreibvorgange") ?? 0} seit Installation">
-              <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color)"></ha-icon>
-            </span>` : ""}
-          </h3>
-          <div class="header-grid">
-            <div class="hlv${pvEntity ? " hlv-clickable" : ""}" ${pvEntity ? `data-action="show-entity" data-entity="${pvEntity}"` : ""}><span class="hlv-label">PV</span><span class="hlv-val val-green">${fmtDe(pvKw, 2)} kW</span></div>
-            <div class="hlv${batEntity ? " hlv-clickable" : ""}" ${batEntity ? `data-action="show-entity" data-entity="${batEntity}"` : ""}><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${fmtDe(Math.abs(batKw), 2)} kW <small>(${batLabel})</small></span></div>
-            <div class="hlv${socEntity ? " hlv-clickable" : ""}" ${socEntity ? `data-action="show-entity" data-entity="${socEntity}"` : ""}><span class="hlv-label">SOC</span><span class="hlv-val ${socColor}">${socText}%</span></div>
-            <div class="hlv${gridEntity ? " hlv-clickable" : ""}" ${gridEntity ? `data-action="show-entity" data-entity="${gridEntity}"` : ""}><span class="hlv-label">Netz</span><span class="hlv-val ${gridColor}">${fmtDe(Math.abs(gridKw), 2)} kW <small>(${gridLabel})</small></span></div>
-            <div class="hlv hlv-clickable" data-action="show-entity" data-entity="${hausEntity}"><span class="hlv-label">Haus</span><span class="hlv-val val-blue">${fmtDe(hausKw, 2)} kW</span></div>
-            <div class="hlv header-toggle-cell">
+          <div class="header-card-top">
+            <h3 class="status-card-title" style="margin:0;display:flex;align-items:center;gap:8px;flex:1;min-width:0">
+              <ha-icon icon="mdi:pulse" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);flex-shrink:0"></ha-icon>
+              <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Aktueller Status</span>
+              ${this._config?.inverter_type === "solaredge_storedge" ? `<span style="cursor:pointer;display:inline-flex;align-items:center;flex-shrink:0"
+                title="NVRAM-Schreibvorg\u00e4nge: ${this._readFloat("sensor.eeg_energy_optimizer_register_schreibvorgange") ?? 0} seit Installation">
+                <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color)"></ha-icon>
+              </span>` : ""}
+            </h3>
+            <div class="status-view-pills">
+              <button class="view-pill ${this._statusViewVariant === "values" ? "active" : ""}" data-action="set-status-view" data-variant="values" title="Werte-Anzeige">
+                <ha-icon icon="mdi:view-grid-outline" style="--mdc-icon-size:16px"></ha-icon>
+              </button>
+              <button class="view-pill ${this._statusViewVariant === "flow" ? "active" : ""}" data-action="set-status-view" data-variant="flow" title="Energieflu\u00dfdiagramm">
+                <ha-icon icon="mdi:transit-connection-variant" style="--mdc-icon-size:16px"></ha-icon>
+              </button>
+            </div>
+            <div class="header-mode-toggle">
               <div class="mode-toggle ${modeToggleClass}" data-action="toggle-mode">
                 <div class="toggle-knob"></div>
               </div>
               <span class="mode-toggle-label">${modeValue === "Ein" ? "Ein" : "Testmodus"}</span>
             </div>
           </div>
+          ${this._statusViewVariant === "flow"
+            ? this._renderEnergyFlow(pvKw, batKw, gridKw, hausKw, socVal, {pvEntity, batEntity, gridEntity, hausEntity, socEntity})
+            : `<div class="header-grid">
+                <div class="hlv${pvEntity ? " hlv-clickable" : ""}" ${pvEntity ? `data-action="show-entity" data-entity="${pvEntity}"` : ""}><span class="hlv-label">PV</span><span class="hlv-val val-green">${fmtDe(pvKw, 2)} kW</span></div>
+                <div class="hlv${batEntity ? " hlv-clickable" : ""}" ${batEntity ? `data-action="show-entity" data-entity="${batEntity}"` : ""}><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${fmtDe(Math.abs(batKw), 2)} kW <small>(${batLabel})</small></span></div>
+                <div class="hlv${socEntity ? " hlv-clickable" : ""}" ${socEntity ? `data-action="show-entity" data-entity="${socEntity}"` : ""}><span class="hlv-label">SOC</span><span class="hlv-val ${socColor}">${socText}%</span></div>
+                <div class="hlv${gridEntity ? " hlv-clickable" : ""}" ${gridEntity ? `data-action="show-entity" data-entity="${gridEntity}"` : ""}><span class="hlv-label">Netz</span><span class="hlv-val ${gridColor}">${fmtDe(Math.abs(gridKw), 2)} kW <small>(${gridLabel})</small></span></div>
+                <div class="hlv hlv-clickable" data-action="show-entity" data-entity="${hausEntity}"><span class="hlv-label">Haus</span><span class="hlv-val val-blue">${fmtDe(hausKw, 2)} kW</span></div>
+              </div>`}
           <div class="header-timestamps">
             <span>Optimizer: ${optimizerTs}</span>
             <span>Verbrauchsdaten: ${profilTs}</span>
@@ -5103,6 +5268,23 @@ class EegOptimizerPanel extends HTMLElement {
         .val-red { color: #f44336; }
         .val-blue { color: #2196f3; }
         .header-toggle-cell { display: flex; flex-direction: row; align-items: center; gap: 8px; justify-content: flex-end; }
+        .header-card-top { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+        .header-mode-toggle { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+        .status-view-pills { display: inline-flex; background: var(--secondary-background-color, rgba(0,0,0,0.05)); border-radius: 999px; padding: 3px; gap: 0; flex-shrink: 0; }
+        .view-pill { background: transparent; border: none; cursor: pointer; padding: 6px 12px; border-radius: 999px; color: var(--secondary-text-color, #666); display: inline-flex; align-items: center; justify-content: center; transition: background 0.15s, color 0.15s; }
+        .view-pill:hover { color: var(--primary-text-color); }
+        .view-pill.active { background: var(--card-background-color, #fff); color: var(--primary-color, #03a9f4); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .energy-flow-svg { width: 100%; height: auto; max-height: 360px; display: block; }
+        .energy-flow-svg .flow-line { stroke-linecap: round; stroke-dasharray: 6 6; animation: flow-anim 1.2s linear infinite; }
+        .energy-flow-svg .flow-line.reverse { animation-direction: reverse; }
+        @keyframes flow-anim { to { stroke-dashoffset: -24; } }
+        .energy-flow-svg .ef-node { cursor: pointer; transition: transform 0.15s; }
+        .energy-flow-svg .ef-node:hover { transform: scale(1.04); transform-origin: center; transform-box: fill-box; }
+        .energy-flow-svg .ef-flow-label { fill: var(--card-background-color, #fff); stroke: var(--divider-color, #e0e0e0); stroke-width: 1; }
+        .energy-flow-svg .ef-flow-text { fill: var(--primary-text-color); font-size: 11px; font-weight: 500; pointer-events: none; }
+        @media (max-width: 540px) {
+          .energy-flow-svg .ef-flow-text { font-size: 13px; }
+        }
         .header-timestamps { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--divider-color, #e0e0e0); font-size: 11px; color: var(--secondary-text-color, #999); }
         .status-card-title { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 16px; }
         .info-popup-trigger {
