@@ -140,10 +140,12 @@ None yet.
 | 260406-tg6 | SolarEdge Anleitung im Panel auf Huawei-Detailgrad | 2026-04-06 | 3d647de | | [260406-tg6-solaredge-anleitung-im-panel-auf-huawei-](./quick/260406-tg6-solaredge-anleitung-im-panel-auf-huawei-/) |
 | 260406-u8h | SolaX Anleitung im Panel | 2026-04-06 | — | | [260406-u8h-solax-anleitung-im-panel](./quick/260406-u8h-solax-anleitung-im-panel/) |
 | 260406-ufh | Einstellungen-Screen statt Wizard nach Setup + Dashboard-Gating | 2026-04-06 | 1de9b07 | Verified | [260406-ufh-einstellungen-screen-statt-wizard-nach-s](./quick/260406-ufh-einstellungen-screen-statt-wizard-nach-s/) |
+| 260412-r3n | Fronius Gen24 Umsetzungskonzept: Sensoren und Wechselrichter-Ansteuerung | 2026-04-12 | e34bb17 | | [260412-r3n-fronius-gen24-umsetzungskonzept-sensoren](./quick/260412-r3n-fronius-gen24-umsetzungskonzept-sensoren/) |
+| 260412-t0k | Fronius Gen24 Inverter Support: FroniusInverter (SunSpec Model 124 Modbus TCP), Config-Migration v11, WebSocket API, Panel-Wizard | 2026-04-13 | c2a23dd | | [260412-t0k-fronius-gen24-inverter-support-implement](./quick/260412-t0k-fronius-gen24-inverter-support-implement/) |
 | 260416-kqk | PeakShare-basierte Abend-Entladung mit konsistenter Begrifflichkeit | 2026-04-16 | 627426a | Needs Review | [260416-kqk-peakshare-basierte-abend-entladung-mit-k](./quick/260416-kqk-peakshare-basierte-abend-entladung-mit-k/) |
 
 ## Session Continuity
 
 Last activity: 2026-04-16 - Completed quick task 260416-kqk: PeakShare-basierte Abend-Entladung mit konsistenter Begrifflichkeit
-Stopped at: Completed quick-260406-ufh
+Stopped at: Completed quick-260416-kqk
 Resume file: None
