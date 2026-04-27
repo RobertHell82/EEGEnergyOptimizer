@@ -2378,7 +2378,7 @@ class EegOptimizerPanel extends HTMLElement {
     // Step 1: block if no supported inverter installed or Hausverbrauch sensors missing
     if (step === 1) {
       const p = this._prerequisites;
-      if (p && !p.huawei_solar && !p.solax_modbus && !p.solaredge_modbus_multi) return true;
+      if (p && !p.huawei_solar && !p.solax_modbus && !p.solaredge_modbus_multi && !p.fronius) return true;
       const d = this._wizardData;
       if (!d.inverter_type) return true;
       if (!d.pv_power_sensor) return true;
@@ -3950,17 +3950,21 @@ class EegOptimizerPanel extends HTMLElement {
     //   min_soc_dynamic = base_min_soc + ceil(overnight * (1 + buf/100) / capacity * 100)
     // Solving min_soc_dynamic < 100 for overnight gives:
     //   overnight_max = (100 - base_min_soc) / 100 * capacity / (1 + buf/100)
-    let capKwh = parseFloat(this._config?.battery_capacity_kwh) || 0;
+    // Capacity resolution mirrors optimizer._resolve_capacity: sensor first, manual fallback.
+    let capKwh = 0;
     const capSensorId = this._config?.battery_capacity_sensor || "";
-    if (!capKwh && capSensorId) {
+    if (capSensorId) {
       const s = this._readState(capSensorId);
       if (s) {
         const v = parseFloat(s.state);
         if (!isNaN(v) && v > 0) {
           const unit = s.attributes?.unit_of_measurement || "";
-          capKwh = unit === "Wh" ? v / 1000 : v;
+          capKwh = (unit.toLowerCase() === "wh" || (!unit && v > 1000)) ? v / 1000 : v;
         }
       }
+    }
+    if (!capKwh) {
+      capKwh = parseFloat(this._config?.battery_capacity_kwh) || 0;
     }
     const baseMinSoc = parseFloat(this._config?.min_soc ?? 10);
     const buffer = parseFloat(this._config?.safety_buffer_pct ?? 25);

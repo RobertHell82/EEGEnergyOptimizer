@@ -605,11 +605,25 @@ async def ws_detect_sensors(
             and s.state not in ("unavailable", "unknown")
         ]
 
+        # Suffix matching with word boundary check. Plain endswith() is
+        # ambiguous: "entladeleistung" endswith "ladeleistung" is True, which
+        # would mis-classify the discharge sensor as the charge sensor.
+        # Require the suffix to start its own word — preceded by "_" or "."
+        # (or to be the entire entity_id), unless the suffix already starts
+        # with "_" (then the boundary is built in).
+        def _suffix_matches(entity_id: str, suffix: str) -> bool:
+            if not entity_id.endswith(suffix):
+                return False
+            if suffix.startswith("_"):
+                return True
+            head = entity_id[: -len(suffix)]
+            return head == "" or head.endswith("_") or head.endswith(".")
+
         sensors = {}
         for conf_key, suffixes in FRONIUS_SENSOR_SUFFIXES.items():
             for suffix in suffixes:
                 for state in candidate_states:
-                    if state.entity_id.endswith(suffix):
+                    if _suffix_matches(state.entity_id, suffix):
                         sensors[conf_key] = state.entity_id
                         break
                 if conf_key in sensors:
@@ -624,12 +638,12 @@ async def ws_detect_sensors(
             for pos_suf, neg_suf in pairs:
                 pos_match = next(
                     (s.entity_id for s in candidate_states
-                     if s.entity_id.endswith(pos_suf)),
+                     if _suffix_matches(s.entity_id, pos_suf)),
                     None,
                 )
                 neg_match = next(
                     (s.entity_id for s in candidate_states
-                     if s.entity_id.endswith(neg_suf)),
+                     if _suffix_matches(s.entity_id, neg_suf)),
                     None,
                 )
                 if pos_match and neg_match:
