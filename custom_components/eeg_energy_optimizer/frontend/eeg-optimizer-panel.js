@@ -63,6 +63,13 @@ const WIZARD_DEFAULTS = {
   pv_power_sensor: "",
   battery_power_sensor: "",
   grid_power_sensor: "",
+  // Fronius / SolarNet split-sensor pairs. When both pair fields are filled
+  // the backend redirects battery_power_sensor / grid_power_sensor at the
+  // synthetic combined sensor on save.
+  battery_power_charge_sensor: "",
+  battery_power_discharge_sensor: "",
+  grid_power_export_sensor: "",
+  grid_power_import_sensor: "",
   huawei_device_id: "",
   pv_power_sensor_2: "",
   solax_remotecontrol_power_control: "",
@@ -1034,6 +1041,8 @@ class EegOptimizerPanel extends HTMLElement {
           // Clear sensor fields so auto-detection can re-fill them
           const sensorKeys = [
             "pv_power_sensor", "battery_power_sensor", "grid_power_sensor",
+            "battery_power_charge_sensor", "battery_power_discharge_sensor",
+            "grid_power_export_sensor", "grid_power_import_sensor",
             "battery_soc_sensor", "battery_capacity_sensor", "huawei_device_id",
             "pv_power_sensor_2",
             "solax_remotecontrol_power_control", "solax_remotecontrol_active_power",
@@ -2372,7 +2381,15 @@ class EegOptimizerPanel extends HTMLElement {
       if (p && !p.huawei_solar && !p.solax_modbus && !p.solaredge_modbus_multi) return true;
       const d = this._wizardData;
       if (!d.inverter_type) return true;
-      if (!d.pv_power_sensor || !d.battery_power_sensor || !d.grid_power_sensor) return true;
+      if (!d.pv_power_sensor) return true;
+      // Fronius requires the directional pair (charge/discharge, export/import).
+      // Other inverters use a single signed sensor each.
+      if (d.inverter_type === "fronius_gen24") {
+        if (!d.battery_power_charge_sensor || !d.battery_power_discharge_sensor) return true;
+        if (!d.grid_power_export_sensor || !d.grid_power_import_sensor) return true;
+      } else {
+        if (!d.battery_power_sensor || !d.grid_power_sensor) return true;
+      }
     }
     // Step 2: block if no forecast integration
     if (
@@ -2511,20 +2528,56 @@ class EegOptimizerPanel extends HTMLElement {
           pvHelp,
           "sensor"
         )}
-        ${this._entityPickerHtml(
-          "battery_power_sensor",
-          this._wizardData.battery_power_sensor,
-          "Batterie Lade-/Entladeleistung *",
-          batteryHelp,
-          "sensor"
-        )}
-        ${this._entityPickerHtml(
-          "grid_power_sensor",
-          this._wizardData.grid_power_sensor,
-          "Netzbezug/-einspeisung *",
-          gridHelp,
-          "sensor"
-        )}
+        ${froniusSelected ? `
+          <p style="font-size:12px;color:var(--secondary-text-color);margin:8px 0 4px;line-height:1.5">
+            Fronius liefert Batterie- und Netzleistung als <strong>zwei getrennte, immer positive Sensoren</strong>
+            (Lade-/Entladeleistung bzw. Bezug/Einspeisung). Trage je beide ein &mdash; die Integration kombiniert sie automatisch
+            zu signed Werten und legt die kombinierten Sensoren mit Verlaufsdaten an.
+          </p>
+          ${this._entityPickerHtml(
+            "battery_power_charge_sensor",
+            this._wizardData.battery_power_charge_sensor,
+            "Batterie-Ladeleistung *",
+            "Positiver W-Wert beim Laden, 0 sonst (Fronius: sensor.*_battery_power_charging oder *_ladeleistung).",
+            "sensor"
+          )}
+          ${this._entityPickerHtml(
+            "battery_power_discharge_sensor",
+            this._wizardData.battery_power_discharge_sensor,
+            "Batterie-Entladeleistung *",
+            "Positiver W-Wert beim Entladen, 0 sonst (Fronius: sensor.*_battery_power_discharging oder *_entladeleistung).",
+            "sensor"
+          )}
+          ${this._entityPickerHtml(
+            "grid_power_export_sensor",
+            this._wizardData.grid_power_export_sensor,
+            "Netzeinspeisung *",
+            "Positiver W-Wert bei Einspeisung, 0 sonst (Fronius: sensor.*_leistung_netzeinspeisung).",
+            "sensor"
+          )}
+          ${this._entityPickerHtml(
+            "grid_power_import_sensor",
+            this._wizardData.grid_power_import_sensor,
+            "Netzbezug *",
+            "Positiver W-Wert bei Bezug, 0 sonst (Fronius: sensor.*_leistung_netzbezug).",
+            "sensor"
+          )}
+        ` : `
+          ${this._entityPickerHtml(
+            "battery_power_sensor",
+            this._wizardData.battery_power_sensor,
+            "Batterie Lade-/Entladeleistung *",
+            batteryHelp,
+            "sensor"
+          )}
+          ${this._entityPickerHtml(
+            "grid_power_sensor",
+            this._wizardData.grid_power_sensor,
+            "Netzbezug/-einspeisung *",
+            gridHelp,
+            "sensor"
+          )}
+        `}
         ${solaxSelected ? this._entityPickerHtml(
           "pv_power_sensor_2",
           this._wizardData.pv_power_sensor_2,
@@ -2961,8 +3014,12 @@ class EegOptimizerPanel extends HTMLElement {
         )}
         ${row("PV-Sensor", d.pv_power_sensor || "—")}
         ${d.pv_power_sensor_2 ? row("PV-Sensor 2", d.pv_power_sensor_2) : ""}
-        ${row("Batterie-Leistung", d.battery_power_sensor || "—")}
-        ${row("Netz-Leistung", d.grid_power_sensor || "—")}
+        ${(d.battery_power_charge_sensor && d.battery_power_discharge_sensor)
+          ? row("Batterie-Leistung", `${d.battery_power_charge_sensor} − ${d.battery_power_discharge_sensor}`)
+          : row("Batterie-Leistung", d.battery_power_sensor || "—")}
+        ${(d.grid_power_export_sensor && d.grid_power_import_sensor)
+          ? row("Netz-Leistung", `${d.grid_power_export_sensor} − ${d.grid_power_import_sensor}`)
+          : row("Netz-Leistung", d.grid_power_sensor || "—")}
       </div>
 
       <div class="summary-section">

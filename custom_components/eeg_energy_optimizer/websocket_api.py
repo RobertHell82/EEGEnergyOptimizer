@@ -12,9 +12,15 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
+    COMBINED_BATTERY_POWER_SENSOR_ID,
+    COMBINED_GRID_POWER_SENSOR_ID,
     CONF_BATTERY_CAPACITY_SENSOR,
+    CONF_BATTERY_POWER_CHARGE_SENSOR,
+    CONF_BATTERY_POWER_DISCHARGE_SENSOR,
     CONF_BATTERY_POWER_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
+    CONF_GRID_POWER_EXPORT_SENSOR,
+    CONF_GRID_POWER_IMPORT_SENSOR,
     CONF_GRID_POWER_SENSOR,
     CONF_HUAWEI_DEVICE_ID,
     CONF_INVERTER_TYPE,
@@ -153,6 +159,24 @@ FRONIUS_SENSOR_SUFFIXES: dict[str, list[str]] = {
         "maximale_kapazitat",
         "ausgelegte_kapazitat",
         "designed_capacity",
+    ],
+}
+
+# Fronius pair-sensor suffixes — directional, always-positive sensors that
+# come in matched pairs. When both sides are detected, the wizard records
+# them in CONF_*_CHARGE/DISCHARGE / CONF_*_EXPORT/IMPORT and points the
+# canonical CONF_BATTERY_POWER_SENSOR / CONF_GRID_POWER_SENSOR at the
+# synthetic combined sensors created at setup time.
+FRONIUS_PAIR_SUFFIXES: dict[tuple[str, str], list[tuple[str, str]]] = {
+    # battery: (charge_key, discharge_key) → list of (charge_suffix, discharge_suffix)
+    (CONF_BATTERY_POWER_CHARGE_SENSOR, CONF_BATTERY_POWER_DISCHARGE_SENSOR): [
+        ("battery_power_charging", "battery_power_discharging"),
+        ("ladeleistung", "entladeleistung"),
+    ],
+    # grid: (export_key, import_key) → list of (export_suffix, import_suffix)
+    (CONF_GRID_POWER_EXPORT_SENSOR, CONF_GRID_POWER_IMPORT_SENSOR): [
+        ("leistung_netzeinspeisung", "leistung_netzbezug"),
+        ("grid_power_export", "grid_power_import"),
     ],
 }
 
@@ -386,6 +410,19 @@ async def ws_save_config(
             return
         new_data["fronius_modbus_port"] = port
 
+    # Pair-sensor → synthetic-sensor redirection. If the user (or auto-detect)
+    # filled the directional pair config keys, point the canonical battery_/
+    # grid_power_sensor at the synthetic combined sensor created at setup
+    # time. Downstream consumers (Hausverbrauch, optimizer watchdog,
+    # statistics, dashboard) then read one consistent signed source —
+    # exactly like a single-sensor inverter would.
+    if (new_data.get(CONF_BATTERY_POWER_CHARGE_SENSOR)
+            and new_data.get(CONF_BATTERY_POWER_DISCHARGE_SENSOR)):
+        new_data[CONF_BATTERY_POWER_SENSOR] = COMBINED_BATTERY_POWER_SENSOR_ID
+    if (new_data.get(CONF_GRID_POWER_EXPORT_SENSOR)
+            and new_data.get(CONF_GRID_POWER_IMPORT_SENSOR)):
+        new_data[CONF_GRID_POWER_SENSOR] = COMBINED_GRID_POWER_SENSOR_ID
+
     hass.config_entries.async_update_entry(entry, data=new_data)
     connection.send_result(msg["id"], {"success": True})
 
@@ -561,18 +598,51 @@ async def ws_detect_sensors(
             if entry.config_entry_id in fronius_entry_ids
         }
 
+        # Pre-collect all candidate Fronius-owned sensors for faster scanning.
+        candidate_states = [
+            s for s in hass.states.async_all("sensor")
+            if s.entity_id in fronius_entity_ids
+            and s.state not in ("unavailable", "unknown")
+        ]
+
         sensors = {}
         for conf_key, suffixes in FRONIUS_SENSOR_SUFFIXES.items():
             for suffix in suffixes:
-                for state in hass.states.async_all("sensor"):
-                    if state.entity_id not in fronius_entity_ids:
-                        continue
-                    if (state.entity_id.endswith(suffix)
-                            and state.state not in ("unavailable", "unknown")):
+                for state in candidate_states:
+                    if state.entity_id.endswith(suffix):
                         sensors[conf_key] = state.entity_id
                         break
                 if conf_key in sensors:
                     break
+
+        # Detect directional pair sensors (charge/discharge, export/import).
+        # When a complete pair is found, fill the dedicated pair config keys
+        # AND point the canonical battery_/grid_power_sensor at the synthetic
+        # combined sensor — that sensor is created at setup time when both
+        # pair keys are present.
+        for (pos_key, neg_key), pairs in FRONIUS_PAIR_SUFFIXES.items():
+            for pos_suf, neg_suf in pairs:
+                pos_match = next(
+                    (s.entity_id for s in candidate_states
+                     if s.entity_id.endswith(pos_suf)),
+                    None,
+                )
+                neg_match = next(
+                    (s.entity_id for s in candidate_states
+                     if s.entity_id.endswith(neg_suf)),
+                    None,
+                )
+                if pos_match and neg_match:
+                    sensors[pos_key] = pos_match
+                    sensors[neg_key] = neg_match
+                    break
+            # If the pair was filled, redirect the canonical key at the
+            # synthetic combined sensor (overrides any single-sensor hit
+            # the suffix scan above might have produced).
+            if pos_key == CONF_BATTERY_POWER_CHARGE_SENSOR and pos_key in sensors:
+                sensors[CONF_BATTERY_POWER_SENSOR] = COMBINED_BATTERY_POWER_SENSOR_ID
+            if pos_key == CONF_GRID_POWER_EXPORT_SENSOR and pos_key in sensors:
+                sensors[CONF_GRID_POWER_SENSOR] = COMBINED_GRID_POWER_SENSOR_ID
 
         result = {
             CONF_INVERTER_TYPE: INVERTER_TYPE_FRONIUS,

@@ -21,11 +21,15 @@ from typing import TYPE_CHECKING, Any
 from .const import (
     CONF_BATTERY_CAPACITY_KWH,
     CONF_BATTERY_CAPACITY_SENSOR,
+    CONF_BATTERY_POWER_CHARGE_SENSOR,
+    CONF_BATTERY_POWER_DISCHARGE_SENSOR,
     CONF_BATTERY_POWER_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
     CONF_FORECAST_REMAINING_ENTITY,
     CONF_FORECAST_SOURCE,
     CONF_FORECAST_TOMORROW_ENTITY,
+    CONF_GRID_POWER_EXPORT_SENSOR,
+    CONF_GRID_POWER_IMPORT_SENSOR,
     CONF_GRID_POWER_SENSOR,
     CONF_INVERTER_TYPE,
     CONF_LOOKBACK_WEEKS,
@@ -898,6 +902,104 @@ class FeedinEnergySensor(SensorEntity):
 
 
 # ---------------------------------------------------------------------------
+# Pair-Sensor Helpers (Fronius and similar split-sensor inverters)
+# ---------------------------------------------------------------------------
+
+class BatteryPowerCombinedSensor(SensorEntity):
+    """Synthetic signed battery power for inverters that expose only a charge /
+    discharge pair of always-positive sensors (e.g. Fronius via SolarNet).
+
+    Output: positive = charging, negative = discharging (canonical).
+    Setup must register this sensor whenever both pair config keys are set,
+    and point CONF_BATTERY_POWER_SENSOR at it so all downstream consumers
+    (Hausverbrauch, Netzleistung-Watchdog, statistics, optimizer) see the
+    same single source of truth.
+
+    Object-id is forced to the constant in const.py so backfill writes the
+    same statistic_id the live updates produce.
+    """
+
+    _attr_has_entity_name = False
+    _attr_name = "Batterieleistung"
+    _attr_native_unit_of_measurement = "kW"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:battery-charging"
+    _attr_suggested_display_precision = 3
+
+    def __init__(self, hass: Any, entry: Any, config: dict) -> None:
+        self.hass = hass
+        self._charge_id = config.get(CONF_BATTERY_POWER_CHARGE_SENSOR, "")
+        self._discharge_id = config.get(CONF_BATTERY_POWER_DISCHARGE_SENSOR, "")
+        # entity_id pinned via the suggested_object_id so the resulting
+        # entity matches COMBINED_BATTERY_POWER_SENSOR_ID exactly
+        self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_battery_power_combined"
+        self._attr_device_info = _device_info(entry.entry_id)
+        self._attr_native_value: float | None = None
+
+    @property
+    def suggested_object_id(self) -> str:
+        return "eeg_energy_optimizer_battery_power"
+
+    async def async_update(self) -> None:
+        c = _read_power_kw(self.hass, self._charge_id)
+        d = _read_power_kw(self.hass, self._discharge_id)
+        if c is None and d is None:
+            self._attr_native_value = None
+            return
+        self._attr_native_value = round((c or 0.0) - (d or 0.0), 3)
+
+
+class GridPowerCombinedSensor(SensorEntity):
+    """Synthetic signed grid power from an export / import pair.
+
+    Output: positive = export (Einspeisung), negative = import (Bezug).
+    """
+
+    _attr_has_entity_name = False
+    _attr_name = "Netzleistung"
+    _attr_native_unit_of_measurement = "kW"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:transmission-tower"
+    _attr_suggested_display_precision = 3
+
+    def __init__(self, hass: Any, entry: Any, config: dict) -> None:
+        self.hass = hass
+        self._export_id = config.get(CONF_GRID_POWER_EXPORT_SENSOR, "")
+        self._import_id = config.get(CONF_GRID_POWER_IMPORT_SENSOR, "")
+        self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_grid_power_combined"
+        self._attr_device_info = _device_info(entry.entry_id)
+        self._attr_native_value: float | None = None
+
+    @property
+    def suggested_object_id(self) -> str:
+        return "eeg_energy_optimizer_grid_power"
+
+    async def async_update(self) -> None:
+        e = _read_power_kw(self.hass, self._export_id)
+        i = _read_power_kw(self.hass, self._import_id)
+        if e is None and i is None:
+            self._attr_native_value = None
+            return
+        self._attr_native_value = round((e or 0.0) - (i or 0.0), 3)
+
+
+def _has_battery_pair(config: dict) -> bool:
+    return bool(
+        config.get(CONF_BATTERY_POWER_CHARGE_SENSOR)
+        and config.get(CONF_BATTERY_POWER_DISCHARGE_SENSOR)
+    )
+
+
+def _has_grid_pair(config: dict) -> bool:
+    return bool(
+        config.get(CONF_GRID_POWER_EXPORT_SENSOR)
+        and config.get(CONF_GRID_POWER_IMPORT_SENSOR)
+    )
+
+
+# ---------------------------------------------------------------------------
 # Platform setup
 # ---------------------------------------------------------------------------
 
@@ -956,6 +1058,18 @@ async def async_setup_entry(
     netzleistung_sensor = NetzleistungSensor(hass, entry, config)
     batterieleistung_sensor = BatterieleistungSensor(hass, entry, config)
 
+    # Combined-pair sensors (Fronius and similar). Created only when both
+    # pair config keys are present, so single-sensor setups (Huawei, SolaX,
+    # SolarEdge) get no extra entities.
+    combined_battery_sensor = (
+        BatteryPowerCombinedSensor(hass, entry, config)
+        if _has_battery_pair(config) else None
+    )
+    combined_grid_sensor = (
+        GridPowerCombinedSensor(hass, entry, config)
+        if _has_grid_pair(config) else None
+    )
+
     # Register writes sensor — reads counter from inverter object
     inverter = data.get("inverter")
     register_writes_sensor = RegisterWritesSensor(hass, entry, inverter)
@@ -983,6 +1097,8 @@ async def async_setup_entry(
            hausverbrauch_sensor, pv_leistung_sensor, netzleistung_sensor,
            batterieleistung_sensor, register_writes_sensor,
            feedin_morning_sensor, feedin_evening_sensor]
+        + ([combined_battery_sensor] if combined_battery_sensor else [])
+        + ([combined_grid_sensor] if combined_grid_sensor else [])
     )
 
     async_add_entities(slow_sensors + fast_sensors + [decision_sensor], False)
