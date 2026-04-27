@@ -1139,7 +1139,7 @@ class EegOptimizerPanel extends HTMLElement {
         this._render();
         break;
       case "set-profil-variant": {
-        const variant = e.target.closest("[data-variant]")?.dataset.variant;
+        const variant = dataset?.variant;
         if (variant && variant !== this._profilChartVariant) {
           this._profilChartVariant = variant;
           this._render();
@@ -1147,7 +1147,7 @@ class EegOptimizerPanel extends HTMLElement {
         break;
       }
       case "set-status-view": {
-        const variant = e.target.closest("[data-variant]")?.dataset.variant;
+        const variant = dataset?.variant;
         if (variant && variant !== this._statusViewVariant) {
           this._statusViewVariant = variant;
           this._render();
@@ -4739,7 +4739,7 @@ class EegOptimizerPanel extends HTMLElement {
             </h3>
             <ha-icon icon="mdi:chevron-${this._profilOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
           </div>
-          ${this._config?.expert_mode ? this._renderConsumptionProfileStatus(profilState) : ""}
+          ${this._profilOpen && this._config?.expert_mode ? this._renderConsumptionProfileStatus(profilState) : ""}
           ${this._profilOpen ? (() => {
             const variant = this._profilChartVariant || "hourly";
             const pillStyle = (active) => `padding:6px 14px;border:1px solid var(--divider-color);background:${active ? "var(--primary-color)" : "var(--card-background-color,#fff)"};color:${active ? "#fff" : "var(--primary-text-color)"};border-radius:16px;font-size:12px;cursor:pointer`;
