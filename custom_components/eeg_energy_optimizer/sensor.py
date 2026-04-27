@@ -207,6 +207,24 @@ class VerbrauchsprofilSensor(SensorEntity):
         if not avg:
             return
 
+        # Day window from sun.sun. Defaults cover most DACH locations year-round.
+        # Day = hours where the sun is up for at least part of the hour
+        # (sunrise.hour and sunset.hour are inclusive).
+        sunrise_hour = 6
+        sunset_hour = 20
+        try:
+            sun_state = self.hass.states.get("sun.sun")
+            if sun_state is not None:
+                nr = sun_state.attributes.get("next_rising")
+                ns = sun_state.attributes.get("next_setting")
+                if nr:
+                    sunrise_hour = _as_local(datetime.fromisoformat(str(nr))).hour
+                if ns:
+                    sunset_hour = _as_local(datetime.fromisoformat(str(ns))).hour
+        except Exception:
+            pass
+        day_hours = set(range(sunrise_hour, sunset_hour + 1))
+
         attrs: dict[str, Any] = {}
         day_totals: list[float] = []
 
@@ -214,15 +232,21 @@ class VerbrauchsprofilSensor(SensorEntity):
             hours_data = avg.get(day, {})
             watts = [round(hours_data.get(h, 0.0)) for h in range(24)]
             kwh = sum(w / 1000.0 for w in watts)
+            tag_kwh = sum(watts[h] / 1000.0 for h in day_hours)
+            nacht_kwh = max(kwh - tag_kwh, 0.0)
             day_totals.append(kwh)
 
             attrs[f"{day}_watts"] = watts
             attrs[f"{day}_kwh"] = round(kwh, 1)
+            attrs[f"{day}_tag_kwh"] = round(tag_kwh, 1)
+            attrs[f"{day}_nacht_kwh"] = round(nacht_kwh, 1)
 
         # State: average daily total across all weekdays
         self._attr_native_value = round(sum(day_totals) / len(day_totals), 1) if day_totals else None
 
         attrs["stunden"] = [f"{h:02d}:00" for h in range(24)]
+        attrs["sunrise_hour"] = sunrise_hour
+        attrs["sunset_hour"] = sunset_hour
         attrs["grundlage"] = (
             f"Durchschnitt {self._coordinator.stats_count} Datenpunkte"
         )

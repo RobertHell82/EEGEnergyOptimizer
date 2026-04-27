@@ -635,6 +635,7 @@ class EegOptimizerPanel extends HTMLElement {
     this._feedinStatsOpen = false;
     this._feedinStatsPeriod = "month";
     this._profilOpen = false;
+    this._profilChartVariant = "hourly";  // "hourly" or "daynight"
     this._dischargeTile1Open = false;
     this._dischargeTile2Open = false;
     this._morningTile1Open = false;
@@ -1127,6 +1128,14 @@ class EegOptimizerPanel extends HTMLElement {
         this._profilOpen = !this._profilOpen;
         this._render();
         break;
+      case "set-profil-variant": {
+        const variant = e.target.closest("[data-variant]")?.dataset.variant;
+        if (variant && variant !== this._profilChartVariant) {
+          this._profilChartVariant = variant;
+          this._render();
+        }
+        break;
+      }
       case "toggle-discharge-tile-1":
         this._dischargeTile1Open = !this._dischargeTile1Open;
         this._render();
@@ -3723,6 +3732,135 @@ class EegOptimizerPanel extends HTMLElement {
     return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${mobileStyle}${yLines}${bars}${legend}</svg>`;
   }
 
+  _renderDayNightChart(data, sunriseHour, sunsetHour) {
+    if (!data || data.length === 0) return "<p>Keine Daten verfügbar</p>";
+
+    // Threshold for evening discharge: max night consumption that still leaves
+    // enough headroom to discharge. Mirrors optimizer._calc_min_soc:
+    //   min_soc_dynamic = base_min_soc + ceil(overnight * (1 + buf/100) / capacity * 100)
+    // Solving min_soc_dynamic < 100 for overnight gives:
+    //   overnight_max = (100 - base_min_soc) / 100 * capacity / (1 + buf/100)
+    let capKwh = parseFloat(this._config?.battery_capacity_kwh) || 0;
+    const capSensorId = this._config?.battery_capacity_sensor || "";
+    if (!capKwh && capSensorId) {
+      const s = this._readState(capSensorId);
+      if (s) {
+        const v = parseFloat(s.state);
+        if (!isNaN(v) && v > 0) {
+          const unit = s.attributes?.unit_of_measurement || "";
+          capKwh = unit === "Wh" ? v / 1000 : v;
+        }
+      }
+    }
+    const baseMinSoc = parseFloat(this._config?.min_soc ?? 10);
+    const buffer = parseFloat(this._config?.safety_buffer_pct ?? 25);
+    const thresholdKwh = capKwh > 0
+      ? (100 - baseMinSoc) / 100 * capKwh / (1 + buffer / 100)
+      : null;
+
+    const width = 700, height = 320, padding = {top: 30, right: 20, bottom: 50, left: 50};
+    const chartW = width - padding.left - padding.right;
+    const chartH = height - padding.top - padding.bottom;
+    const allValues = data.flatMap(d => [d.tag, d.nacht]);
+    if (thresholdKwh != null) allValues.push(thresholdKwh);
+    const maxVal = Math.max(...allValues, 1) * 1.1;
+    const slotW = chartW / data.length;
+    const barW = slotW * 0.35;
+    const gap = 2;
+
+    const fmtHour = (h) => `${String(h).padStart(2, "0")}:00`;
+
+    let bars = "";
+    data.forEach((d, i) => {
+      const slotX = padding.left + i * slotW;
+
+      // Day bar (left, orange)
+      const x1 = slotX + (slotW - barW * 2 - gap) / 2;
+      const barH1 = (d.tag / maxVal) * chartH;
+      const y1 = padding.top + chartH - barH1;
+      bars += `<rect x="${x1}" y="${y1}" width="${barW}" height="${barH1}" fill="#FF9800" rx="3">
+        <title>${d.label} Tag-Verbrauch (${fmtHour(sunriseHour)}–${fmtHour(sunsetHour)}): ${fmtDe(d.tag, 2)} kWh</title>
+      </rect>`;
+      if (barH1 > 14) {
+        bars += `<text class="bc-val" x="${x1 + barW/2}" y="${y1 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${fmtDe(d.tag, 1)}</text>`;
+      }
+
+      // Night bar (right) — red if it exceeds the discharge threshold
+      const x2 = x1 + barW + gap;
+      const barH2 = (d.nacht / maxVal) * chartH;
+      const y2 = padding.top + chartH - barH2;
+      const overThreshold = thresholdKwh != null && d.nacht > thresholdKwh;
+      const nightColor = overThreshold ? "#F44336" : "#2196F3";
+      const tooltipExtra = overThreshold ? "\n⚠ Über Limit für Abend-Entladung" : "";
+      bars += `<rect x="${x2}" y="${y2}" width="${barW}" height="${barH2}" fill="${nightColor}" rx="3">
+        <title>${d.label} Nacht-Verbrauch: ${fmtDe(d.nacht, 2)} kWh${tooltipExtra}</title>
+      </rect>`;
+      if (barH2 > 14) {
+        bars += `<text class="bc-val" x="${x2 + barW/2}" y="${y2 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${fmtDe(d.nacht, 1)}</text>`;
+      }
+
+      // Day label centered under the group
+      bars += `<text class="bc-day" x="${slotX + slotW/2}" y="${height - 16}" text-anchor="middle" font-size="11" fill="var(--secondary-text-color)">${d.label}</text>`;
+    });
+
+    // Y-axis grid + label
+    let yLines = `<text x="${padding.left - 36}" y="${padding.top - 8}" font-size="10" fill="var(--secondary-text-color)">kWh</text>`;
+    for (let i = 0; i <= 4; i++) {
+      const y = padding.top + (chartH / 4) * i;
+      const val = fmtDe(maxVal * (4 - i) / 4, 1);
+      yLines += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--divider-color)" stroke-dasharray="4"/>`;
+      yLines += `<text class="bc-axis" x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
+    }
+
+    // Threshold line
+    let thresholdHtml = "";
+    if (thresholdKwh != null && thresholdKwh > 0 && thresholdKwh < maxVal) {
+      const ty = padding.top + chartH - (thresholdKwh / maxVal) * chartH;
+      thresholdHtml = `
+        <line x1="${padding.left}" y1="${ty}" x2="${width - padding.right}" y2="${ty}"
+              stroke="#F44336" stroke-width="2" stroke-dasharray="6 4"/>
+        <text class="bc-legend" x="${width - padding.right - 4}" y="${ty - 4}" text-anchor="end"
+              font-size="11" font-weight="600" fill="#F44336">
+          max. ${fmtDe(thresholdKwh, 1)} kWh
+        </text>`;
+    }
+
+    // Legend
+    const lx = padding.left;
+    const ly = 14;
+    let legend = `
+      <rect x="${lx}" y="${ly - 8}" width="10" height="10" fill="#FF9800" rx="2"/>
+      <text class="bc-legend" x="${lx + 14}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Tag (${fmtHour(sunriseHour)}–${fmtHour(sunsetHour)})</text>
+      <rect x="${lx + 165}" y="${ly - 8}" width="10" height="10" fill="#2196F3" rx="2"/>
+      <text class="bc-legend" x="${lx + 179}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Nacht</text>`;
+    if (thresholdKwh != null) {
+      legend += `
+        <line x1="${lx + 230}" y1="${ly - 3}" x2="${lx + 254}" y2="${ly - 3}" stroke="#F44336" stroke-width="2" stroke-dasharray="6 4"/>
+        <text class="bc-legend" x="${lx + 258}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Limit Nacht</text>`;
+    }
+
+    const mobileStyle = `<style>
+      @media (max-width: 600px) {
+        .bc-val { font-size: 13px; font-weight: 500; }
+        .bc-day { font-size: 13px; font-weight: 500; }
+        .bc-axis { font-size: 12px; }
+        .bc-legend { font-size: 12px; }
+      }
+    </style>`;
+
+    const hint = thresholdKwh != null
+      ? `<p style="margin:8px 4px 0;font-size:12px;color:var(--secondary-text-color);line-height:1.4">
+           Die rote Linie zeigt den maximalen Nachtverbrauch, bis zu dem die Abend-Entladung &uuml;berhaupt m&ouml;glich ist
+           (${fmtDe(capKwh, 0)}&nbsp;kWh Batterie, Mindest-SOC ${baseMinSoc}&nbsp;%, Sicherheitspuffer ${buffer}&nbsp;%).
+           Wochentage mit Nachtverbrauch dar&uuml;ber sind rot eingef&auml;rbt &mdash; an diesen Tagen blockiert der dynamische Mindest-SOC die Entladung.
+         </p>`
+      : `<p style="margin:8px 4px 0;font-size:12px;color:var(--secondary-text-color)">
+           Limit-Linie ben&ouml;tigt die Batteriekapazit&auml;t aus den Einstellungen.
+         </p>`;
+
+    return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${mobileStyle}${yLines}${thresholdHtml}${bars}${legend}</svg>${hint}`;
+  }
+
   _renderMorningConditions(ma, mStatus) {
     const pvVal = Number(ma.morning_pv_today_kwh || 0);
     const threshold = Number(ma.morning_threshold_kwh || 0);
@@ -4222,6 +4360,16 @@ class EegOptimizerPanel extends HTMLElement {
     });
     const highlightIdx = weekdayDatasets.findIndex(ds => ds.key === dayKey);
 
+    // --- Day/Night dataset for the alternative chart variant ---
+    const sunriseHour = Number(profilState?.attributes?.sunrise_hour ?? 6);
+    const sunsetHour = Number(profilState?.attributes?.sunset_hour ?? 20);
+    const daynightData = weekdayKeys.map((key, idx) => ({
+      key,
+      label: weekdayLabels[idx],
+      tag: Number(profilState?.attributes?.[`${key}_tag_kwh`] ?? 0),
+      nacht: Number(profilState?.attributes?.[`${key}_nacht_kwh`] ?? 0),
+    }));
+
     // --- Manual control status ---
     const manualAction = this._manualAction;
     const manualResult = this._manualResult;
@@ -4370,7 +4518,19 @@ class EegOptimizerPanel extends HTMLElement {
             <ha-icon icon="mdi:chevron-${this._profilOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
           </div>
           ${this._config?.expert_mode ? this._renderConsumptionProfileStatus(profilState) : ""}
-          ${this._profilOpen ? this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0) : ""}
+          ${this._profilOpen ? (() => {
+            const variant = this._profilChartVariant || "hourly";
+            const pillStyle = (active) => `padding:6px 14px;border:1px solid var(--divider-color);background:${active ? "var(--primary-color)" : "var(--card-background-color,#fff)"};color:${active ? "#fff" : "var(--primary-text-color)"};border-radius:16px;font-size:12px;cursor:pointer`;
+            const toggleBar = `
+              <div style="display:flex;gap:8px;margin:12px 0;flex-wrap:wrap">
+                <button data-action="set-profil-variant" data-variant="hourly" style="${pillStyle(variant === "hourly")}">Stundenverlauf</button>
+                <button data-action="set-profil-variant" data-variant="daynight" style="${pillStyle(variant === "daynight")}">Tag / Nacht</button>
+              </div>`;
+            const chart = variant === "daynight"
+              ? this._renderDayNightChart(daynightData, sunriseHour, sunsetHour)
+              : this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0);
+            return toggleBar + chart;
+          })() : ""}
         </div>
 
         ${this._config?.enable_peakshare !== false ? (() => {
