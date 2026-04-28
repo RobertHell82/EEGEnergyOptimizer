@@ -923,6 +923,14 @@ class EegOptimizerPanel extends HTMLElement {
         this._view = "dashboard";
         this._render();
         break;
+      case "dismiss-toast":
+        if (this._toastTimer) {
+          clearTimeout(this._toastTimer);
+          this._toastTimer = null;
+        }
+        this._toast = null;
+        this._render();
+        break;
       case "next-step":
         this._nextStep();
         break;
@@ -1431,23 +1439,27 @@ class EegOptimizerPanel extends HTMLElement {
   }
 
   _showValidationError(msg) {
-    // Persist the message in state so a follow-up _render() (e.g. the
-    // finally block of an async probe) does not wipe it from the DOM.
-    this._validationError = msg;
-    const el = this._shadow.querySelector(".validation-error");
-    if (el) {
-      el.textContent = msg;
-      el.style.display = "block";
-    }
+    this._showToast(msg, "error");
   }
 
   _clearValidationError() {
-    this._validationError = null;
-    const el = this._shadow.querySelector(".validation-error");
-    if (el) {
-      el.textContent = "";
-      el.style.display = "none";
+    if (this._toastTimer) {
+      clearTimeout(this._toastTimer);
+      this._toastTimer = null;
     }
+    this._toast = null;
+    this._render();
+  }
+
+  _showToast(msg, type = "error") {
+    this._toast = { msg, type };
+    if (this._toastTimer) clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => {
+      this._toast = null;
+      this._toastTimer = null;
+      this._render();
+    }, 7000);
+    this._render();
   }
 
   async _finishWizard() {
@@ -2425,7 +2437,6 @@ class EegOptimizerPanel extends HTMLElement {
       </div>
       <div class="card">
         <h2>${WIZARD_STEPS[step]}</h2>
-        <div class="validation-error" style="display:${this._validationError ? "block" : "none"};color:var(--error-color,#f44336);margin-bottom:12px;font-size:14px">${this._validationError || ""}</div>
         ${this._wizardLoading ? '<div class="loading">Laden...</div>' : stepContent}
         <div class="wizard-nav">
           ${backBtn}
@@ -5548,6 +5559,42 @@ class EegOptimizerPanel extends HTMLElement {
         .val-red { color: #f44336; }
         .val-orange { color: #FF9800; }
         .val-blue { color: #2196F3; }
+        .toast {
+          position: fixed;
+          left: 50%;
+          bottom: 32px;
+          transform: translateX(-50%);
+          max-width: min(90vw, 560px);
+          padding: 14px 20px;
+          border-radius: 10px;
+          color: #fff;
+          font-size: 14px;
+          line-height: 1.45;
+          box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+          z-index: 9999;
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+          animation: toast-in 0.22s ease-out;
+        }
+        .toast-error { background: #c62828; }
+        .toast-info { background: #1976d2; }
+        .toast-success { background: #2e7d32; }
+        .toast-close {
+          background: transparent;
+          border: none;
+          color: rgba(255,255,255,0.9);
+          font-size: 18px;
+          line-height: 1;
+          cursor: pointer;
+          padding: 0 0 0 4px;
+          margin-left: auto;
+        }
+        .toast-close:hover { color: #fff; }
+        @keyframes toast-in {
+          from { opacity: 0; transform: translate(-50%, 12px); }
+          to   { opacity: 1; transform: translate(-50%, 0); }
+        }
       </style>
       <div class="toolbar">
         <button class="menu-btn" data-action="toggle-sidebar" title="Men\u00fc">
@@ -5557,6 +5604,13 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="toolbar-actions">${headerRight}</div>
       </div>
       ${content}
+      ${this._toast ? `
+        <div class="toast toast-${this._toast.type}" role="alert">
+          <ha-icon icon="mdi:${this._toast.type === "error" ? "alert-circle" : this._toast.type === "success" ? "check-circle" : "information"}"></ha-icon>
+          <span>${this._toast.msg}</span>
+          <button class="toast-close" data-action="dismiss-toast" title="Schlie\u00dfen">\u00d7</button>
+        </div>
+      ` : ""}
     `;
 
     // After innerHTML, populate entity datalists
