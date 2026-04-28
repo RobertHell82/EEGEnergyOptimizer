@@ -93,7 +93,7 @@ const WIZARD_DEFAULTS = {
   forecast_day5_entity: "",
   forecast_day6_entity: "",
   forecast_day7_entity: "",
-  lookback_weeks: 4,
+  lookback_weeks: 2,
   update_interval_fast_min: 1,
   update_interval_slow_min: 15,
   enable_morning_delay: true,
@@ -642,8 +642,9 @@ class EegOptimizerPanel extends HTMLElement {
     this._feedinStatsOpen = false;
     this._feedinStatsPeriod = "month";
     this._profilOpen = false;
-    this._profilChartVariant = "hourly";  // "hourly" or "daynight"
-    this._statusViewVariant = "values";   // "values" or "flow"
+    // Persisted in localStorage so the user's last choice survives page reloads.
+    this._profilChartVariant = this._loadPref("profil_chart_variant", "hourly", ["hourly", "daynight"]);
+    this._statusViewVariant = this._loadPref("status_view_variant", "values", ["values", "flow"]);
     this._dischargeTile1Open = false;
     this._dischargeTile2Open = false;
     this._morningTile1Open = false;
@@ -888,6 +889,22 @@ class EegOptimizerPanel extends HTMLElement {
         }
       }
     });
+  }
+
+  // localStorage-backed UI preferences (e.g. last-selected chart variants).
+  // Wrapped so SSR/test environments without window.localStorage don't crash.
+  _loadPref(key, fallback, allowed) {
+    try {
+      const raw = window.localStorage?.getItem(`eeg_optimizer_panel_${key}`);
+      if (raw && (!allowed || allowed.includes(raw))) return raw;
+    } catch (e) { /* ignore */ }
+    return fallback;
+  }
+
+  _savePref(key, value) {
+    try {
+      window.localStorage?.setItem(`eeg_optimizer_panel_${key}`, String(value));
+    } catch (e) { /* ignore */ }
   }
 
   _handleAction(action, dataset) {
@@ -1150,6 +1167,7 @@ class EegOptimizerPanel extends HTMLElement {
         const variant = dataset?.variant;
         if (variant && variant !== this._profilChartVariant) {
           this._profilChartVariant = variant;
+          this._savePref("profil_chart_variant", variant);
           this._render();
         }
         break;
@@ -1158,6 +1176,7 @@ class EegOptimizerPanel extends HTMLElement {
         const variant = dataset?.variant;
         if (variant && variant !== this._statusViewVariant) {
           this._statusViewVariant = variant;
+          this._savePref("status_view_variant", variant);
           this._render();
         }
         break;
@@ -3268,7 +3287,7 @@ class EegOptimizerPanel extends HTMLElement {
           <div class="field-group">
             <label>Anzahl der Wochen f\u00fcr den Verbrauchsdurchschnitt</label>
             <input type="number" data-field="settings_lookback_weeks"
-                   value="${d.lookback_weeks || 4}"
+                   value="${d.lookback_weeks || 2}"
                    min="1" max="52">
           </div>
           <div class="field-group">
@@ -3319,7 +3338,7 @@ class EegOptimizerPanel extends HTMLElement {
           <li>Sicherheitspuffer auf den Verbrauch (konfigurierbar, Standard: 25%)</li>
           <li>Fehlende Energie zum Vollladen der Batterie (basierend auf aktuellem SOC)</li>
         </ul>
-        <p>Der Stromverbrauch wird anhand des durchschnittlichen Verbrauchs desselben Wochentags der letzten Wochen berechnet (konfigurierbar, Standard: 4 Wochen).</p>
+        <p>Der Stromverbrauch wird anhand des durchschnittlichen Verbrauchs desselben Wochentags der letzten Wochen berechnet (konfigurierbar, Standard: 2 Wochen).</p>
         <p>Reicht die PV-Prognose nicht aus, um den Gesamtbedarf zu decken, wird die Batterie sofort geladen \u2014 damit der Haushalt bis zum Abend versorgt ist.</p>`
     } : {
       title: "Abend-Entladung",
@@ -3346,7 +3365,7 @@ class EegOptimizerPanel extends HTMLElement {
           <li>Sicherheitspuffer auf den Verbrauch (konfigurierbar, Standard: 25%)</li>
           <li>Ben\u00f6tigte Energie zum Laden der Batterie (von Mindest-SOC auf 100%)</li>
         </ul>
-        <p>Der Stromverbrauch wird jeweils anhand des durchschnittlichen Verbrauchs desselben Wochentags der letzten Wochen berechnet (konfigurierbar, Standard: 4 Wochen).</p>
+        <p>Der Stromverbrauch wird jeweils anhand des durchschnittlichen Verbrauchs desselben Wochentags der letzten Wochen berechnet (konfigurierbar, Standard: 2 Wochen).</p>
         <p>So wird sichergestellt, dass die Batterie am n\u00e4chsten Tag wieder vollst\u00e4ndig \u00fcber PV geladen werden kann und der Haushalt versorgt ist.</p>`
     };
     return `
@@ -4801,7 +4820,7 @@ class EegOptimizerPanel extends HTMLElement {
               <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color);cursor:pointer"></ha-icon>
               <div class="info-popup">
                 <strong>Energieprognose</strong>
-                <p>Das Diagramm zeigt f\u00fcr die n\u00e4chsten 7 Tage den durchschnittlichen Energieverbrauch desselben Wochentags der letzten Wochen (konfigurierbar, Standard: 4 Wochen) sowie den von der Prognosesoftware gesch\u00e4tzten PV-Ertrag des jeweiligen Tages.</p>
+                <p>Das Diagramm zeigt f\u00fcr die n\u00e4chsten 7 Tage den durchschnittlichen Energieverbrauch desselben Wochentags der letzten Wochen (konfigurierbar, Standard: 2 Wochen) sowie den von der Prognosesoftware gesch\u00e4tzten PV-Ertrag des jeweiligen Tages.</p>
               </div>
             </span>
           </h3>
