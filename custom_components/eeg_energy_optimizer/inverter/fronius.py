@@ -26,6 +26,26 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _slave_kw(client: Any, slave_id: int) -> dict:
+    """Return the slave/device-id kwarg matching the active pymodbus API.
+
+    pymodbus 3.9+ renamed the ``slave`` parameter on
+    ``ModbusClientMixin.read_holding_registers`` (and friends) to
+    ``device_id``. Older releases still expect ``slave``. We probe the
+    callable's signature once and pick whichever it accepts so the same
+    code runs on both old and new HA installations.
+    """
+    import inspect
+    try:
+        sig = inspect.signature(client.read_holding_registers)
+        if "device_id" in sig.parameters:
+            return {"device_id": slave_id}
+    except (TypeError, ValueError):
+        pass
+    return {"slave": slave_id}
+
+
 # SunSpec Model 124 register offsets (relative to model base address)
 _OFFSET_WCHAMAX = 0
 _OFFSET_STORCTL_MOD = 3
@@ -148,7 +168,7 @@ class FroniusInverter(InverterBase):
         try:
             # Verify SunSpec ID at registers 40000-40001
             result = await self._client.read_holding_registers(
-                _SUNSPEC_START, 2, slave=self._slave_id
+                _SUNSPEC_START, 2, **_slave_kw(self._client, self._slave_id)
             )
             if result.isError():
                 _LOGGER.error("Fronius: failed to read SunSpec ID at %d", _SUNSPEC_START)
@@ -168,7 +188,7 @@ class FroniusInverter(InverterBase):
             address = _SUNSPEC_START + 2
             for i in range(_SUNSPEC_MAX_ITERATIONS):
                 result = await self._client.read_holding_registers(
-                    address, 2, slave=self._slave_id
+                    address, 2, **_slave_kw(self._client, self._slave_id)
                 )
                 if result.isError():
                     _LOGGER.error(
@@ -237,7 +257,7 @@ class FroniusInverter(InverterBase):
 
         try:
             result = await self._client.read_holding_registers(
-                self._model124_base + _OFFSET_WCHAMAX, 1, slave=self._slave_id
+                self._model124_base + _OFFSET_WCHAMAX, 1, **_slave_kw(self._client, self._slave_id)
             )
             if result.isError():
                 _LOGGER.error("Fronius: failed to read WChaMax")
@@ -276,7 +296,7 @@ class FroniusInverter(InverterBase):
         address = self._model124_base + offset
         try:
             result = await self._client.write_register(
-                address, value, slave=self._slave_id
+                address, value, **_slave_kw(self._client, self._slave_id)
             )
             if result.isError():
                 _LOGGER.error(
@@ -408,7 +428,7 @@ class FroniusInverter(InverterBase):
                         result = await self._client.read_holding_registers(
                             self._model124_base + _OFFSET_MINRSVPCT,
                             1,
-                            slave=self._slave_id,
+                            **_slave_kw(self._client, self._slave_id),
                         )
                         if not result.isError():
                             self._minrsvpct_pre_discharge = result.registers[0]
