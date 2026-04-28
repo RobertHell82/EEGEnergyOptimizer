@@ -1294,6 +1294,18 @@ class EegOptimizerPanel extends HTMLElement {
       const valid = this._validateCurrentStep();
       if (!valid) return;
 
+      // Async post-validation: read-only Modbus probe to confirm the
+      // entered IP belongs to a Fronius inverter before letting the
+      // user move past step 1.
+      if (
+        this._wizardStep === 1 &&
+        this._wizardData.inverter_type === "fronius_gen24" &&
+        this._wizardData.fronius_modbus_host
+      ) {
+        const ok = await this._probeFroniusConnection();
+        if (!ok) return;
+      }
+
       this._wizardStep = Math.min(WIZARD_STEPS.length - 1, this._wizardStep + 1);
       // Skip "Erweiterte Einstellungen" (step 5) in non-expert mode
       if (this._wizardStep === 5 && !this._wizardData.expert_mode) {
@@ -1303,6 +1315,41 @@ class EegOptimizerPanel extends HTMLElement {
       await this._refreshStepData();
     } finally {
       this._navigating = false;
+    }
+  }
+
+  async _probeFroniusConnection() {
+    const host = (this._wizardData.fronius_modbus_host || "").trim();
+    const port = parseInt(this._wizardData.fronius_modbus_port, 10) || 502;
+    this._froniusProbing = true;
+    this._render();
+    try {
+      const res = await this._hass.callWS({
+        type: "eeg_optimizer/probe_fronius",
+        host,
+        port,
+      });
+      if (!res || !res.success) {
+        this._showValidationError(
+          `Fronius unter ${host}:${port} nicht erreichbar — ${res?.error || "unbekannter Fehler"}`
+        );
+        return false;
+      }
+      if (!res.is_fronius) {
+        this._showValidationError(
+          `Gerät unter ${host}:${port} antwortet, ist aber kein Fronius (Hersteller: ${res.manufacturer || "unbekannt"}). Bitte IP prüfen.`
+        );
+        return false;
+      }
+      return true;
+    } catch (err) {
+      this._showValidationError(
+        `Verbindungstest fehlgeschlagen: ${err?.message || err}`
+      );
+      return false;
+    } finally {
+      this._froniusProbing = false;
+      this._render();
     }
   }
 
@@ -2346,8 +2393,10 @@ class EegOptimizerPanel extends HTMLElement {
         this._wizardLoading ? " disabled" : ""
       }>Fertig</button>`;
     } else {
-      const disabled = this._isNextDisabled() ? " btn-disabled" : "";
-      forwardBtn = `<button class="btn-primary${disabled}" data-action="next-step">Weiter</button>`;
+      const probing = !!this._froniusProbing;
+      const disabled = (this._isNextDisabled() || probing) ? " btn-disabled" : "";
+      const label = probing ? "Prüfe Fronius-Verbindung…" : "Weiter";
+      forwardBtn = `<button class="btn-primary${disabled}" data-action="next-step">${label}</button>`;
     }
 
     return `

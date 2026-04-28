@@ -309,6 +309,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_check_prerequisites)
     websocket_api.async_register_command(hass, ws_detect_sensors)
     websocket_api.async_register_command(hass, ws_test_inverter)
+    websocket_api.async_register_command(hass, ws_probe_fronius)
     websocket_api.async_register_command(hass, ws_manual_stop)
     websocket_api.async_register_command(hass, ws_manual_discharge)
     websocket_api.async_register_command(hass, ws_manual_block_charge)
@@ -707,6 +708,117 @@ async def ws_test_inverter(
             "success": False,
             "error": f"Fehler bei der Kommunikation: {exc}",
         })
+
+
+def _registers_to_string(registers) -> str:
+    """Decode a sequence of 16-bit Modbus registers as ASCII (big-endian)."""
+    chars = []
+    for reg in registers:
+        chars.append(chr((reg >> 8) & 0xFF))
+        chars.append(chr(reg & 0xFF))
+    return "".join(chars).rstrip("\x00 ").strip()
+
+
+async def _probe_fronius_modbus(host: str, port: int, slave_id: int = 1) -> dict:
+    """Read-only probe: connect to host:port, verify SunSpec ID, read the
+    Common Block (Model 1) to identify the manufacturer and model. Closes
+    the connection at the end. No writes ever happen here.
+    """
+    import asyncio
+    result: dict = {"success": False}
+    try:
+        from pymodbus.client import AsyncModbusTcpClient
+    except ImportError:
+        result["error"] = "pymodbus nicht installiert."
+        return result
+
+    client = AsyncModbusTcpClient(host, port=port)
+    try:
+        try:
+            await asyncio.wait_for(client.connect(), timeout=5)
+        except asyncio.TimeoutError:
+            result["error"] = f"Timeout beim Verbindungsaufbau zu {host}:{port}."
+            return result
+        if not client.connected:
+            result["error"] = f"Keine Modbus-TCP-Verbindung zu {host}:{port}."
+            return result
+
+        # SunSpec header at 40000-40001 must read "SunS"
+        r = await asyncio.wait_for(
+            client.read_holding_registers(40000, 2, slave=slave_id), timeout=5
+        )
+        if r.isError():
+            result["error"] = "Modbus-Fehler beim Lesen des SunSpec-Headers."
+            return result
+        if r.registers[0] != 0x5375 or r.registers[1] != 0x6E53:
+            result["error"] = (
+                f"Kein SunSpec-Gerät unter {host}:{port} "
+                f"(Header: 0x{r.registers[0]:04X} 0x{r.registers[1]:04X})."
+            )
+            return result
+
+        # Common Block (Model 1) starts at 40002. Layout:
+        #   40002 model_id (=1)  40003 length (=66)
+        #   40004..40019 Manufacturer (16 regs / 32 chars)
+        #   40020..40035 Model (16 regs)
+        r = await asyncio.wait_for(
+            client.read_holding_registers(40002, 34, slave=slave_id), timeout=5
+        )
+        if r.isError():
+            result["error"] = "Modbus-Fehler beim Lesen des Common Blocks."
+            return result
+        if r.registers[0] != 1:
+            result["error"] = (
+                f"Common Block fehlt (Model-ID = {r.registers[0]}, erwartet 1)."
+            )
+            return result
+
+        manufacturer = _registers_to_string(r.registers[2:18])
+        model_name = _registers_to_string(r.registers[18:34])
+
+        result["success"] = True
+        result["manufacturer"] = manufacturer
+        result["model"] = model_name
+        result["is_fronius"] = "fronius" in manufacturer.lower()
+        return result
+    except Exception as exc:
+        result["error"] = f"Verbindungsfehler: {exc}"
+        return result
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/probe_fronius",
+        vol.Required("host"): str,
+        vol.Optional("port", default=502): int,
+    }
+)
+@websocket_api.async_response
+async def ws_probe_fronius(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Read-only probe of a Fronius Gen24 over Modbus TCP.
+
+    Used by the wizard's "Weiter" step to verify that the entered IP
+    actually points at a Fronius inverter before saving the config.
+    """
+    host = (msg.get("host") or "").strip()
+    port = int(msg.get("port") or 502)
+    if not host:
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": "Keine IP-Adresse angegeben.",
+        })
+        return
+    result = await _probe_fronius_modbus(host, port)
+    connection.send_result(msg["id"], result)
 
 
 @websocket_api.websocket_command(
