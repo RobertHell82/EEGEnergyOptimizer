@@ -25,6 +25,7 @@ from .const import (
     CONF_BATTERY_POWER_DISCHARGE_SENSOR,
     CONF_BATTERY_POWER_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
+    CONF_DISCHARGE_START_TIME,
     CONF_FORECAST_REMAINING_ENTITY,
     CONF_FORECAST_SOURCE,
     CONF_FORECAST_TOMORROW_ENTITY,
@@ -40,6 +41,7 @@ from .const import (
     COMBINED_BATTERY_POWER_SENSOR_ID,
     COMBINED_GRID_POWER_SENSOR_ID,
     CONSUMPTION_SENSOR,
+    DEFAULT_DISCHARGE_START_TIME,
     DEFAULT_LOOKBACK_WEEKS,
     DEFAULT_UPDATE_INTERVAL_FAST,
     DEFAULT_UPDATE_INTERVAL_SLOW,
@@ -208,15 +210,52 @@ class VerbrauchsprofilSensor(SensorEntity):
         self._attr_native_value: float | None = None
         self._attr_extra_state_attributes: dict[str, Any] = {}
 
+        # Discharge start hour from config — Tag/Nacht-Aufteilung spiegelt
+        # den Optimizer: Nacht = discharge_start (heute) → sunrise+1h (morgen)
+        discharge_start = entry.data.get(
+            CONF_DISCHARGE_START_TIME, DEFAULT_DISCHARGE_START_TIME
+        )
+        try:
+            self._discharge_start_h = int(discharge_start.split(":")[0])
+        except (ValueError, AttributeError):
+            self._discharge_start_h = int(DEFAULT_DISCHARGE_START_TIME.split(":")[0])
+
+    @staticmethod
+    def _calc_night_kwh(
+        day_idx: int,
+        hourly_avg: dict[str, dict[int, float]],
+        start_h: int,
+        end_decimal: float,
+    ) -> float:
+        """Sum kWh from hour `start_h` on day_idx to `end_decimal` on day_idx+1.
+
+        Mirrors optimizer._gather_snapshot's overnight period:
+        discharge_start (hour) on day X → sunrise+1h (decimal) on day X+1.
+        """
+        next_day = WEEKDAY_KEYS[(day_idx + 1) % 7]
+        today = WEEKDAY_KEYS[day_idx]
+
+        total = 0.0
+        for h in range(start_h, 24):
+            total += hourly_avg.get(today, {}).get(h, 0.0) / 1000.0
+
+        full_end = int(end_decimal)
+        for h in range(0, full_end):
+            total += hourly_avg.get(next_day, {}).get(h, 0.0) / 1000.0
+
+        fraction = end_decimal - full_end
+        if fraction > 0 and full_end < 24:
+            total += hourly_avg.get(next_day, {}).get(full_end, 0.0) / 1000.0 * fraction
+
+        return total
+
     async def async_update(self) -> None:
         avg = self._coordinator.hourly_avg
         if not avg:
             return
 
-        # Day window from sun.sun. Defaults cover most DACH locations year-round.
-        # Day = hours where the sun is up for at least part of the hour
-        # (sunrise.hour and sunset.hour are inclusive).
         sunrise_hour = 6
+        sunrise_minute = 0
         sunset_hour = 20
         try:
             sun_state = self.hass.states.get("sun.sun")
@@ -224,22 +263,31 @@ class VerbrauchsprofilSensor(SensorEntity):
                 nr = sun_state.attributes.get("next_rising")
                 ns = sun_state.attributes.get("next_setting")
                 if nr:
-                    sunrise_hour = _as_local(datetime.fromisoformat(str(nr))).hour
+                    sr = _as_local(datetime.fromisoformat(str(nr)))
+                    sunrise_hour = sr.hour
+                    sunrise_minute = sr.minute
                 if ns:
                     sunset_hour = _as_local(datetime.fromisoformat(str(ns))).hour
         except Exception:
             pass
-        day_hours = set(range(sunrise_hour, sunset_hour + 1))
+
+        # Night window mirrors optimizer: discharge_start_h → sunrise + 1h.
+        # end_decimal can exceed 24 (e.g. sunrise 23:30 + 1h = 24.5) — clamp.
+        night_end_decimal = sunrise_hour + sunrise_minute / 60.0 + 1.0
+        if night_end_decimal > 24.0:
+            night_end_decimal = 24.0
 
         attrs: dict[str, Any] = {}
         day_totals: list[float] = []
 
-        for day in WEEKDAY_KEYS:
+        for day_idx, day in enumerate(WEEKDAY_KEYS):
             hours_data = avg.get(day, {})
             watts = [round(hours_data.get(h, 0.0)) for h in range(24)]
             kwh = sum(w / 1000.0 for w in watts)
-            tag_kwh = sum(watts[h] / 1000.0 for h in day_hours)
-            nacht_kwh = max(kwh - tag_kwh, 0.0)
+            nacht_kwh = self._calc_night_kwh(
+                day_idx, avg, self._discharge_start_h, night_end_decimal
+            )
+            tag_kwh = max(kwh - nacht_kwh, 0.0)
             day_totals.append(kwh)
 
             attrs[f"{day}_watts"] = watts
@@ -252,7 +300,10 @@ class VerbrauchsprofilSensor(SensorEntity):
 
         attrs["stunden"] = [f"{h:02d}:00" for h in range(24)]
         attrs["sunrise_hour"] = sunrise_hour
+        attrs["sunrise_minute"] = sunrise_minute
         attrs["sunset_hour"] = sunset_hour
+        attrs["discharge_start_hour"] = self._discharge_start_h
+        attrs["night_end_decimal"] = round(night_end_decimal, 2)
         attrs["grundlage"] = (
             f"Durchschnitt {self._coordinator.stats_count} Datenpunkte"
         )
