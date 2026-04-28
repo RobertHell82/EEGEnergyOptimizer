@@ -285,6 +285,7 @@ class TestVerbrauchsprofilSensor:
         """Verify sensor exposes mo_watts, di_watts, etc. as attributes."""
         entry = MagicMock()
         entry.entry_id = "test_entry"
+        entry.data = {}  # real dict so .get() returns defaults, not MagicMock
         hourly_avg = {
             day: {h: 400.0 + h * 10.0 for h in range(24)}
             for day in WEEKDAY_KEYS
@@ -325,6 +326,7 @@ class TestVerbrauchsprofilSensor:
 
         entry = MagicMock()
         entry.entry_id = "test_entry"
+        entry.data = {}  # real dict so .get() returns defaults
         # Constant 1000 W per hour → 1 kWh per hour, 24 kWh per day
         hourly_avg = {day: {h: 1000.0 for h in range(24)} for day in WEEKDAY_KEYS}
         coord = _make_coordinator(hourly_avg=hourly_avg, stats_count=200)
@@ -351,10 +353,14 @@ class TestVerbrauchsprofilSensor:
         attrs = sensor.extra_state_attributes
         assert attrs["sunrise_hour"] == 5
         assert attrs["sunset_hour"] == 19
-        # Daylight hours 5..19 inclusive = 15 hours × 1 kWh = 15 kWh
-        # Night = 24 - 15 = 9 kWh
-        assert attrs["mo_tag_kwh"] == 15.0
-        assert attrs["mo_nacht_kwh"] == 9.0
+        # Night mirrors optimizer: discharge_start (default 20:00) → sunrise+1h next day.
+        # With sunrise 05:00, night_end = 06:00.
+        # Hours 20–23 today (4h × 1 kWh) + hours 0–5 next day (6h × 1 kWh) = 10 kWh
+        # Day = 24 - 10 = 14 kWh
+        assert attrs["mo_nacht_kwh"] == 10.0
+        assert attrs["mo_tag_kwh"] == 14.0
+        assert attrs["discharge_start_hour"] == 20
+        assert attrs["night_end_decimal"] == 6.0
 
 
 # ---------------------------------------------------------------------------

@@ -4014,8 +4014,19 @@ class EegOptimizerPanel extends HTMLElement {
     </svg>`;
   }
 
-  _renderDayNightChart(data, sunriseHour, sunsetHour) {
+  _renderDayNightChart(data, sunriseHour, sunsetHour, dischargeStartHour, nightEndDecimal) {
     if (!data || data.length === 0) return "<p>Keine Daten verfügbar</p>";
+
+    // Format end-of-night time from decimal hours (e.g. 6.77 → "06:46")
+    const fmtDecimal = (dec) => {
+      const h = Math.floor(dec);
+      const m = Math.round((dec - h) * 60);
+      const hh = m === 60 ? h + 1 : h;
+      const mm = m === 60 ? 0 : m;
+      return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    };
+    const nightStart = `${String(dischargeStartHour).padStart(2, "0")}:00`;
+    const nightEnd = fmtDecimal(nightEndDecimal);
 
     // Threshold for evening discharge: max night consumption that still leaves
     // enough headroom to discharge. Mirrors optimizer._calc_min_soc:
@@ -4065,7 +4076,7 @@ class EegOptimizerPanel extends HTMLElement {
       const barH1 = (d.tag / maxVal) * chartH;
       const y1 = padding.top + chartH - barH1;
       bars += `<rect x="${x1}" y="${y1}" width="${barW}" height="${barH1}" fill="#FF9800" rx="3">
-        <title>${d.label} Tag-Verbrauch (${fmtHour(sunriseHour)}–${fmtHour(sunsetHour)}): ${fmtDe(d.tag, 2)} kWh</title>
+        <title>${d.label} Tag-Verbrauch (Rest des Tages außerhalb der Nachtperiode): ${fmtDe(d.tag, 2)} kWh</title>
       </rect>`;
       if (d.tag > 0) {
         bars += `<text class="bc-val" x="${x1 + barW/2}" y="${y1 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${fmtDe(d.tag, 1)}</text>`;
@@ -4079,7 +4090,7 @@ class EegOptimizerPanel extends HTMLElement {
       const nightColor = overThreshold ? "#F44336" : "#2196F3";
       const tooltipExtra = overThreshold ? "\n⚠ Über Limit für Abend-Entladung" : "";
       bars += `<rect x="${x2}" y="${y2}" width="${barW}" height="${barH2}" fill="${nightColor}" rx="3">
-        <title>${d.label} Nacht-Verbrauch: ${fmtDe(d.nacht, 2)} kWh${tooltipExtra}</title>
+        <title>${d.label} Nacht-Verbrauch (${nightStart} → ${nightEnd} Folgetag): ${fmtDe(d.nacht, 2)} kWh${tooltipExtra}</title>
       </rect>`;
       if (d.nacht > 0) {
         bars += `<text class="bc-val" x="${x2 + barW/2}" y="${y2 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${fmtDe(d.nacht, 1)}</text>`;
@@ -4116,13 +4127,13 @@ class EegOptimizerPanel extends HTMLElement {
     const ly = 14;
     let legend = `
       <rect x="${lx}" y="${ly - 8}" width="10" height="10" fill="#FF9800" rx="2"/>
-      <text class="bc-legend" x="${lx + 14}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Tag (${fmtHour(sunriseHour)}–${fmtHour(sunsetHour)})</text>
-      <rect x="${lx + 165}" y="${ly - 8}" width="10" height="10" fill="#2196F3" rx="2"/>
-      <text class="bc-legend" x="${lx + 179}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Nacht</text>`;
+      <text class="bc-legend" x="${lx + 14}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Tag</text>
+      <rect x="${lx + 60}" y="${ly - 8}" width="10" height="10" fill="#2196F3" rx="2"/>
+      <text class="bc-legend" x="${lx + 74}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Nacht (${nightStart} → ${nightEnd} Folgetag)</text>`;
     if (thresholdKwh != null) {
       legend += `
-        <line x1="${lx + 230}" y1="${ly - 3}" x2="${lx + 254}" y2="${ly - 3}" stroke="#F44336" stroke-width="2" stroke-dasharray="6 4"/>
-        <text class="bc-legend" x="${lx + 258}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Limit Nacht</text>`;
+        <line x1="${lx + 290}" y1="${ly - 3}" x2="${lx + 314}" y2="${ly - 3}" stroke="#F44336" stroke-width="2" stroke-dasharray="6 4"/>
+        <text class="bc-legend" x="${lx + 318}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Limit Nacht</text>`;
     }
 
     const mobileStyle = `<style>
@@ -4649,6 +4660,12 @@ class EegOptimizerPanel extends HTMLElement {
     // --- Day/Night dataset for the alternative chart variant ---
     const sunriseHour = Number(profilState?.attributes?.sunrise_hour ?? 6);
     const sunsetHour = Number(profilState?.attributes?.sunset_hour ?? 20);
+    const dischargeStartHour = Number(profilState?.attributes?.discharge_start_hour
+      ?? (this._config?.discharge_start_time
+        ? parseInt(String(this._config.discharge_start_time).split(":")[0], 10)
+        : 20));
+    const nightEndDecimal = Number(profilState?.attributes?.night_end_decimal
+      ?? (sunriseHour + 1));
     const daynightData = weekdayKeys.map((key, idx) => ({
       key,
       label: weekdayLabels[idx],
@@ -4825,7 +4842,7 @@ class EegOptimizerPanel extends HTMLElement {
                 <button data-action="set-profil-variant" data-variant="daynight" style="${pillStyle(variant === "daynight")}">Tag / Nacht</button>
               </div>`;
             const chart = variant === "daynight"
-              ? this._renderDayNightChart(daynightData, sunriseHour, sunsetHour)
+              ? this._renderDayNightChart(daynightData, sunriseHour, sunsetHour, dischargeStartHour, nightEndDecimal)
               : this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0);
             return toggleBar + chart;
           })() : ""}

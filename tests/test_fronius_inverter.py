@@ -113,11 +113,11 @@ class TestAsyncSetChargeLimit:
         calls = mock_modbus_client.write_register.call_args_list
         assert len(calls) == 2
         # First write: InWRte = 0
-        assert calls[0].args[0] == inverter._model124_base + _OFFSET_INWRTE
-        assert calls[0].args[1] == 0
+        assert calls[0].kwargs["address"] == inverter._model124_base + _OFFSET_INWRTE
+        assert calls[0].kwargs["value"] == 0
         # Second write: StorCtl_Mod = 1 (Charge Limit active)
-        assert calls[1].args[0] == inverter._model124_base + _OFFSET_STORCTL_MOD
-        assert calls[1].args[1] == 1
+        assert calls[1].kwargs["address"] == inverter._model124_base + _OFFSET_STORCTL_MOD
+        assert calls[1].kwargs["value"] == 1
 
     async def test_partial_charge_uses_wchamax_percentage(
         self, inverter, mock_modbus_client
@@ -126,14 +126,14 @@ class TestAsyncSetChargeLimit:
         result = await inverter.async_set_charge_limit(2.5)
         assert result is True
         calls = mock_modbus_client.write_register.call_args_list
-        assert calls[0].args[1] == 5000  # 50% in SF -2 encoding
+        assert calls[0].kwargs["value"] == 5000  # 50% in SF -2 encoding
 
     async def test_partial_charge_clamped_to_100pct(self, inverter, mock_modbus_client):
         """power exceeding WChaMax is clamped to 100% (10000)."""
         result = await inverter.async_set_charge_limit(10.0)  # WChaMax=5kW
         assert result is True
         calls = mock_modbus_client.write_register.call_args_list
-        assert calls[0].args[1] == _RATE_100_PERCENT
+        assert calls[0].kwargs["value"] == _RATE_100_PERCENT
 
     async def test_returns_false_on_write_error(self, inverter, mock_modbus_client):
         mock_modbus_client.write_register = AsyncMock(return_value=_err_response())
@@ -177,10 +177,10 @@ class TestAsyncSetDischarge:
         calls = mock_modbus_client.write_register.call_args_list
         assert len(calls) == 4
         base = inverter._model124_base
-        assert (calls[0].args[0], calls[0].args[1]) == (base + _OFFSET_INWRTE, 0)
-        assert (calls[1].args[0], calls[1].args[1]) == (base + _OFFSET_OUTWRTE, 5000)
-        assert (calls[2].args[0], calls[2].args[1]) == (base + _OFFSET_MINRSVPCT, 1500)
-        assert (calls[3].args[0], calls[3].args[1]) == (base + _OFFSET_STORCTL_MOD, 3)
+        assert (calls[0].kwargs["address"], calls[0].kwargs["value"]) == (base + _OFFSET_INWRTE, 0)
+        assert (calls[1].kwargs["address"], calls[1].kwargs["value"]) == (base + _OFFSET_OUTWRTE, 5000)
+        assert (calls[2].kwargs["address"], calls[2].kwargs["value"]) == (base + _OFFSET_MINRSVPCT, 1500)
+        assert (calls[3].kwargs["address"], calls[3].kwargs["value"]) == (base + _OFFSET_STORCTL_MOD, 3)
         # Pre-discharge MinRsvPct cached for later restore
         assert inverter._minrsvpct_pre_discharge == 500
 
@@ -192,7 +192,7 @@ class TestAsyncSetDischarge:
         calls = mock_modbus_client.write_register.call_args_list
         assert len(calls) == 3
         base = inverter._model124_base
-        offsets = [c.args[0] - base for c in calls]
+        offsets = [c.kwargs["address"] - base for c in calls]
         assert _OFFSET_MINRSVPCT not in offsets
         assert inverter._minrsvpct_pre_discharge is None
 
@@ -202,14 +202,14 @@ class TestAsyncSetDischarge:
         assert result is True
         calls = mock_modbus_client.write_register.call_args_list
         # OutWRte is the second write
-        assert calls[1].args[1] == _RATE_100_PERCENT
+        assert calls[1].kwargs["value"] == _RATE_100_PERCENT
 
     async def test_storctl_mod_written_last(self, inverter, mock_modbus_client):
         """Mode bit must flip on AFTER all rate registers are in place."""
         await inverter.async_set_discharge(2.5)
         calls = mock_modbus_client.write_register.call_args_list
-        assert calls[-1].args[0] == inverter._model124_base + _OFFSET_STORCTL_MOD
-        assert calls[-1].args[1] == 3
+        assert calls[-1].kwargs["address"] == inverter._model124_base + _OFFSET_STORCTL_MOD
+        assert calls[-1].kwargs["value"] == 3
 
     async def test_returns_false_on_exception(self, inverter, mock_modbus_client):
         mock_modbus_client.write_register = AsyncMock(side_effect=Exception("boom"))
@@ -239,9 +239,9 @@ class TestAsyncStopForcible:
         calls = mock_modbus_client.write_register.call_args_list
         assert len(calls) == 3
         base = inverter._model124_base
-        assert calls[0].args == (base + _OFFSET_STORCTL_MOD, 0)
-        assert calls[1].args == (base + _OFFSET_INWRTE, _RATE_100_PERCENT)
-        assert calls[2].args == (base + _OFFSET_OUTWRTE, _RATE_100_PERCENT)
+        assert (calls[0].kwargs["address"], calls[0].kwargs["value"]) == (base + _OFFSET_STORCTL_MOD, 0)
+        assert (calls[1].kwargs["address"], calls[1].kwargs["value"]) == (base + _OFFSET_INWRTE, _RATE_100_PERCENT)
+        assert (calls[2].kwargs["address"], calls[2].kwargs["value"]) == (base + _OFFSET_OUTWRTE, _RATE_100_PERCENT)
 
     async def test_stop_forcible_restores_minrsvpct(self, inverter, mock_modbus_client):
         """A cached pre-discharge reserve is restored on stop, then cleared."""
@@ -250,7 +250,7 @@ class TestAsyncStopForcible:
         assert result is True
         calls = mock_modbus_client.write_register.call_args_list
         assert len(calls) == 4
-        assert calls[3].args == (
+        assert (calls[3].kwargs["address"], calls[3].kwargs["value"]) == (
             inverter._model124_base + _OFFSET_MINRSVPCT,
             500,
         )
@@ -279,18 +279,32 @@ class TestAsyncStopForcible:
 
 
 class TestIsAvailable:
-    """is_available reflects the live Modbus TCP socket state."""
+    """is_available reflects whether a host is configured.
 
-    def test_available_when_connected(self, inverter, mock_modbus_client):
+    Fronius opens the Modbus TCP connection lazily, so checking the live
+    socket state would falsely report unavailable before the first
+    operation runs. As long as a host is configured, the inverter is
+    considered available — the actual TCP probe happens in
+    _ensure_connected when an operation runs.
+    """
+
+    def test_available_when_host_configured(self, inverter, mock_modbus_client):
         mock_modbus_client.connected = True
         assert inverter.is_available is True
 
-    def test_unavailable_when_disconnected(self, inverter, mock_modbus_client):
+    def test_available_even_when_socket_disconnected(self, inverter, mock_modbus_client):
+        """Disconnected socket still reports available — reconnect happens lazily."""
         mock_modbus_client.connected = False
-        assert inverter.is_available is False
+        assert inverter.is_available is True
 
-    def test_unavailable_without_client(self, mock_hass, fronius_config):
+    def test_available_without_client(self, mock_hass, fronius_config):
+        """No client yet, but host configured → available (lazy connect)."""
         inv = FroniusInverter(mock_hass, fronius_config)
+        assert inv.is_available is True
+
+    def test_unavailable_when_no_host(self, mock_hass):
+        """Without a configured host, the inverter cannot be reached."""
+        inv = FroniusInverter(mock_hass, {})
         assert inv.is_available is False
 
 
@@ -503,7 +517,8 @@ class TestLockSerialization:
         original_write = mock_modbus_client.write_register
 
         async def tracked_write(*args, **kwargs):
-            write_order.append(args[0])
+            # pymodbus 3.9+: address and value are passed as kwargs
+            write_order.append(kwargs["address"])
             await asyncio.sleep(0)  # force a scheduler yield
             return await original_write(*args, **kwargs)
 
