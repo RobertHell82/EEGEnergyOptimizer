@@ -7,6 +7,10 @@ from custom_components.eeg_energy_optimizer.inverter import (
     create_inverter,
 )
 from custom_components.eeg_energy_optimizer.inverter.base import InverterBase
+from custom_components.eeg_energy_optimizer.inverter.fronius import FroniusInverter
+from custom_components.eeg_energy_optimizer.inverter.huawei import HuaweiInverter
+from custom_components.eeg_energy_optimizer.inverter.solaredge import SolarEdgeInverter
+from custom_components.eeg_energy_optimizer.inverter.solax import SolaXInverter
 
 
 class TestInverterFactory:
@@ -46,3 +50,31 @@ class TestInverterFactory:
             assert isinstance(inverter, MockInverter)
         finally:
             del INVERTER_TYPES["test_type"]
+
+
+class TestRegisteredInverterTypes:
+    """All four production inverter drivers are registered with the factory."""
+
+    def test_huawei_registered(self):
+        assert INVERTER_TYPES.get("huawei_sun2000") is HuaweiInverter
+
+    def test_solax_registered(self):
+        assert INVERTER_TYPES.get("solax_gen4") is SolaXInverter
+
+    def test_solaredge_registered(self):
+        assert INVERTER_TYPES.get("solaredge_storedge") is SolarEdgeInverter
+
+    def test_fronius_registered(self):
+        assert INVERTER_TYPES.get("fronius_gen24") is FroniusInverter
+
+    def test_create_fronius_returns_instance(self, mock_hass):
+        """Factory builds a FroniusInverter from the canonical type id."""
+        inv = create_inverter(
+            "fronius_gen24",
+            mock_hass,
+            {"fronius_modbus_host": "192.168.1.100", "fronius_modbus_port": 502},
+        )
+        assert isinstance(inv, FroniusInverter)
+        assert isinstance(inv, InverterBase)
+        assert inv._host == "192.168.1.100"
+        assert inv._port == 502

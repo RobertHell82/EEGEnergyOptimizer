@@ -15,14 +15,35 @@ class TestManifest:
         manifest = json.loads((INTEGRATION_DIR / "manifest.json").read_text())
         assert manifest["domain"] == "eeg_energy_optimizer"
         assert manifest["name"] == "EEG Energy Optimizer"
-        assert manifest["version"] == "0.1.0"
+        # Don't pin the version — it bumps with every release. Just enforce that
+        # the field is present, non-empty, and starts with a digit (HACS rejects
+        # malformed values such as "vX.Y.Z" or empty strings).
+        version = manifest["version"]
+        assert isinstance(version, str)
+        assert version
+        assert version[0].isdigit()
         assert manifest["config_flow"] is True
         assert manifest["integration_type"] == "hub"
 
     def test_manifest_after_dependencies(self):
-        """manifest.json lists huawei_solar as after_dependency."""
+        """All four supported inverter integrations are listed as after_dependencies."""
         manifest = json.loads((INTEGRATION_DIR / "manifest.json").read_text())
-        assert "huawei_solar" in manifest["after_dependencies"]
+        after = manifest["after_dependencies"]
+        for dep in (
+            "huawei_solar",
+            "solax_modbus",
+            "solaredge_modbus_multi",
+            "fronius",
+        ):
+            assert dep in after, f"{dep} missing from after_dependencies"
+
+    def test_manifest_requirements_include_pymodbus(self):
+        """Fronius driver speaks Modbus TCP directly — needs pymodbus at runtime."""
+        manifest = json.loads((INTEGRATION_DIR / "manifest.json").read_text())
+        requirements = manifest.get("requirements", [])
+        assert any(
+            "pymodbus" in r for r in requirements
+        ), "pymodbus must be listed in requirements for the Fronius driver"
 
 
 class TestHacsJson:

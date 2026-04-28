@@ -9,7 +9,6 @@ from custom_components.eeg_energy_optimizer.const import (
     CONF_BATTERY_CAPACITY_KWH,
     CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
-    CONF_CONSUMPTION_SENSOR,
     CONF_FORECAST_REMAINING_ENTITY,
     CONF_FORECAST_SOURCE,
     CONF_FORECAST_TOMORROW_ENTITY,
@@ -209,7 +208,7 @@ class TestDailyForecastSensor:
 
     @pytest.mark.asyncio
     async def test_daily_forecast_today(self, mock_hass):
-        """Day_offset=0: calculate_period called with now..end_of_today."""
+        """Day_offset=0: calculate_period called for remaining-day AND full-day total."""
         entry = MagicMock()
         entry.entry_id = "test_entry"
         coord = _make_coordinator()
@@ -226,13 +225,22 @@ class TestDailyForecastSensor:
             await sensor.async_update()
 
         assert sensor.native_value == 8.5
-        # Verify calculate_period was called
-        coord.calculate_period.assert_called_once()
-        call_args = coord.calculate_period.call_args[0]
-        # Start should be now (14:00), end should be end of day (00:00 next day)
-        assert call_args[0] == fixed_now
-        assert call_args[1].hour == 0
-        assert call_args[1].day == 22
+        # Two calls: 1) now → midnight+1d (remaining), 2) midnight → midnight+1d (total)
+        assert coord.calculate_period.call_count == 2
+
+        first_call = coord.calculate_period.call_args_list[0][0]
+        assert first_call[0] == fixed_now
+        assert first_call[1].hour == 0
+        assert first_call[1].day == 22
+
+        second_call = coord.calculate_period.call_args_list[1][0]
+        assert second_call[0].hour == 0
+        assert second_call[0].day == 21
+        assert second_call[1].hour == 0
+        assert second_call[1].day == 22
+
+        # tagesverbrauch_gesamt_kwh attribute exposed for the dashboard chart
+        assert "tagesverbrauch_gesamt_kwh" in sensor.extra_state_attributes
 
     @pytest.mark.asyncio
     async def test_daily_forecast_tomorrow(self, mock_hass):
@@ -282,22 +290,71 @@ class TestVerbrauchsprofilSensor:
             for day in WEEKDAY_KEYS
         }
         coord = _make_coordinator(hourly_avg=hourly_avg, stats_count=200)
+        # No sun.sun → driver falls back to default day window (6..20)
+        mock_hass.states.get = MagicMock(return_value=None)
 
         sensor = self._make_sensor(mock_hass, entry, coord)
         await sensor.async_update()
 
         attrs = sensor.extra_state_attributes
-        # Should have weekday keys
+        # Hourly arrays + day totals per weekday
         for day in WEEKDAY_KEYS:
             assert f"{day}_watts" in attrs, f"Missing {day}_watts"
             assert f"{day}_kwh" in attrs, f"Missing {day}_kwh"
+            assert f"{day}_tag_kwh" in attrs, f"Missing {day}_tag_kwh"
+            assert f"{day}_nacht_kwh" in attrs, f"Missing {day}_nacht_kwh"
             assert len(attrs[f"{day}_watts"]) == 24
+            # Tag + Nacht must add up to the day total (within rounding)
+            total = attrs[f"{day}_kwh"]
+            split_sum = attrs[f"{day}_tag_kwh"] + attrs[f"{day}_nacht_kwh"]
+            assert abs(total - split_sum) <= 0.2
 
         assert "stunden" in attrs
         assert len(attrs["stunden"]) == 24
         assert attrs["stunden"][0] == "00:00"
+        # Sunrise / sunset hours are exposed for the chart legend
+        assert attrs["sunrise_hour"] == 6
+        assert attrs["sunset_hour"] == 20
         assert "stats_count" in attrs
         assert "grundlage" in attrs
+
+    @pytest.mark.asyncio
+    async def test_verbrauchsprofil_uses_sun_state_for_day_window(self, mock_hass):
+        """Day window adapts to actual sunrise/sunset times from sun.sun."""
+        from datetime import datetime, timezone
+
+        entry = MagicMock()
+        entry.entry_id = "test_entry"
+        # Constant 1000 W per hour → 1 kWh per hour, 24 kWh per day
+        hourly_avg = {day: {h: 1000.0 for h in range(24)} for day in WEEKDAY_KEYS}
+        coord = _make_coordinator(hourly_avg=hourly_avg, stats_count=200)
+
+        sun_state = _make_state(
+            "above_horizon",
+            {
+                "next_rising": "2026-04-27T05:00:00+00:00",
+                "next_setting": "2026-04-27T19:00:00+00:00",
+            },
+        )
+        mock_hass.states.get = MagicMock(
+            side_effect=lambda eid: sun_state if eid == "sun.sun" else None
+        )
+
+        sensor = self._make_sensor(mock_hass, entry, coord)
+        # _as_local is a MagicMock in the test environment — keep it identity
+        with patch(
+            "custom_components.eeg_energy_optimizer.sensor._as_local",
+            side_effect=lambda dt: dt,
+        ):
+            await sensor.async_update()
+
+        attrs = sensor.extra_state_attributes
+        assert attrs["sunrise_hour"] == 5
+        assert attrs["sunset_hour"] == 19
+        # Daylight hours 5..19 inclusive = 15 hours × 1 kWh = 15 kWh
+        # Night = 24 - 15 = 9 kWh
+        assert attrs["mo_tag_kwh"] == 15.0
+        assert attrs["mo_nacht_kwh"] == 9.0
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +389,15 @@ class TestSunriseForecastSensor:
         sensor = self._make_sensor(mock_hass, entry, coord)
 
         fixed_now = datetime(2026, 3, 21, 22, 0, 0, tzinfo=timezone.utc)
-        with patch("custom_components.eeg_energy_optimizer.sensor._now", return_value=fixed_now):
+        # Patch _as_local too: in the test environment dt_util is a MagicMock,
+        # so the production fallback (`lambda dt: dt`) does not apply.
+        with patch(
+            "custom_components.eeg_energy_optimizer.sensor._now",
+            return_value=fixed_now,
+        ), patch(
+            "custom_components.eeg_energy_optimizer.sensor._as_local",
+            side_effect=lambda dt: dt,
+        ):
             await sensor.async_update()
 
         assert sensor.native_value == 3.5

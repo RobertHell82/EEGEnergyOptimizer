@@ -17,8 +17,14 @@ from .const import (
     CONF_PV_POWER_SENSOR,
     CONF_PV_POWER_SENSOR_2,
     CONF_BATTERY_POWER_SENSOR,
+    CONF_BATTERY_POWER_CHARGE_SENSOR,
+    CONF_BATTERY_POWER_DISCHARGE_SENSOR,
     CONF_GRID_POWER_SENSOR,
+    CONF_GRID_POWER_EXPORT_SENSOR,
+    CONF_GRID_POWER_IMPORT_SENSOR,
     CONF_LOOKBACK_WEEKS,
+    COMBINED_BATTERY_POWER_SENSOR_ID,
+    COMBINED_GRID_POWER_SENSOR_ID,
     CONSUMPTION_SENSOR,
     DEFAULT_LOOKBACK_WEEKS,
     INVERTER_SIGN_CONVENTIONS,
@@ -74,18 +80,42 @@ async def async_backfill_hausverbrauch_stats(
         # --- Read source sensor IDs from config ---
         pv_id = config.get(CONF_PV_POWER_SENSOR, "")
         pv2_id = config.get(CONF_PV_POWER_SENSOR_2, "")
-        battery_id = config.get(CONF_BATTERY_POWER_SENSOR, "")
-        grid_id = config.get(CONF_GRID_POWER_SENSOR, "")
+        # Battery: either a single signed sensor OR a charge / discharge pair
+        battery_charge_id = config.get(CONF_BATTERY_POWER_CHARGE_SENSOR, "")
+        battery_discharge_id = config.get(CONF_BATTERY_POWER_DISCHARGE_SENSOR, "")
+        has_battery_pair = bool(battery_charge_id and battery_discharge_id)
+        battery_single_id = config.get(CONF_BATTERY_POWER_SENSOR, "")
+        # Grid: either a single signed sensor OR an export / import pair
+        grid_export_id = config.get(CONF_GRID_POWER_EXPORT_SENSOR, "")
+        grid_import_id = config.get(CONF_GRID_POWER_IMPORT_SENSOR, "")
+        has_grid_pair = bool(grid_export_id and grid_import_id)
+        grid_single_id = config.get(CONF_GRID_POWER_SENSOR, "")
 
-        if not pv_id or not battery_id or not grid_id:
+        # Decide which entity IDs to actually load history for
+        battery_source_ids = (
+            [battery_charge_id, battery_discharge_id]
+            if has_battery_pair
+            else [battery_single_id] if battery_single_id else []
+        )
+        grid_source_ids = (
+            [grid_export_id, grid_import_id]
+            if has_grid_pair
+            else [grid_single_id] if grid_single_id else []
+        )
+
+        if not pv_id or not battery_source_ids or not grid_source_ids:
             _LOGGER.warning(
                 "Hausverbrauch backfill skipped — sensor IDs not configured "
                 "(PV=%s, Battery=%s, Grid=%s)",
-                pv_id or "(empty)", battery_id or "(empty)", grid_id or "(empty)",
+                pv_id or "(empty)",
+                battery_source_ids or "(empty)",
+                grid_source_ids or "(empty)",
             )
             return
 
-        # Sign conventions per inverter type
+        # Sign conventions per inverter type. For pair configs the synthetic
+        # sensor is already canonical, so the convention is identity (1, 1)
+        # for those — encoded in INVERTER_SIGN_CONVENTIONS for fronius_gen24.
         inv_type = config.get(CONF_INVERTER_TYPE, "")
         signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
         battery_sign = signs.get("battery_sign", 1)
@@ -109,16 +139,16 @@ async def async_backfill_hausverbrauch_stats(
 
         pv_factor = _unit_factor(pv_id)
         pv2_factor = _unit_factor(pv2_id) if pv2_id else 1.0
-        battery_factor = _unit_factor(battery_id)
-        grid_factor = _unit_factor(grid_id)
+        battery_factors = {eid: _unit_factor(eid) for eid in battery_source_ids}
+        grid_factors = {eid: _unit_factor(eid) for eid in grid_source_ids}
 
         _LOGGER.debug(
-            "Backfill unit factors: PV=%.3f, PV2=%.3f, Battery=%.3f, Grid=%.3f",
-            pv_factor, pv2_factor, battery_factor, grid_factor,
+            "Backfill unit factors: PV=%.3f, PV2=%.3f, Battery=%s, Grid=%s",
+            pv_factor, pv2_factor, battery_factors, grid_factors,
         )
 
         # --- Load mean statistics for all source sensors ---
-        sensor_ids = {pv_id, battery_id, grid_id}
+        sensor_ids = {pv_id, *battery_source_ids, *grid_source_ids}
         if pv2_id:
             sensor_ids.add(pv2_id)
 
@@ -135,8 +165,6 @@ async def async_backfill_hausverbrauch_stats(
 
         pv_entries = result.get(pv_id, [])
         pv2_entries = result.get(pv2_id, []) if pv2_id else []
-        battery_entries = result.get(battery_id, [])
-        grid_entries = result.get(grid_id, [])
 
         # --- Index entries by start timestamp, converting to kW ---
         def _index_by_start(entries: list[dict], factor: float = 1.0) -> dict[float, float]:
@@ -153,15 +181,36 @@ async def async_backfill_hausverbrauch_stats(
                 indexed[ts_float] = mean * factor
             return indexed
 
+        # Battery / grid pair-or-single: produce a signed kW series per metric.
+        # When a pair is configured: signed = pos − neg (canonical), then *
+        # sign convention from INVERTER_SIGN_CONVENTIONS (identity for Fronius).
+        # When a single sensor is configured: raw * sign convention as before.
+        def _combine_pair_signed(
+            entries_pos: list[dict], entries_neg: list[dict],
+            factor_pos: float, factor_neg: float,
+            sign: int,
+        ) -> dict[float, float]:
+            pos = _index_by_start(entries_pos, factor_pos)
+            neg = _index_by_start(entries_neg, factor_neg)
+            keys = set(pos.keys()) | set(neg.keys())
+            return {ts: (pos.get(ts, 0.0) - neg.get(ts, 0.0)) * sign for ts in keys}
+
+        def _single_signed(entries: list[dict], factor: float, sign: int) -> dict[float, float]:
+            return {ts: v * sign for ts, v in _index_by_start(entries, factor).items()}
+
+        any_battery_entries = any(result.get(eid) for eid in battery_source_ids)
+        any_grid_entries = any(result.get(eid) for eid in grid_source_ids)
         use_history_fallback = (
-            not pv_entries or not battery_entries or not grid_entries
+            not pv_entries or not any_battery_entries or not any_grid_entries
         )
 
         if use_history_fallback:
             _LOGGER.info(
                 "Backfill: no long-term statistics for source sensors "
-                "(PV=%d, Battery=%d, Grid=%d), trying state history fallback",
-                len(pv_entries), len(battery_entries), len(grid_entries),
+                "(PV=%d, Battery=%s, Grid=%s), trying state history fallback",
+                len(pv_entries),
+                {eid: len(result.get(eid, [])) for eid in battery_source_ids},
+                {eid: len(result.get(eid, [])) for eid in grid_source_ids},
             )
             # --- Fallback: read short-term state history and aggregate hourly ---
             from homeassistant.components.recorder.history import (
@@ -202,10 +251,56 @@ async def async_backfill_hausverbrauch_stats(
             pv2_by_ts = _history_to_hourly_means(
                 history.get(pv2_id, [])
             ) if pv2_id else {}
-            battery_by_ts = _history_to_hourly_means(
-                history.get(battery_id, [])
-            )
-            grid_by_ts = _history_to_hourly_means(history.get(grid_id, []))
+
+            def _apply_factor(by_ts: dict[float, float], factor: float) -> dict[float, float]:
+                if factor == 1.0:
+                    return by_ts
+                return {ts: v * factor for ts, v in by_ts.items()}
+
+            pv_by_ts = _apply_factor(pv_by_ts, pv_factor)
+            pv2_by_ts = _apply_factor(pv2_by_ts, pv2_factor) if pv2_by_ts else {}
+
+            if has_battery_pair:
+                pos_h = _apply_factor(
+                    _history_to_hourly_means(history.get(battery_charge_id, [])),
+                    battery_factors[battery_charge_id],
+                )
+                neg_h = _apply_factor(
+                    _history_to_hourly_means(history.get(battery_discharge_id, [])),
+                    battery_factors[battery_discharge_id],
+                )
+                keys = set(pos_h) | set(neg_h)
+                battery_by_ts = {
+                    ts: (pos_h.get(ts, 0.0) - neg_h.get(ts, 0.0)) * battery_sign
+                    for ts in keys
+                }
+            else:
+                bat_h = _apply_factor(
+                    _history_to_hourly_means(history.get(battery_single_id, [])),
+                    battery_factors[battery_single_id],
+                )
+                battery_by_ts = {ts: v * battery_sign for ts, v in bat_h.items()}
+
+            if has_grid_pair:
+                pos_h = _apply_factor(
+                    _history_to_hourly_means(history.get(grid_export_id, [])),
+                    grid_factors[grid_export_id],
+                )
+                neg_h = _apply_factor(
+                    _history_to_hourly_means(history.get(grid_import_id, [])),
+                    grid_factors[grid_import_id],
+                )
+                keys = set(pos_h) | set(neg_h)
+                grid_by_ts = {
+                    ts: (pos_h.get(ts, 0.0) - neg_h.get(ts, 0.0)) * grid_sign
+                    for ts in keys
+                }
+            else:
+                grid_h = _apply_factor(
+                    _history_to_hourly_means(history.get(grid_single_id, [])),
+                    grid_factors[grid_single_id],
+                )
+                grid_by_ts = {ts: v * grid_sign for ts, v in grid_h.items()}
 
             if not pv_by_ts or not battery_by_ts or not grid_by_ts:
                 _LOGGER.warning(
@@ -215,17 +310,6 @@ async def async_backfill_hausverbrauch_stats(
                 )
                 return
 
-            # Convert to kW using detected unit factors (W→kW or already kW)
-            def _apply_factor(by_ts: dict[float, float], factor: float) -> dict[float, float]:
-                if factor == 1.0:
-                    return by_ts
-                return {ts: v * factor for ts, v in by_ts.items()}
-
-            pv_by_ts = _apply_factor(pv_by_ts, pv_factor)
-            pv2_by_ts = _apply_factor(pv2_by_ts, pv2_factor) if pv2_by_ts else {}
-            battery_by_ts = _apply_factor(battery_by_ts, battery_factor)
-            grid_by_ts = _apply_factor(grid_by_ts, grid_factor)
-
             _LOGGER.info(
                 "Backfill: loaded state history "
                 "(PV=%d, Battery=%d, Grid=%d hours)",
@@ -234,8 +318,36 @@ async def async_backfill_hausverbrauch_stats(
         else:
             pv_by_ts = _index_by_start(pv_entries, pv_factor)
             pv2_by_ts = _index_by_start(pv2_entries, pv2_factor) if pv2_entries else {}
-            battery_by_ts = _index_by_start(battery_entries, battery_factor)
-            grid_by_ts = _index_by_start(grid_entries, grid_factor)
+
+            if has_battery_pair:
+                battery_by_ts = _combine_pair_signed(
+                    result.get(battery_charge_id, []),
+                    result.get(battery_discharge_id, []),
+                    battery_factors[battery_charge_id],
+                    battery_factors[battery_discharge_id],
+                    battery_sign,
+                )
+            else:
+                battery_by_ts = _single_signed(
+                    result.get(battery_single_id, []),
+                    battery_factors[battery_single_id],
+                    battery_sign,
+                )
+
+            if has_grid_pair:
+                grid_by_ts = _combine_pair_signed(
+                    result.get(grid_export_id, []),
+                    result.get(grid_import_id, []),
+                    grid_factors[grid_export_id],
+                    grid_factors[grid_import_id],
+                    grid_sign,
+                )
+            else:
+                grid_by_ts = _single_signed(
+                    result.get(grid_single_id, []),
+                    grid_factors[grid_single_id],
+                    grid_sign,
+                )
 
         # --- Calculate Hausverbrauch for each hour where all 3 have data ---
         common_timestamps = sorted(
@@ -246,17 +358,20 @@ async def async_backfill_hausverbrauch_stats(
             _LOGGER.warning("Hausverbrauch backfill skipped — no overlapping timestamps")
             return
 
+        # battery_by_ts / grid_by_ts are already in canonical signed kW
+        # (positive = charging / positive = export). No further sign flip.
         statistics: list[StatisticData] = []
+        battery_stats: list[StatisticData] = []
+        grid_stats: list[StatisticData] = []
         skipped = 0
         for ts in common_timestamps:
             pv = pv_by_ts[ts] + pv2_by_ts.get(ts, 0.0)
-            bat_raw = battery_by_ts[ts]
+            bat = battery_by_ts[ts]
             # SolarEdge: PV sensor includes battery discharge → correct
             # Don't clamp — negative from conversion losses needed for accuracy
             if pv_includes_battery:
-                pv = pv + bat_raw
-            bat = bat_raw * battery_sign
-            grid = grid_by_ts[ts] * grid_sign
+                pv = pv + bat
+            grid = grid_by_ts[ts]
             hausverbrauch = max(pv - bat - grid, 0.0)
             # Discard unrealistic values (wrong signs in historical data)
             if hausverbrauch > 50.0:
@@ -267,23 +382,54 @@ async def async_backfill_hausverbrauch_stats(
             statistics.append(
                 StatisticData(start=hour_dt, mean=value, state=value)
             )
+            # Synthetic combined sensors get their own historical statistics
+            # so the Energy Dashboard / charts can show them just like a
+            # native sensor with full history.
+            if has_battery_pair:
+                battery_stats.append(
+                    StatisticData(start=hour_dt, mean=round(bat, 3), state=round(bat, 3))
+                )
+            if has_grid_pair:
+                grid_stats.append(
+                    StatisticData(start=hour_dt, mean=round(grid, 3), state=round(grid, 3))
+                )
         if skipped:
             _LOGGER.info("Backfill: skipped %d entries > 50 kW (unrealistic)", skipped)
 
         # --- Import statistics ---
-        metadata = StatisticMetaData(
-            has_mean=True,
-            has_sum=False,
-            name="EEG Energy Optimizer Hausverbrauch",
-            source="recorder",
-            statistic_id=CONSUMPTION_SENSOR,
-            unit_of_measurement="kW",
-        )
+        def _import(stat_id: str, name: str, data: list[StatisticData]) -> None:
+            if not data:
+                return
+            meta = StatisticMetaData(
+                has_mean=True,
+                has_sum=False,
+                name=name,
+                source="recorder",
+                statistic_id=stat_id,
+                unit_of_measurement="kW",
+            )
+            try:
+                async_import_statistics(hass, meta, data, mean_type="arithmetic")
+            except TypeError:
+                async_import_statistics(hass, meta, data)
 
-        try:
-            async_import_statistics(hass, metadata, statistics, mean_type="arithmetic")
-        except TypeError:
-            async_import_statistics(hass, metadata, statistics)
+        _import(
+            CONSUMPTION_SENSOR,
+            "EEG Energy Optimizer Hausverbrauch",
+            statistics,
+        )
+        if has_battery_pair:
+            _import(
+                COMBINED_BATTERY_POWER_SENSOR_ID,
+                "EEG Energy Optimizer Batterieleistung",
+                battery_stats,
+            )
+        if has_grid_pair:
+            _import(
+                COMBINED_GRID_POWER_SENSOR_ID,
+                "EEG Energy Optimizer Netzleistung",
+                grid_stats,
+            )
 
         start_date = datetime.fromtimestamp(
             common_timestamps[0], tz=timezone.utc
@@ -291,11 +437,18 @@ async def async_backfill_hausverbrauch_stats(
         end_date = datetime.fromtimestamp(
             common_timestamps[-1], tz=timezone.utc
         ).strftime("%Y-%m-%d")
+        extra = ""
+        if has_battery_pair or has_grid_pair:
+            extra = (
+                f" (+ {len(battery_stats)} Batterie / {len(grid_stats)} Netz "
+                "synthetic statistics)"
+            )
         _LOGGER.info(
-            "Backfilled %d hourly statistics for Hausverbrauch from %s to %s",
+            "Backfilled %d hourly statistics for Hausverbrauch from %s to %s%s",
             len(statistics),
             start_date,
             end_date,
+            extra,
         )
 
     except Exception:
@@ -378,6 +531,14 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data.setdefault("peakshare_community", "BEG")
         # Don't change existing discharge_power_kw — only default for new installs is 5.0
         hass.config_entries.async_update_entry(entry, data=new_data, version=12)
+
+    if entry.version < 13:
+        # Pair-sensor support (Fronius). Schema-only bump — pair keys are
+        # written by the wizard / auto-detect when (and only when) the user
+        # actually has a Fronius / SolarNet split-sensor setup. Existing
+        # entries with single signed sensors get the bump without their data
+        # dict being touched.
+        hass.config_entries.async_update_entry(entry, data=entry.data, version=13)
 
     return True
 
@@ -471,6 +632,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception:
         pass
     hass.data[DOMAIN][entry.entry_id]["writes_store"] = writes_store
+
+    # Migration: earlier builds of the synthetic Fronius pair sensors used
+    # suggested_object_id without pinning entity_id. HA prefixed the device
+    # slug anyway, producing IDs like
+    #   sensor.eeg_energy_optimizer_eeg_energy_optimizer_battery_power
+    # which do not match the canonical IDs the rest of the integration
+    # writes into config (CONF_BATTERY_POWER_SENSOR / CONF_GRID_POWER_SENSOR
+    # → COMBINED_*_SENSOR_ID). Result: Hausverbrauch / Netzleistung /
+    # Batterieleistung read from a non-existent entity → "unknown".
+    # Rename the legacy registry entries back to canonical before the
+    # platforms are forwarded so the new sensor classes attach cleanly.
+    try:
+        from homeassistant.helpers import entity_registry as er
+        ent_reg = er.async_get(hass)
+        for unique_id, canonical in (
+            (f"{DOMAIN}_{entry.entry_id}_battery_power_combined", COMBINED_BATTERY_POWER_SENSOR_ID),
+            (f"{DOMAIN}_{entry.entry_id}_grid_power_combined", COMBINED_GRID_POWER_SENSOR_ID),
+        ):
+            existing = ent_reg.async_get_entity_id("sensor", DOMAIN, unique_id)
+            if existing and existing != canonical:
+                # Free the canonical slot if a stale entity squats on it
+                blocker = ent_reg.async_get(canonical)
+                if blocker and blocker.unique_id != unique_id:
+                    ent_reg.async_update_entity(
+                        canonical, new_entity_id=f"{canonical}_legacy"
+                    )
+                ent_reg.async_update_entity(existing, new_entity_id=canonical)
+                _LOGGER.info(
+                    "Renamed combined sensor %s -> %s", existing, canonical
+                )
+    except Exception:
+        _LOGGER.exception("Combined-sensor entity_id migration failed (non-fatal)")
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     hass.data[DOMAIN][entry.entry_id]["platforms_loaded"] = True

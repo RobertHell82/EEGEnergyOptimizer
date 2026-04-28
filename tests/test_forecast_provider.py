@@ -145,8 +145,8 @@ class TestForecastSolarProvider:
 
 
 class TestForecastProviderBase:
-    def test_base_class_raises(self):
+    def test_base_class_cannot_be_instantiated(self):
+        """ForecastProvider is an ABC — direct instantiation must raise TypeError."""
         hass = MagicMock()
-        provider = ForecastProvider(hass)
-        with pytest.raises(NotImplementedError):
-            provider.get_forecast()
+        with pytest.raises(TypeError, match="abstract"):
+            ForecastProvider(hass)

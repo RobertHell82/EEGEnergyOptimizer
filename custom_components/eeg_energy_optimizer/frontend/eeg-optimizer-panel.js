@@ -63,6 +63,13 @@ const WIZARD_DEFAULTS = {
   pv_power_sensor: "",
   battery_power_sensor: "",
   grid_power_sensor: "",
+  // Fronius / SolarNet split-sensor pairs. When both pair fields are filled
+  // the backend redirects battery_power_sensor / grid_power_sensor at the
+  // synthetic combined sensor on save.
+  battery_power_charge_sensor: "",
+  battery_power_discharge_sensor: "",
+  grid_power_export_sensor: "",
+  grid_power_import_sensor: "",
   huawei_device_id: "",
   pv_power_sensor_2: "",
   solax_remotecontrol_power_control: "",
@@ -529,7 +536,7 @@ const DIALOG_CONTENT = {
       <h3 style="margin:16px 0 8px">4. Pr&uuml;fen</h3>
       <ol style="padding-left:20px;line-height:1.8">
         <li>Unter <strong>Einstellungen &rarr; Integrationen</strong>: Fronius zeigt <strong>&ldquo;geladen&rdquo;</strong></li>
-        <li><strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: Suche nach <code>power_photovoltaics</code> und <code>state_of_charge</code></li>
+        <li><strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: Suche nach <code>power_photovoltaics</code> / <code>pv_leistung</code> und <code>state_of_charge</code> / <code>ladezustand</code></li>
         <li>Kehre hierher zur&uuml;ck &mdash; die Sensoren werden automatisch erkannt</li>
       </ol>
 
@@ -635,6 +642,8 @@ class EegOptimizerPanel extends HTMLElement {
     this._feedinStatsOpen = false;
     this._feedinStatsPeriod = "month";
     this._profilOpen = false;
+    this._profilChartVariant = "hourly";  // "hourly" or "daynight"
+    this._statusViewVariant = "values";   // "values" or "flow"
     this._dischargeTile1Open = false;
     this._dischargeTile2Open = false;
     this._morningTile1Open = false;
@@ -914,6 +923,14 @@ class EegOptimizerPanel extends HTMLElement {
         this._view = "dashboard";
         this._render();
         break;
+      case "dismiss-toast":
+        if (this._toastTimer) {
+          clearTimeout(this._toastTimer);
+          this._toastTimer = null;
+        }
+        this._toast = null;
+        this._render();
+        break;
       case "next-step":
         this._nextStep();
         break;
@@ -1032,6 +1049,8 @@ class EegOptimizerPanel extends HTMLElement {
           // Clear sensor fields so auto-detection can re-fill them
           const sensorKeys = [
             "pv_power_sensor", "battery_power_sensor", "grid_power_sensor",
+            "battery_power_charge_sensor", "battery_power_discharge_sensor",
+            "grid_power_export_sensor", "grid_power_import_sensor",
             "battery_soc_sensor", "battery_capacity_sensor", "huawei_device_id",
             "pv_power_sensor_2",
             "solax_remotecontrol_power_control", "solax_remotecontrol_active_power",
@@ -1127,6 +1146,22 @@ class EegOptimizerPanel extends HTMLElement {
         this._profilOpen = !this._profilOpen;
         this._render();
         break;
+      case "set-profil-variant": {
+        const variant = dataset?.variant;
+        if (variant && variant !== this._profilChartVariant) {
+          this._profilChartVariant = variant;
+          this._render();
+        }
+        break;
+      }
+      case "set-status-view": {
+        const variant = dataset?.variant;
+        if (variant && variant !== this._statusViewVariant) {
+          this._statusViewVariant = variant;
+          this._render();
+        }
+        break;
+      }
       case "toggle-discharge-tile-1":
         this._dischargeTile1Open = !this._dischargeTile1Open;
         this._render();
@@ -1264,8 +1299,21 @@ class EegOptimizerPanel extends HTMLElement {
     if (this._navigating) return;
     this._navigating = true;
     try {
+      this._clearValidationError();
       const valid = this._validateCurrentStep();
       if (!valid) return;
+
+      // Async post-validation: read-only Modbus probe to confirm the
+      // entered IP belongs to a Fronius inverter before letting the
+      // user move past step 1.
+      if (
+        this._wizardStep === 1 &&
+        this._wizardData.inverter_type === "fronius_gen24" &&
+        this._wizardData.fronius_modbus_host
+      ) {
+        const ok = await this._probeFroniusConnection();
+        if (!ok) return;
+      }
 
       this._wizardStep = Math.min(WIZARD_STEPS.length - 1, this._wizardStep + 1);
       // Skip "Erweiterte Einstellungen" (step 5) in non-expert mode
@@ -1276,6 +1324,41 @@ class EegOptimizerPanel extends HTMLElement {
       await this._refreshStepData();
     } finally {
       this._navigating = false;
+    }
+  }
+
+  async _probeFroniusConnection() {
+    const host = (this._wizardData.fronius_modbus_host || "").trim();
+    const port = parseInt(this._wizardData.fronius_modbus_port, 10) || 502;
+    this._froniusProbing = true;
+    this._render();
+    try {
+      const res = await this._hass.callWS({
+        type: "eeg_optimizer/probe_fronius",
+        host,
+        port,
+      });
+      if (!res || !res.success) {
+        this._showValidationError(
+          `Fronius unter ${host}:${port} nicht erreichbar — ${res?.error || "unbekannter Fehler"}`
+        );
+        return false;
+      }
+      if (!res.is_fronius) {
+        this._showValidationError(
+          `Gerät unter ${host}:${port} antwortet, ist aber kein Fronius (Hersteller: ${res.manufacturer || "unbekannt"}). Bitte IP prüfen.`
+        );
+        return false;
+      }
+      return true;
+    } catch (err) {
+      this._showValidationError(
+        `Verbindungstest fehlgeschlagen: ${err?.message || err}`
+      );
+      return false;
+    } finally {
+      this._froniusProbing = false;
+      this._render();
     }
   }
 
@@ -1356,12 +1439,27 @@ class EegOptimizerPanel extends HTMLElement {
   }
 
   _showValidationError(msg) {
-    // Simple alert — could be upgraded to inline message
-    const el = this._shadow.querySelector(".validation-error");
-    if (el) {
-      el.textContent = msg;
-      el.style.display = "block";
+    this._showToast(msg, "error");
+  }
+
+  _clearValidationError() {
+    if (this._toastTimer) {
+      clearTimeout(this._toastTimer);
+      this._toastTimer = null;
     }
+    this._toast = null;
+    this._render();
+  }
+
+  _showToast(msg, type = "error") {
+    this._toast = { msg, type };
+    if (this._toastTimer) clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => {
+      this._toast = null;
+      this._toastTimer = null;
+      this._render();
+    }, 7000);
+    this._render();
   }
 
   async _finishWizard() {
@@ -2319,8 +2417,10 @@ class EegOptimizerPanel extends HTMLElement {
         this._wizardLoading ? " disabled" : ""
       }>Fertig</button>`;
     } else {
-      const disabled = this._isNextDisabled() ? " btn-disabled" : "";
-      forwardBtn = `<button class="btn-primary${disabled}" data-action="next-step">Weiter</button>`;
+      const probing = !!this._froniusProbing;
+      const disabled = (this._isNextDisabled() || probing) ? " btn-disabled" : "";
+      const label = probing ? "Prüfe Fronius-Verbindung…" : "Weiter";
+      forwardBtn = `<button class="btn-primary${disabled}" data-action="next-step">${label}</button>`;
     }
 
     return `
@@ -2337,7 +2437,6 @@ class EegOptimizerPanel extends HTMLElement {
       </div>
       <div class="card">
         <h2>${WIZARD_STEPS[step]}</h2>
-        <div class="validation-error" style="display:none;color:var(--error-color,#f44336);margin-bottom:12px;font-size:14px"></div>
         ${this._wizardLoading ? '<div class="loading">Laden...</div>' : stepContent}
         <div class="wizard-nav">
           ${backBtn}
@@ -2351,10 +2450,18 @@ class EegOptimizerPanel extends HTMLElement {
     // Step 1: block if no supported inverter installed or Hausverbrauch sensors missing
     if (step === 1) {
       const p = this._prerequisites;
-      if (p && !p.huawei_solar && !p.solax_modbus && !p.solaredge_modbus_multi) return true;
+      if (p && !p.huawei_solar && !p.solax_modbus && !p.solaredge_modbus_multi && !p.fronius) return true;
       const d = this._wizardData;
       if (!d.inverter_type) return true;
-      if (!d.pv_power_sensor || !d.battery_power_sensor || !d.grid_power_sensor) return true;
+      if (!d.pv_power_sensor) return true;
+      // Fronius requires the directional pair (charge/discharge, export/import).
+      // Other inverters use a single signed sensor each.
+      if (d.inverter_type === "fronius_gen24") {
+        if (!d.battery_power_charge_sensor || !d.battery_power_discharge_sensor) return true;
+        if (!d.grid_power_export_sensor || !d.grid_power_import_sensor) return true;
+      } else {
+        if (!d.battery_power_sensor || !d.grid_power_sensor) return true;
+      }
     }
     // Step 2: block if no forecast integration
     if (
@@ -2431,21 +2538,21 @@ class EegOptimizerPanel extends HTMLElement {
       : solaredgeSelected
       ? "Aktuelle PV-Produktion in W (SolarEdge: sensor.solaredge_[i1_]ac_power)."
       : froniusSelected
-      ? "Aktuelle PV-Produktion in W (Fronius: sensor.*_power_photovoltaics)."
+      ? "Aktuelle PV-Produktion in W (Fronius: sensor.*_power_photovoltaics oder *_pv_leistung)."
       : "Aktuelle PV-Produktion in W (SolaX: sensor.solax_energy_dashboard_solax_solar_power).";
     const batteryHelp = huaweiSelected
       ? "Lade- und Entladeleistung der Batterie in W oder kW (Huawei: sensor.batteries_lade_entladeleistung)."
       : solaredgeSelected
       ? "Lade- und Entladeleistung der Batterie in W (SolarEdge: sensor.solaredge_[i1_]b1_dc_power)."
       : froniusSelected
-      ? "Lade- und Entladeleistung der Batterie in W (Fronius: sensor.*_power_battery)."
+      ? "Lade- und Entladeleistung der Batterie in W (Fronius: sensor.*_power_battery oder *_leistung_batterie). Bei Fronius-Installationen mit getrennten Lade-/Entladesensoren bitte den signed Sensor wählen."
       : "Lade- und Entladeleistung der Batterie in W (SolaX: sensor.solax_energy_dashboard_solax_battery_power).";
     const gridHelp = huaweiSelected
       ? "Wirkleistung am Netzanschluss in W oder kW (Huawei: sensor.power_meter_wirkleistung)."
       : solaredgeSelected
       ? "Wirkleistung am Netzanschluss in W (SolarEdge: sensor.solaredge_[i1_]m1_ac_power)."
       : froniusSelected
-      ? "Wirkleistung am Netzanschluss in W (Fronius: sensor.*_power_grid)."
+      ? "Wirkleistung am Netzanschluss in W (Fronius: sensor.*_power_grid oder *_leistung_netz). Bei Fronius-Installationen mit getrennten Bezugs-/Einspeisesensoren bitte den signed Sensor wählen."
       : "Wirkleistung am Netzanschluss in W (SolaX: sensor.solax_energy_dashboard_solax_grid_power).";
 
     // Build inverter cards, sort: detected first (alphabetically), then undetected (alphabetically)
@@ -2456,6 +2563,8 @@ class EegOptimizerPanel extends HTMLElement {
         logo: `<span style="font-size:32px">SolaX</span>` },
       { key: "solaredge_storedge", label: "SolarEdge", subtitle: "StorEdge Batteriespeicher", detected: solaredgeOk, badge: solaredgeBadge, dialog: "solaredge",
         logo: `<img src="https://brands.home-assistant.io/_/solaredge/logo.png" alt="SolarEdge" style="max-width:120px;max-height:60px;height:auto" onerror="this.outerHTML='<span style=font-size:32px>SolarEdge</span>'">` },
+      { key: "fronius_gen24", label: "Fronius Gen24", subtitle: "mit BYD Batteriespeicher", detected: froniusOk, badge: froniusBadge, dialog: "fronius",
+        logo: `<img src="https://brands.home-assistant.io/fronius/logo.png" alt="Fronius" style="max-width:120px;max-height:60px;height:auto" onerror="this.outerHTML='<span style=font-size:32px>Fronius</span>'">` },
     ];
     inverterDefs.sort((a, b) => {
       if (a.detected !== b.detected) return a.detected ? -1 : 1;
@@ -2491,20 +2600,56 @@ class EegOptimizerPanel extends HTMLElement {
           pvHelp,
           "sensor"
         )}
-        ${this._entityPickerHtml(
-          "battery_power_sensor",
-          this._wizardData.battery_power_sensor,
-          "Batterie Lade-/Entladeleistung *",
-          batteryHelp,
-          "sensor"
-        )}
-        ${this._entityPickerHtml(
-          "grid_power_sensor",
-          this._wizardData.grid_power_sensor,
-          "Netzbezug/-einspeisung *",
-          gridHelp,
-          "sensor"
-        )}
+        ${froniusSelected ? `
+          <p style="font-size:12px;color:var(--secondary-text-color);margin:8px 0 4px;line-height:1.5">
+            Fronius liefert Batterie- und Netzleistung als <strong>zwei getrennte, immer positive Sensoren</strong>
+            (Lade-/Entladeleistung bzw. Bezug/Einspeisung). Trage je beide ein &mdash; die Integration kombiniert sie automatisch
+            zu signed Werten und legt die kombinierten Sensoren mit Verlaufsdaten an.
+          </p>
+          ${this._entityPickerHtml(
+            "battery_power_charge_sensor",
+            this._wizardData.battery_power_charge_sensor,
+            "Batterie-Ladeleistung *",
+            "Positiver W-Wert beim Laden, 0 sonst (Fronius: sensor.*_battery_power_charging oder *_ladeleistung).",
+            "sensor"
+          )}
+          ${this._entityPickerHtml(
+            "battery_power_discharge_sensor",
+            this._wizardData.battery_power_discharge_sensor,
+            "Batterie-Entladeleistung *",
+            "Positiver W-Wert beim Entladen, 0 sonst (Fronius: sensor.*_battery_power_discharging oder *_entladeleistung).",
+            "sensor"
+          )}
+          ${this._entityPickerHtml(
+            "grid_power_export_sensor",
+            this._wizardData.grid_power_export_sensor,
+            "Netzeinspeisung *",
+            "Positiver W-Wert bei Einspeisung, 0 sonst (Fronius: sensor.*_leistung_netzeinspeisung).",
+            "sensor"
+          )}
+          ${this._entityPickerHtml(
+            "grid_power_import_sensor",
+            this._wizardData.grid_power_import_sensor,
+            "Netzbezug *",
+            "Positiver W-Wert bei Bezug, 0 sonst (Fronius: sensor.*_leistung_netzbezug).",
+            "sensor"
+          )}
+        ` : `
+          ${this._entityPickerHtml(
+            "battery_power_sensor",
+            this._wizardData.battery_power_sensor,
+            "Batterie Lade-/Entladeleistung *",
+            batteryHelp,
+            "sensor"
+          )}
+          ${this._entityPickerHtml(
+            "grid_power_sensor",
+            this._wizardData.grid_power_sensor,
+            "Netzbezug/-einspeisung *",
+            gridHelp,
+            "sensor"
+          )}
+        `}
         ${solaxSelected ? this._entityPickerHtml(
           "pv_power_sensor_2",
           this._wizardData.pv_power_sensor_2,
@@ -2941,8 +3086,12 @@ class EegOptimizerPanel extends HTMLElement {
         )}
         ${row("PV-Sensor", d.pv_power_sensor || "—")}
         ${d.pv_power_sensor_2 ? row("PV-Sensor 2", d.pv_power_sensor_2) : ""}
-        ${row("Batterie-Leistung", d.battery_power_sensor || "—")}
-        ${row("Netz-Leistung", d.grid_power_sensor || "—")}
+        ${(d.battery_power_charge_sensor && d.battery_power_discharge_sensor)
+          ? row("Batterie-Leistung", `${d.battery_power_charge_sensor} − ${d.battery_power_discharge_sensor}`)
+          : row("Batterie-Leistung", d.battery_power_sensor || "—")}
+        ${(d.grid_power_export_sensor && d.grid_power_import_sensor)
+          ? row("Netz-Leistung", `${d.grid_power_export_sensor} − ${d.grid_power_import_sensor}`)
+          : row("Netz-Leistung", d.grid_power_sensor || "—")}
       </div>
 
       <div class="summary-section">
@@ -3721,6 +3870,283 @@ class EegOptimizerPanel extends HTMLElement {
     return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${mobileStyle}${yLines}${bars}${legend}</svg>`;
   }
 
+  _renderEnergyFlow(pvKw, batKw, gridKw, hausKw, socVal, ids = {}) {
+    // --- Decompose flows from the four signed values ---
+    const pv = Math.max(pvKw, 0);
+    const batCharge = Math.max(batKw, 0);          // battery charging (sink)
+    const batDischarge = Math.max(-batKw, 0);      // battery discharging (source)
+    const gridExport = Math.max(gridKw, 0);        // feed-in to grid
+    const gridImport = Math.max(-gridKw, 0);       // import from grid
+    const haus = Math.max(hausKw, 0);
+
+    // Priority: PV → Haus → Batterie → Netz
+    const pvToHaus = Math.min(pv, haus);
+    let pvLeft = pv - pvToHaus;
+    const pvToBat = Math.min(pvLeft, batCharge);
+    pvLeft -= pvToBat;
+    const pvToGrid = Math.min(pvLeft, gridExport);
+
+    // Remaining demand on the house side
+    const hausFromBat = Math.min(haus - pvToHaus, batDischarge);
+    const hausFromGrid = Math.max(haus - pvToHaus - hausFromBat, 0);
+    // Battery filled by something other than PV (rare: from grid)
+    const batFromGrid = Math.max(batCharge - pvToBat, 0);
+
+    // --- Layout ---
+    const W = 600, H = 320;
+    const NW = 150, NH = 64;
+    const positions = {
+      pv:    { cx: 300, cy: 50 },
+      bat:   { cx: 95,  cy: 160 },
+      house: { cx: 300, cy: 270 },
+      grid:  { cx: 505, cy: 160 },
+    };
+
+    // Trim line to box edge so arrow doesn't hide under the rect
+    const trim = (from, to) => {
+      const dx = to.cx - from.cx;
+      const dy = to.cy - from.cy;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len, uy = dy / len;
+      const tFrom = Math.min((NW / 2 + 4) / Math.max(Math.abs(ux), 0.001), (NH / 2 + 4) / Math.max(Math.abs(uy), 0.001));
+      const tTo   = Math.min((NW / 2 + 4) / Math.max(Math.abs(ux), 0.001), (NH / 2 + 4) / Math.max(Math.abs(uy), 0.001));
+      return {
+        x1: from.cx + ux * tFrom,
+        y1: from.cy + uy * tFrom,
+        x2: to.cx - ux * tTo,
+        y2: to.cy - uy * tTo,
+      };
+    };
+
+    // --- Flow lines ---
+    const flows = [
+      { from: positions.pv,    to: positions.house, value: pvToHaus,      color: "#FFC107" },
+      { from: positions.pv,    to: positions.bat,   value: pvToBat,       color: "#FFC107" },
+      { from: positions.pv,    to: positions.grid,  value: pvToGrid,      color: "#4CAF50" },
+      { from: positions.bat,   to: positions.house, value: hausFromBat,   color: "#FF9800" },
+      { from: positions.grid,  to: positions.house, value: hausFromGrid,  color: "#F44336" },
+      { from: positions.grid,  to: positions.bat,   value: batFromGrid,   color: "#F44336" },
+    ];
+
+    let activeLines = "";
+    let inactiveLines = "";
+    let labels = "";
+    flows.forEach(f => {
+      const e = trim(f.from, f.to);
+      if (f.value > 0.02) {
+        const sw = Math.min(Math.max(2, f.value * 0.7), 5);
+        activeLines += `<line class="flow-line" x1="${e.x1}" y1="${e.y1}" x2="${e.x2}" y2="${e.y2}" stroke="${f.color}" stroke-width="${sw}" fill="none"/>`;
+        // Label at midpoint
+        const mx = (e.x1 + e.x2) / 2;
+        const my = (e.y1 + e.y2) / 2;
+        labels += `<g transform="translate(${mx} ${my})">
+          <rect class="ef-flow-label" x="-24" y="-10" width="48" height="20" rx="10"/>
+          <text class="ef-flow-text" x="0" y="4" text-anchor="middle">${fmtDe(f.value, 2)}</text>
+        </g>`;
+      } else {
+        inactiveLines += `<line x1="${e.x1}" y1="${e.y1}" x2="${e.x2}" y2="${e.y2}" stroke="var(--divider-color, #e0e0e0)" stroke-width="1.5" stroke-dasharray="2 5" opacity="0.5"/>`;
+      }
+    });
+
+    // --- Node renderer ---
+    const node = (pos, icon, title, mainText, subText, accent, active, entityId) => {
+      const x = pos.cx - NW / 2;
+      const y = pos.cy - NH / 2;
+      const opacity = active ? 1 : 0.55;
+      const clickable = entityId ? `data-action="show-entity" data-entity="${entityId}" style="cursor:pointer"` : "";
+      return `<g class="ef-node" opacity="${opacity}" ${clickable}>
+        <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="14"
+          fill="var(--card-background-color, #fff)"
+          stroke="${accent}" stroke-width="${active ? 2.5 : 1.5}"/>
+        <foreignObject x="${x + 10}" y="${y + (NH - 36) / 2}" width="36" height="36">
+          <div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;align-items:center;justify-content:center;width:36px;height:36px">
+            <ha-icon icon="${icon}" style="--mdc-icon-size:30px;color:${accent}"></ha-icon>
+          </div>
+        </foreignObject>
+        <text x="${x + 54}" y="${y + 22}" font-size="11" fill="var(--secondary-text-color)" style="text-transform:uppercase;letter-spacing:0.5px">${title}</text>
+        <text x="${x + 54}" y="${y + 40}" font-size="15" font-weight="600" fill="var(--primary-text-color)">${mainText}</text>
+        ${subText ? `<text x="${x + 54}" y="${y + 55}" font-size="10" fill="var(--secondary-text-color)">${subText}</text>` : ""}
+      </g>`;
+    };
+
+    // PV
+    const pvNode = node(positions.pv, "mdi:solar-power", "Photovoltaik", `${fmtDe(pv, 2)} kW`, "", "#FFC107", pv > 0.02, ids.pvEntity);
+
+    // Battery
+    let batMain = socVal != null ? `${socVal} %` : "—";
+    let batSub = "Idle";
+    let batAccent = "#9E9E9E";
+    if (batCharge > 0.02) {
+      batSub = `+${fmtDe(batCharge, 2)} kW · Ladung`;
+      batAccent = "#4CAF50";
+    } else if (batDischarge > 0.02) {
+      batSub = `${fmtDe(batDischarge, 2)} kW · Entladung`;
+      batAccent = "#FF9800";
+    }
+    const batNode = node(positions.bat, "mdi:battery", "Batterie", batMain, batSub, batAccent, batCharge > 0.02 || batDischarge > 0.02, ids.batEntity);
+
+    // House
+    const houseNode = node(positions.house, "mdi:home", "Haus", `${fmtDe(haus, 2)} kW`, "", "#2196F3", haus > 0.02, ids.hausEntity);
+
+    // Grid
+    let gridMain = "0 kW";
+    let gridSub = "";
+    let gridAccent = "#9E9E9E";
+    if (gridExport > 0.02) {
+      gridMain = `${fmtDe(gridExport, 2)} kW`;
+      gridSub = "Einspeisung";
+      gridAccent = "#4CAF50";
+    } else if (gridImport > 0.02) {
+      gridMain = `${fmtDe(gridImport, 2)} kW`;
+      gridSub = "Bezug";
+      gridAccent = "#F44336";
+    }
+    const gridNode = node(positions.grid, "mdi:transmission-tower", "Netz", gridMain, gridSub, gridAccent, gridExport > 0.02 || gridImport > 0.02, ids.gridEntity);
+
+    return `<svg class="energy-flow-svg" viewBox="0 0 ${W} ${H}">
+      ${inactiveLines}
+      ${activeLines}
+      ${labels}
+      ${pvNode}
+      ${batNode}
+      ${houseNode}
+      ${gridNode}
+    </svg>`;
+  }
+
+  _renderDayNightChart(data, sunriseHour, sunsetHour) {
+    if (!data || data.length === 0) return "<p>Keine Daten verfügbar</p>";
+
+    // Threshold for evening discharge: max night consumption that still leaves
+    // enough headroom to discharge. Mirrors optimizer._calc_min_soc:
+    //   min_soc_dynamic = base_min_soc + ceil(overnight * (1 + buf/100) / capacity * 100)
+    // Solving min_soc_dynamic < 100 for overnight gives:
+    //   overnight_max = (100 - base_min_soc) / 100 * capacity / (1 + buf/100)
+    // Capacity resolution mirrors optimizer._resolve_capacity: sensor first, manual fallback.
+    let capKwh = 0;
+    const capSensorId = this._config?.battery_capacity_sensor || "";
+    if (capSensorId) {
+      const s = this._readState(capSensorId);
+      if (s) {
+        const v = parseFloat(s.state);
+        if (!isNaN(v) && v > 0) {
+          const unit = s.attributes?.unit_of_measurement || "";
+          capKwh = (unit.toLowerCase() === "wh" || (!unit && v > 1000)) ? v / 1000 : v;
+        }
+      }
+    }
+    if (!capKwh) {
+      capKwh = parseFloat(this._config?.battery_capacity_kwh) || 0;
+    }
+    const baseMinSoc = parseFloat(this._config?.min_soc ?? 10);
+    const buffer = parseFloat(this._config?.safety_buffer_pct ?? 25);
+    const thresholdKwh = capKwh > 0
+      ? (100 - baseMinSoc) / 100 * capKwh / (1 + buffer / 100)
+      : null;
+
+    const width = 700, height = 320, padding = {top: 30, right: 20, bottom: 50, left: 50};
+    const chartW = width - padding.left - padding.right;
+    const chartH = height - padding.top - padding.bottom;
+    const allValues = data.flatMap(d => [d.tag, d.nacht]);
+    if (thresholdKwh != null) allValues.push(thresholdKwh);
+    const maxVal = Math.max(...allValues, 1) * 1.1;
+    const slotW = chartW / data.length;
+    const barW = slotW * 0.35;
+    const gap = 2;
+
+    const fmtHour = (h) => `${String(h).padStart(2, "0")}:00`;
+
+    let bars = "";
+    data.forEach((d, i) => {
+      const slotX = padding.left + i * slotW;
+
+      // Day bar (left, orange)
+      const x1 = slotX + (slotW - barW * 2 - gap) / 2;
+      const barH1 = (d.tag / maxVal) * chartH;
+      const y1 = padding.top + chartH - barH1;
+      bars += `<rect x="${x1}" y="${y1}" width="${barW}" height="${barH1}" fill="#FF9800" rx="3">
+        <title>${d.label} Tag-Verbrauch (${fmtHour(sunriseHour)}–${fmtHour(sunsetHour)}): ${fmtDe(d.tag, 2)} kWh</title>
+      </rect>`;
+      if (d.tag > 0) {
+        bars += `<text class="bc-val" x="${x1 + barW/2}" y="${y1 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${fmtDe(d.tag, 1)}</text>`;
+      }
+
+      // Night bar (right) — red if it exceeds the discharge threshold
+      const x2 = x1 + barW + gap;
+      const barH2 = (d.nacht / maxVal) * chartH;
+      const y2 = padding.top + chartH - barH2;
+      const overThreshold = thresholdKwh != null && d.nacht > thresholdKwh;
+      const nightColor = overThreshold ? "#F44336" : "#2196F3";
+      const tooltipExtra = overThreshold ? "\n⚠ Über Limit für Abend-Entladung" : "";
+      bars += `<rect x="${x2}" y="${y2}" width="${barW}" height="${barH2}" fill="${nightColor}" rx="3">
+        <title>${d.label} Nacht-Verbrauch: ${fmtDe(d.nacht, 2)} kWh${tooltipExtra}</title>
+      </rect>`;
+      if (d.nacht > 0) {
+        bars += `<text class="bc-val" x="${x2 + barW/2}" y="${y2 - 5}" text-anchor="middle" font-size="11" fill="var(--primary-text-color)">${fmtDe(d.nacht, 1)}</text>`;
+      }
+
+      // Day label centered under the group
+      bars += `<text class="bc-day" x="${slotX + slotW/2}" y="${height - 16}" text-anchor="middle" font-size="11" fill="var(--secondary-text-color)">${d.label}</text>`;
+    });
+
+    // Y-axis grid + label
+    let yLines = `<text x="${padding.left - 36}" y="${padding.top - 8}" font-size="10" fill="var(--secondary-text-color)">kWh</text>`;
+    for (let i = 0; i <= 4; i++) {
+      const y = padding.top + (chartH / 4) * i;
+      const val = fmtDe(maxVal * (4 - i) / 4, 1);
+      yLines += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--divider-color)" stroke-dasharray="4"/>`;
+      yLines += `<text class="bc-axis" x="${padding.left - 5}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--secondary-text-color)">${val}</text>`;
+    }
+
+    // Threshold line
+    let thresholdHtml = "";
+    if (thresholdKwh != null && thresholdKwh > 0 && thresholdKwh < maxVal) {
+      const ty = padding.top + chartH - (thresholdKwh / maxVal) * chartH;
+      thresholdHtml = `
+        <line x1="${padding.left}" y1="${ty}" x2="${width - padding.right}" y2="${ty}"
+              stroke="#F44336" stroke-width="2" stroke-dasharray="6 4"/>
+        <text class="bc-legend" x="${width - padding.right - 4}" y="${ty - 4}" text-anchor="end"
+              font-size="11" font-weight="600" fill="#F44336">
+          max. ${fmtDe(thresholdKwh, 1)} kWh
+        </text>`;
+    }
+
+    // Legend
+    const lx = padding.left;
+    const ly = 14;
+    let legend = `
+      <rect x="${lx}" y="${ly - 8}" width="10" height="10" fill="#FF9800" rx="2"/>
+      <text class="bc-legend" x="${lx + 14}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Tag (${fmtHour(sunriseHour)}–${fmtHour(sunsetHour)})</text>
+      <rect x="${lx + 165}" y="${ly - 8}" width="10" height="10" fill="#2196F3" rx="2"/>
+      <text class="bc-legend" x="${lx + 179}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Nacht</text>`;
+    if (thresholdKwh != null) {
+      legend += `
+        <line x1="${lx + 230}" y1="${ly - 3}" x2="${lx + 254}" y2="${ly - 3}" stroke="#F44336" stroke-width="2" stroke-dasharray="6 4"/>
+        <text class="bc-legend" x="${lx + 258}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Limit Nacht</text>`;
+    }
+
+    const mobileStyle = `<style>
+      @media (max-width: 600px) {
+        .bc-val { font-size: 13px; font-weight: 500; }
+        .bc-day { font-size: 13px; font-weight: 500; }
+        .bc-axis { font-size: 12px; }
+        .bc-legend { font-size: 12px; }
+      }
+    </style>`;
+
+    const hint = thresholdKwh != null
+      ? `<p style="margin:8px 4px 0;font-size:12px;color:var(--secondary-text-color);line-height:1.4">
+           Die rote Linie zeigt den maximalen Nachtverbrauch, bis zu dem die Abend-Entladung &uuml;berhaupt m&ouml;glich ist
+           (${fmtDe(capKwh, 0)}&nbsp;kWh Batterie, Mindest-SOC ${baseMinSoc}&nbsp;%, Sicherheitspuffer ${buffer}&nbsp;%).
+           Wochentage mit Nachtverbrauch dar&uuml;ber sind rot eingef&auml;rbt &mdash; an diesen Tagen blockiert der dynamische Mindest-SOC die Entladung.
+         </p>`
+      : `<p style="margin:8px 4px 0;font-size:12px;color:var(--secondary-text-color)">
+           Limit-Linie ben&ouml;tigt die Batteriekapazit&auml;t aus den Einstellungen.
+         </p>`;
+
+    return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${mobileStyle}${yLines}${thresholdHtml}${bars}${legend}</svg>${hint}`;
+  }
+
   _renderMorningConditions(ma, mStatus) {
     const pvVal = Number(ma.morning_pv_today_kwh || 0);
     const threshold = Number(ma.morning_threshold_kwh || 0);
@@ -4220,6 +4646,16 @@ class EegOptimizerPanel extends HTMLElement {
     });
     const highlightIdx = weekdayDatasets.findIndex(ds => ds.key === dayKey);
 
+    // --- Day/Night dataset for the alternative chart variant ---
+    const sunriseHour = Number(profilState?.attributes?.sunrise_hour ?? 6);
+    const sunsetHour = Number(profilState?.attributes?.sunset_hour ?? 20);
+    const daynightData = weekdayKeys.map((key, idx) => ({
+      key,
+      label: weekdayLabels[idx],
+      tag: Number(profilState?.attributes?.[`${key}_tag_kwh`] ?? 0),
+      nacht: Number(profilState?.attributes?.[`${key}_nacht_kwh`] ?? 0),
+    }));
+
     // --- Manual control status ---
     const manualAction = this._manualAction;
     const manualResult = this._manualResult;
@@ -4285,29 +4721,41 @@ class EegOptimizerPanel extends HTMLElement {
     return `
       <div class="dashboard-grid${narrowClass}">
         ${simBanner}
-        <!-- Header Card: Live Values Grid + Toggle + Timestamps -->
+        <!-- Header Card: Live Values Grid OR Energy Flow + Mode Toggle + Timestamps -->
         <div class="card header-card">
-          <h3 class="status-card-title" style="margin-top:0;display:flex;align-items:center;gap:8px">
-            <ha-icon icon="mdi:pulse" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4)"></ha-icon>
-            Aktueller Status
-            ${this._config?.inverter_type === "solaredge_storedge" ? `<span style="cursor:pointer;display:inline-flex;align-items:center"
-              title="NVRAM-Schreibvorg\u00e4nge: ${this._readFloat("sensor.eeg_energy_optimizer_register_schreibvorgange") ?? 0} seit Installation">
-              <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color)"></ha-icon>
-            </span>` : ""}
-          </h3>
-          <div class="header-grid">
-            <div class="hlv${pvEntity ? " hlv-clickable" : ""}" ${pvEntity ? `data-action="show-entity" data-entity="${pvEntity}"` : ""}><span class="hlv-label">PV</span><span class="hlv-val val-green">${fmtDe(pvKw, 2)} kW</span></div>
-            <div class="hlv${batEntity ? " hlv-clickable" : ""}" ${batEntity ? `data-action="show-entity" data-entity="${batEntity}"` : ""}><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${fmtDe(Math.abs(batKw), 2)} kW <small>(${batLabel})</small></span></div>
-            <div class="hlv${socEntity ? " hlv-clickable" : ""}" ${socEntity ? `data-action="show-entity" data-entity="${socEntity}"` : ""}><span class="hlv-label">SOC</span><span class="hlv-val ${socColor}">${socText}%</span></div>
-            <div class="hlv${gridEntity ? " hlv-clickable" : ""}" ${gridEntity ? `data-action="show-entity" data-entity="${gridEntity}"` : ""}><span class="hlv-label">Netz</span><span class="hlv-val ${gridColor}">${fmtDe(Math.abs(gridKw), 2)} kW <small>(${gridLabel})</small></span></div>
-            <div class="hlv hlv-clickable" data-action="show-entity" data-entity="${hausEntity}"><span class="hlv-label">Haus</span><span class="hlv-val val-blue">${fmtDe(hausKw, 2)} kW</span></div>
-            <div class="hlv header-toggle-cell">
+          <div class="header-card-top">
+            <h3 class="status-card-title" style="margin:0;display:flex;align-items:center;gap:8px;flex:1;min-width:0">
+              <ha-icon icon="mdi:pulse" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);flex-shrink:0"></ha-icon>
+              <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Aktueller Status</span>
+              ${this._config?.inverter_type === "solaredge_storedge" ? `<span style="cursor:pointer;display:inline-flex;align-items:center;flex-shrink:0"
+                title="NVRAM-Schreibvorg\u00e4nge: ${this._readFloat("sensor.eeg_energy_optimizer_register_schreibvorgange") ?? 0} seit Installation">
+                <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color)"></ha-icon>
+              </span>` : ""}
+            </h3>
+            <div class="status-view-pills">
+              <button class="view-pill ${this._statusViewVariant === "values" ? "active" : ""}" data-action="set-status-view" data-variant="values" title="Werte-Anzeige">
+                <ha-icon icon="mdi:view-grid-outline" style="--mdc-icon-size:16px"></ha-icon>
+              </button>
+              <button class="view-pill ${this._statusViewVariant === "flow" ? "active" : ""}" data-action="set-status-view" data-variant="flow" title="Energieflu\u00dfdiagramm">
+                <ha-icon icon="mdi:transit-connection-variant" style="--mdc-icon-size:16px"></ha-icon>
+              </button>
+            </div>
+            <div class="header-mode-toggle">
               <div class="mode-toggle ${modeToggleClass}" data-action="toggle-mode">
                 <div class="toggle-knob"></div>
               </div>
               <span class="mode-toggle-label">${modeValue === "Ein" ? "Ein" : "Testmodus"}</span>
             </div>
           </div>
+          ${this._statusViewVariant === "flow"
+            ? this._renderEnergyFlow(pvKw, batKw, gridKw, hausKw, socVal, {pvEntity, batEntity, gridEntity, hausEntity, socEntity})
+            : `<div class="header-grid">
+                <div class="hlv${pvEntity ? " hlv-clickable" : ""}" ${pvEntity ? `data-action="show-entity" data-entity="${pvEntity}"` : ""}><span class="hlv-label">PV</span><span class="hlv-val val-green">${fmtDe(pvKw, 2)} kW</span></div>
+                <div class="hlv${batEntity ? " hlv-clickable" : ""}" ${batEntity ? `data-action="show-entity" data-entity="${batEntity}"` : ""}><span class="hlv-label">Batterie</span><span class="hlv-val ${batColor}">${fmtDe(Math.abs(batKw), 2)} kW <small>(${batLabel})</small></span></div>
+                <div class="hlv${socEntity ? " hlv-clickable" : ""}" ${socEntity ? `data-action="show-entity" data-entity="${socEntity}"` : ""}><span class="hlv-label">SOC</span><span class="hlv-val ${socColor}">${socText}%</span></div>
+                <div class="hlv${gridEntity ? " hlv-clickable" : ""}" ${gridEntity ? `data-action="show-entity" data-entity="${gridEntity}"` : ""}><span class="hlv-label">Netz</span><span class="hlv-val ${gridColor}">${fmtDe(Math.abs(gridKw), 2)} kW <small>(${gridLabel})</small></span></div>
+                <div class="hlv hlv-clickable" data-action="show-entity" data-entity="${hausEntity}"><span class="hlv-label">Haus</span><span class="hlv-val val-blue">${fmtDe(hausKw, 2)} kW</span></div>
+              </div>`}
           <div class="header-timestamps">
             <span>Optimizer: ${optimizerTs}</span>
             <span>Verbrauchsdaten: ${profilTs}</span>
@@ -4367,8 +4815,20 @@ class EegOptimizerPanel extends HTMLElement {
             </h3>
             <ha-icon icon="mdi:chevron-${this._profilOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
           </div>
-          ${this._config?.expert_mode ? this._renderConsumptionProfileStatus(profilState) : ""}
-          ${this._profilOpen ? this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0) : ""}
+          ${this._profilOpen && this._config?.expert_mode ? this._renderConsumptionProfileStatus(profilState) : ""}
+          ${this._profilOpen ? (() => {
+            const variant = this._profilChartVariant || "hourly";
+            const pillStyle = (active) => `padding:6px 14px;border:1px solid var(--divider-color);background:${active ? "var(--primary-color)" : "var(--card-background-color,#fff)"};color:${active ? "#fff" : "var(--primary-text-color)"};border-radius:16px;font-size:12px;cursor:pointer`;
+            const toggleBar = `
+              <div style="display:flex;gap:8px;margin:12px 0;flex-wrap:wrap">
+                <button data-action="set-profil-variant" data-variant="hourly" style="${pillStyle(variant === "hourly")}">Stundenverlauf</button>
+                <button data-action="set-profil-variant" data-variant="daynight" style="${pillStyle(variant === "daynight")}">Tag / Nacht</button>
+              </div>`;
+            const chart = variant === "daynight"
+              ? this._renderDayNightChart(daynightData, sunriseHour, sunsetHour)
+              : this._renderLineChart(weekdayDatasets, highlightIdx >= 0 ? highlightIdx : 0);
+            return toggleBar + chart;
+          })() : ""}
         </div>
 
         ${this._config?.enable_peakshare !== false ? (() => {
@@ -4941,6 +5401,23 @@ class EegOptimizerPanel extends HTMLElement {
         .val-red { color: #f44336; }
         .val-blue { color: #2196f3; }
         .header-toggle-cell { display: flex; flex-direction: row; align-items: center; gap: 8px; justify-content: flex-end; }
+        .header-card-top { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+        .header-mode-toggle { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+        .status-view-pills { display: inline-flex; background: var(--secondary-background-color, rgba(0,0,0,0.05)); border-radius: 999px; padding: 3px; gap: 0; flex-shrink: 0; }
+        .view-pill { background: transparent; border: none; cursor: pointer; padding: 6px 12px; border-radius: 999px; color: var(--secondary-text-color, #666); display: inline-flex; align-items: center; justify-content: center; transition: background 0.15s, color 0.15s; }
+        .view-pill:hover { color: var(--primary-text-color); }
+        .view-pill.active { background: var(--card-background-color, #fff); color: var(--primary-color, #03a9f4); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .energy-flow-svg { width: 100%; height: auto; max-height: 360px; display: block; }
+        .energy-flow-svg .flow-line { stroke-linecap: round; stroke-dasharray: 6 6; animation: flow-anim 1.2s linear infinite; }
+        .energy-flow-svg .flow-line.reverse { animation-direction: reverse; }
+        @keyframes flow-anim { to { stroke-dashoffset: -24; } }
+        .energy-flow-svg .ef-node { cursor: pointer; transition: transform 0.15s; }
+        .energy-flow-svg .ef-node:hover { transform: scale(1.04); transform-origin: center; transform-box: fill-box; }
+        .energy-flow-svg .ef-flow-label { fill: var(--card-background-color, #fff); stroke: var(--divider-color, #e0e0e0); stroke-width: 1; }
+        .energy-flow-svg .ef-flow-text { fill: var(--primary-text-color); font-size: 11px; font-weight: 500; pointer-events: none; }
+        @media (max-width: 540px) {
+          .energy-flow-svg .ef-flow-text { font-size: 13px; }
+        }
         .header-timestamps { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--divider-color, #e0e0e0); font-size: 11px; color: var(--secondary-text-color, #999); }
         .status-card-title { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 16px; }
         .info-popup-trigger {
@@ -5082,6 +5559,42 @@ class EegOptimizerPanel extends HTMLElement {
         .val-red { color: #f44336; }
         .val-orange { color: #FF9800; }
         .val-blue { color: #2196F3; }
+        .toast {
+          position: fixed;
+          left: 50%;
+          bottom: 32px;
+          transform: translateX(-50%);
+          max-width: min(90vw, 560px);
+          padding: 14px 20px;
+          border-radius: 10px;
+          color: #fff;
+          font-size: 14px;
+          line-height: 1.45;
+          box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+          z-index: 9999;
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+          animation: toast-in 0.22s ease-out;
+        }
+        .toast-error { background: #c62828; }
+        .toast-info { background: #1976d2; }
+        .toast-success { background: #2e7d32; }
+        .toast-close {
+          background: transparent;
+          border: none;
+          color: rgba(255,255,255,0.9);
+          font-size: 18px;
+          line-height: 1;
+          cursor: pointer;
+          padding: 0 0 0 4px;
+          margin-left: auto;
+        }
+        .toast-close:hover { color: #fff; }
+        @keyframes toast-in {
+          from { opacity: 0; transform: translate(-50%, 12px); }
+          to   { opacity: 1; transform: translate(-50%, 0); }
+        }
       </style>
       <div class="toolbar">
         <button class="menu-btn" data-action="toggle-sidebar" title="Men\u00fc">
@@ -5091,6 +5604,13 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="toolbar-actions">${headerRight}</div>
       </div>
       ${content}
+      ${this._toast ? `
+        <div class="toast toast-${this._toast.type}" role="alert">
+          <ha-icon icon="mdi:${this._toast.type === "error" ? "alert-circle" : this._toast.type === "success" ? "check-circle" : "information"}"></ha-icon>
+          <span>${this._toast.msg}</span>
+          <button class="toast-close" data-action="dismiss-toast" title="Schlie\u00dfen">\u00d7</button>
+        </div>
+      ` : ""}
     `;
 
     // After innerHTML, populate entity datalists

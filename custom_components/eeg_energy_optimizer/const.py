@@ -9,6 +9,16 @@ CONF_BATTERY_CAPACITY_KWH = "battery_capacity_kwh"
 CONF_PV_POWER_SENSOR = "pv_power_sensor"
 CONF_GRID_POWER_SENSOR = "grid_power_sensor"
 CONF_BATTERY_POWER_SENSOR = "battery_power_sensor"
+# Optional split-sensor pairs — used when an inverter exposes only directional
+# (positive-only) sensors instead of one signed sensor (e.g. Fronius).
+# When both *_export/*_charge AND *_import/*_discharge are set, the signed
+# value is computed as (export − import) / (charge − discharge).
+# The single-sensor convention (with INVERTER_SIGN_CONVENTIONS) still
+# applies whenever the pair is incomplete.
+CONF_GRID_POWER_EXPORT_SENSOR = "grid_power_export_sensor"
+CONF_GRID_POWER_IMPORT_SENSOR = "grid_power_import_sensor"
+CONF_BATTERY_POWER_CHARGE_SENSOR = "battery_power_charge_sensor"
+CONF_BATTERY_POWER_DISCHARGE_SENSOR = "battery_power_discharge_sensor"
 CONF_HUAWEI_DEVICE_ID = "huawei_device_id"
 
 INVERTER_TYPE_HUAWEI = "huawei_sun2000"
@@ -32,8 +42,18 @@ INVERTER_SIGN_CONVENTIONS = {
     "huawei_sun2000": {"battery_sign": 1, "grid_sign": 1},
     "solax_gen4":     {"battery_sign": -1, "grid_sign": -1},
     "solaredge_storedge": {"battery_sign": 1, "grid_sign": 1, "pv_includes_battery": True},
-    "fronius_gen24": {"battery_sign": -1, "grid_sign": 1},
+    # Fronius exposes only directional sensors (charging/discharging,
+    # netzeinspeisung/netzbezug) — never a single signed value. The setup
+    # therefore creates synthetic combined sensors that are *already canonical*
+    # (positive = charging / positive = export). Sign convention = identity.
+    "fronius_gen24": {"battery_sign": 1, "grid_sign": 1},
 }
+
+# Entity IDs of the synthetic combined sensors created at setup time when
+# the user (or auto-detect) configures pair sensors. Held as constants so
+# wizard, backfill, and sensor platform agree on the names.
+COMBINED_BATTERY_POWER_SENSOR_ID = "sensor.eeg_energy_optimizer_battery_power"
+COMBINED_GRID_POWER_SENSOR_ID = "sensor.eeg_energy_optimizer_grid_power"
 
 CONF_FRONIUS_MODBUS_HOST = "fronius_modbus_host"
 CONF_FRONIUS_MODBUS_PORT = "fronius_modbus_port"

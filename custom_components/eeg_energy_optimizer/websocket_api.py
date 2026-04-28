@@ -12,9 +12,15 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
+    COMBINED_BATTERY_POWER_SENSOR_ID,
+    COMBINED_GRID_POWER_SENSOR_ID,
     CONF_BATTERY_CAPACITY_SENSOR,
+    CONF_BATTERY_POWER_CHARGE_SENSOR,
+    CONF_BATTERY_POWER_DISCHARGE_SENSOR,
     CONF_BATTERY_POWER_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
+    CONF_GRID_POWER_EXPORT_SENSOR,
+    CONF_GRID_POWER_IMPORT_SENSOR,
     CONF_GRID_POWER_SENSOR,
     CONF_HUAWEI_DEVICE_ID,
     CONF_INVERTER_TYPE,
@@ -106,12 +112,72 @@ SOLAREDGE_CONTROL_SUFFIXES: dict[str, list[tuple[str, str]]] = {
 # Fronius native integration sensor suffixes — used to find entities.
 # The Fronius integration creates entities like sensor.{device_name}_{key}.
 # Prefix varies by installation (e.g. "solarnet_", "power_flow_0_192_168_100_211_").
+#
+# Multiple suffixes per conf_key cover the different naming variants that
+# show up in the wild:
+#   - English unique-id style (post-2024 HA core integration default):
+#     state_of_charge, power_photovoltaics, power_grid, power_battery,
+#     capacity_maximum
+#   - Localized (DE) friendly-name slugs as seen on installations that
+#     were set up before HA stopped translating entity_ids, or where the
+#     user has manually renamed entities to the German friendly names:
+#     ladezustand, pv_leistung, leistung_netz, leistung_batterie,
+#     maximale_kapazitat, ausgelegte_kapazitat
+#   - "battery_level" / "soc" as widely-used short aliases
+#
+# Lookup order matters: first match wins, so the more specific / canonical
+# English suffixes are listed first.
 FRONIUS_SENSOR_SUFFIXES: dict[str, list[str]] = {
-    CONF_BATTERY_SOC_SENSOR: ["state_of_charge"],
-    CONF_PV_POWER_SENSOR: ["power_photovoltaics"],
-    CONF_GRID_POWER_SENSOR: ["power_grid"],
-    CONF_BATTERY_POWER_SENSOR: ["power_battery"],
-    CONF_BATTERY_CAPACITY_SENSOR: ["capacity_maximum"],
+    CONF_BATTERY_SOC_SENSOR: [
+        "state_of_charge",
+        "battery_state_of_charge",
+        "ladezustand",
+        "battery_level",
+        "_soc",
+    ],
+    CONF_PV_POWER_SENSOR: [
+        "power_photovoltaics",
+        "pv_power",
+        "pv_leistung",
+        "photovoltaikleistung",
+    ],
+    CONF_GRID_POWER_SENSOR: [
+        "power_grid",
+        "grid_power",
+        "leistung_netz",
+        "netzleistung",
+    ],
+    CONF_BATTERY_POWER_SENSOR: [
+        "power_battery",
+        "battery_power",
+        "leistung_batterie",
+        "batterieleistung",
+    ],
+    CONF_BATTERY_CAPACITY_SENSOR: [
+        "capacity_maximum",
+        "maximum_capacity",
+        "maximale_kapazitat",
+        "ausgelegte_kapazitat",
+        "designed_capacity",
+    ],
+}
+
+# Fronius pair-sensor suffixes — directional, always-positive sensors that
+# come in matched pairs. When both sides are detected, the wizard records
+# them in CONF_*_CHARGE/DISCHARGE / CONF_*_EXPORT/IMPORT and points the
+# canonical CONF_BATTERY_POWER_SENSOR / CONF_GRID_POWER_SENSOR at the
+# synthetic combined sensors created at setup time.
+FRONIUS_PAIR_SUFFIXES: dict[tuple[str, str], list[tuple[str, str]]] = {
+    # battery: (charge_key, discharge_key) → list of (charge_suffix, discharge_suffix)
+    (CONF_BATTERY_POWER_CHARGE_SENSOR, CONF_BATTERY_POWER_DISCHARGE_SENSOR): [
+        ("battery_power_charging", "battery_power_discharging"),
+        ("ladeleistung", "entladeleistung"),
+    ],
+    # grid: (export_key, import_key) → list of (export_suffix, import_suffix)
+    (CONF_GRID_POWER_EXPORT_SENSOR, CONF_GRID_POWER_IMPORT_SENSOR): [
+        ("leistung_netzeinspeisung", "leistung_netzbezug"),
+        ("grid_power_export", "grid_power_import"),
+    ],
 }
 
 
@@ -243,6 +309,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_check_prerequisites)
     websocket_api.async_register_command(hass, ws_detect_sensors)
     websocket_api.async_register_command(hass, ws_test_inverter)
+    websocket_api.async_register_command(hass, ws_probe_fronius)
     websocket_api.async_register_command(hass, ws_manual_stop)
     websocket_api.async_register_command(hass, ws_manual_discharge)
     websocket_api.async_register_command(hass, ws_manual_block_charge)
@@ -343,6 +410,19 @@ async def ws_save_config(
             )
             return
         new_data["fronius_modbus_port"] = port
+
+    # Pair-sensor → synthetic-sensor redirection. If the user (or auto-detect)
+    # filled the directional pair config keys, point the canonical battery_/
+    # grid_power_sensor at the synthetic combined sensor created at setup
+    # time. Downstream consumers (Hausverbrauch, optimizer watchdog,
+    # statistics, dashboard) then read one consistent signed source —
+    # exactly like a single-sensor inverter would.
+    if (new_data.get(CONF_BATTERY_POWER_CHARGE_SENSOR)
+            and new_data.get(CONF_BATTERY_POWER_DISCHARGE_SENSOR)):
+        new_data[CONF_BATTERY_POWER_SENSOR] = COMBINED_BATTERY_POWER_SENSOR_ID
+    if (new_data.get(CONF_GRID_POWER_EXPORT_SENSOR)
+            and new_data.get(CONF_GRID_POWER_IMPORT_SENSOR)):
+        new_data[CONF_GRID_POWER_SENSOR] = COMBINED_GRID_POWER_SENSOR_ID
 
     hass.config_entries.async_update_entry(entry, data=new_data)
     connection.send_result(msg["id"], {"success": True})
@@ -519,18 +599,65 @@ async def ws_detect_sensors(
             if entry.config_entry_id in fronius_entry_ids
         }
 
+        # Pre-collect all candidate Fronius-owned sensors for faster scanning.
+        candidate_states = [
+            s for s in hass.states.async_all("sensor")
+            if s.entity_id in fronius_entity_ids
+            and s.state not in ("unavailable", "unknown")
+        ]
+
+        # Suffix matching with word boundary check. Plain endswith() is
+        # ambiguous: "entladeleistung" endswith "ladeleistung" is True, which
+        # would mis-classify the discharge sensor as the charge sensor.
+        # Require the suffix to start its own word — preceded by "_" or "."
+        # (or to be the entire entity_id), unless the suffix already starts
+        # with "_" (then the boundary is built in).
+        def _suffix_matches(entity_id: str, suffix: str) -> bool:
+            if not entity_id.endswith(suffix):
+                return False
+            if suffix.startswith("_"):
+                return True
+            head = entity_id[: -len(suffix)]
+            return head == "" or head.endswith("_") or head.endswith(".")
+
         sensors = {}
         for conf_key, suffixes in FRONIUS_SENSOR_SUFFIXES.items():
             for suffix in suffixes:
-                for state in hass.states.async_all("sensor"):
-                    if state.entity_id not in fronius_entity_ids:
-                        continue
-                    if (state.entity_id.endswith(suffix)
-                            and state.state not in ("unavailable", "unknown")):
+                for state in candidate_states:
+                    if _suffix_matches(state.entity_id, suffix):
                         sensors[conf_key] = state.entity_id
                         break
                 if conf_key in sensors:
                     break
+
+        # Detect directional pair sensors (charge/discharge, export/import).
+        # When a complete pair is found, fill the dedicated pair config keys
+        # AND point the canonical battery_/grid_power_sensor at the synthetic
+        # combined sensor — that sensor is created at setup time when both
+        # pair keys are present.
+        for (pos_key, neg_key), pairs in FRONIUS_PAIR_SUFFIXES.items():
+            for pos_suf, neg_suf in pairs:
+                pos_match = next(
+                    (s.entity_id for s in candidate_states
+                     if _suffix_matches(s.entity_id, pos_suf)),
+                    None,
+                )
+                neg_match = next(
+                    (s.entity_id for s in candidate_states
+                     if _suffix_matches(s.entity_id, neg_suf)),
+                    None,
+                )
+                if pos_match and neg_match:
+                    sensors[pos_key] = pos_match
+                    sensors[neg_key] = neg_match
+                    break
+            # If the pair was filled, redirect the canonical key at the
+            # synthetic combined sensor (overrides any single-sensor hit
+            # the suffix scan above might have produced).
+            if pos_key == CONF_BATTERY_POWER_CHARGE_SENSOR and pos_key in sensors:
+                sensors[CONF_BATTERY_POWER_SENSOR] = COMBINED_BATTERY_POWER_SENSOR_ID
+            if pos_key == CONF_GRID_POWER_EXPORT_SENSOR and pos_key in sensors:
+                sensors[CONF_GRID_POWER_SENSOR] = COMBINED_GRID_POWER_SENSOR_ID
 
         result = {
             CONF_INVERTER_TYPE: INVERTER_TYPE_FRONIUS,
@@ -581,6 +708,128 @@ async def ws_test_inverter(
             "success": False,
             "error": f"Fehler bei der Kommunikation: {exc}",
         })
+
+
+def _registers_to_string(registers) -> str:
+    """Decode a sequence of 16-bit Modbus registers as ASCII (big-endian)."""
+    chars = []
+    for reg in registers:
+        chars.append(chr((reg >> 8) & 0xFF))
+        chars.append(chr(reg & 0xFF))
+    return "".join(chars).rstrip("\x00 ").strip()
+
+
+async def _probe_fronius_modbus(host: str, port: int, slave_id: int = 1) -> dict:
+    """Read-only probe: connect to host:port, verify SunSpec ID, read the
+    Common Block (Model 1) to identify the manufacturer and model. Closes
+    the connection at the end. No writes ever happen here.
+    """
+    import asyncio
+    result: dict = {"success": False}
+    try:
+        from pymodbus.client import AsyncModbusTcpClient
+    except ImportError:
+        result["error"] = "pymodbus nicht installiert."
+        return result
+
+    client = AsyncModbusTcpClient(host, port=port)
+    try:
+        try:
+            await asyncio.wait_for(client.connect(), timeout=5)
+        except asyncio.TimeoutError:
+            result["error"] = f"Timeout beim Verbindungsaufbau zu {host}:{port}."
+            return result
+        if not client.connected:
+            result["error"] = f"Keine Modbus-TCP-Verbindung zu {host}:{port}."
+            return result
+
+        # pymodbus 3.9+ renamed `slave` to `device_id`. Probe the signature
+        # once and use whichever keyword the active client accepts.
+        import inspect
+        try:
+            sig = inspect.signature(client.read_holding_registers)
+            slave_kw = {"device_id": slave_id} if "device_id" in sig.parameters else {"slave": slave_id}
+        except (TypeError, ValueError):
+            slave_kw = {"slave": slave_id}
+
+        # SunSpec header at 40000-40001 must read "SunS"
+        r = await asyncio.wait_for(
+            client.read_holding_registers(address=40000, count=2, **slave_kw),
+            timeout=5,
+        )
+        if r.isError():
+            result["error"] = "Modbus-Fehler beim Lesen des SunSpec-Headers."
+            return result
+        if r.registers[0] != 0x5375 or r.registers[1] != 0x6E53:
+            result["error"] = (
+                f"Kein SunSpec-Gerät unter {host}:{port} "
+                f"(Header: 0x{r.registers[0]:04X} 0x{r.registers[1]:04X})."
+            )
+            return result
+
+        # Common Block (Model 1) starts at 40002. Layout:
+        #   40002 model_id (=1)  40003 length (=66)
+        #   40004..40019 Manufacturer (16 regs / 32 chars)
+        #   40020..40035 Model (16 regs)
+        r = await asyncio.wait_for(
+            client.read_holding_registers(address=40002, count=34, **slave_kw),
+            timeout=5,
+        )
+        if r.isError():
+            result["error"] = "Modbus-Fehler beim Lesen des Common Blocks."
+            return result
+        if r.registers[0] != 1:
+            result["error"] = (
+                f"Common Block fehlt (Model-ID = {r.registers[0]}, erwartet 1)."
+            )
+            return result
+
+        manufacturer = _registers_to_string(r.registers[2:18])
+        model_name = _registers_to_string(r.registers[18:34])
+
+        result["success"] = True
+        result["manufacturer"] = manufacturer
+        result["model"] = model_name
+        result["is_fronius"] = "fronius" in manufacturer.lower()
+        return result
+    except Exception as exc:
+        result["error"] = f"Verbindungsfehler: {exc}"
+        return result
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/probe_fronius",
+        vol.Required("host"): str,
+        vol.Optional("port", default=502): int,
+    }
+)
+@websocket_api.async_response
+async def ws_probe_fronius(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Read-only probe of a Fronius Gen24 over Modbus TCP.
+
+    Used by the wizard's "Weiter" step to verify that the entered IP
+    actually points at a Fronius inverter before saving the config.
+    """
+    host = (msg.get("host") or "").strip()
+    port = int(msg.get("port") or 502)
+    if not host:
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": "Keine IP-Adresse angegeben.",
+        })
+        return
+    result = await _probe_fronius_modbus(host, port)
+    connection.send_result(msg["id"], result)
 
 
 @websocket_api.websocket_command(

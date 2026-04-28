@@ -112,7 +112,12 @@ class TestSessionLifecycle:
 
     @pytest.mark.asyncio
     async def test_get_today_kwh_includes_active_session(self):
-        """get_today_kwh should include energy from the active session."""
+        """get_today_kwh should include energy from the active session.
+
+        get_today_kwh internally calls statistics._now() to determine "today".
+        We patch it to the test clock so the date matches the session date —
+        otherwise the wall clock won't match the synthetic _utc(...) timestamps.
+        """
         hass = _make_hass(grid_kw=2.0)
         stats = _make_stats(hass=hass)
         decision = _make_decision(STATE_MORGEN_EINSPEISUNG)
@@ -120,7 +125,11 @@ class TestSessionLifecycle:
         await stats.async_update(decision, _utc(7, 0, 0))
         await stats.async_update(decision, _utc(7, 0, 30))
 
-        kwh = stats.get_today_kwh("morning")
+        with patch(
+            "custom_components.eeg_energy_optimizer.statistics._now",
+            return_value=_utc(7, 0, 30),
+        ):
+            kwh = stats.get_today_kwh("morning")
         # 2 kW * 30s / 3600 ≈ 0.0167 kWh
         assert kwh > 0
 
@@ -370,15 +379,21 @@ class TestHaRestartRecovery:
 
     @pytest.mark.asyncio
     async def test_persisted_session_restored(self):
-        """A current_session from Store should be restored on load."""
+        """A current_session from Store should be restored on load.
+
+        The session date must match the wall date that async_update will compute
+        from the synthetic _utc(...) timestamps — otherwise the midnight-split
+        logic closes the restored session and accumulation starts from zero.
+        """
         stats = _make_stats()
 
-        # Simulate Store load
+        # Simulate Store load — use the same date as the test's synthetic clock
+        test_date = _utc(7, 0).strftime("%Y-%m-%d")
         stats._current_session = {
             "state": "morning",
             "start_utc": _utc(7, 0).isoformat(),
             "start_local": "07:00",
-            "date": datetime.now().strftime("%Y-%m-%d"),
+            "date": test_date,
             "accumulated_kwh": 1.5,
         }
 
@@ -391,7 +406,7 @@ class TestHaRestartRecovery:
         decision = _make_decision(STATE_MORGEN_EINSPEISUNG)
         await stats.async_update(decision, _utc(7, 30, 30))
 
-        # Should have accumulated on top of 1.5
+        # Should have accumulated on top of 1.5 (≈ 1.5 + 0.0167)
         assert stats._current_session["accumulated_kwh"] > 1.5
 
 

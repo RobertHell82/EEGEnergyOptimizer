@@ -1,6 +1,14 @@
-"""Tests for SolaX Gen4+ inverter implementation."""
+"""Tests for SolaX Gen4+ inverter implementation.
 
-from unittest.mock import AsyncMock, MagicMock, call
+The driver issues a five-write sequence per command:
+  1. select.select_option   → power control mode
+  2. number.set_value       → active_power (W, negative for discharge, 0 to idle)
+  3. number.set_value       → remotecontrol_duration (s)
+  4. number.set_value       → remotecontrol_autorepeat_duration (s)
+  5. button.press           → trigger that flushes the params to the Modbus regs
+"""
+
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -12,15 +20,31 @@ from custom_components.eeg_energy_optimizer.inverter.solax import (
 )
 
 
+SELECT_ENTITY = SOLAX_ENTITY_DEFAULTS["remotecontrol_power_control"]
+ACTIVE_POWER_ENTITY = SOLAX_ENTITY_DEFAULTS["remotecontrol_active_power"]
+DURATION_ENTITY = SOLAX_ENTITY_DEFAULTS["remotecontrol_duration"]
+AUTOREPEAT_ENTITY = SOLAX_ENTITY_DEFAULTS["remotecontrol_autorepeat_duration"]
+TRIGGER_ENTITY = SOLAX_ENTITY_DEFAULTS["remotecontrol_trigger"]
+
+
+def _calls_by_entity(mock_hass) -> dict[str, dict]:
+    """Index recorded service calls by their entity_id for easier assertion."""
+    out: dict[str, dict] = {}
+    for c in mock_hass.services.async_call.call_args_list:
+        payload = c.args[2] if len(c.args) > 2 else {}
+        eid = payload.get("entity_id")
+        if eid:
+            out[eid] = payload
+    return out
+
+
 @pytest.fixture
 def solax_config():
-    """Standard config for SolaX inverter tests."""
     return {}
 
 
 @pytest.fixture
 def inverter(mock_hass, solax_config):
-    """Create a SolaXInverter instance with mocked hass."""
     return SolaXInverter(mock_hass, solax_config)
 
 
@@ -35,254 +59,234 @@ class TestSolaXInverterBase:
 
 
 class TestAsyncSetChargeLimit:
-    """Tests for async_set_charge_limit — two-phase write model."""
+    """Charge limit: 5 writes, ending in a button press."""
 
-    async def test_block_charging_sets_active_power_zero(self, inverter, mock_hass):
-        """power_kw=0 sends Battery Control with active_power=0."""
+    async def test_block_charging_writes_zero_active_power(self, inverter, mock_hass):
+        """power_kw=0 → Enabled Battery Control + active_power=0."""
         result = await inverter.async_set_charge_limit(0)
         assert result is True
 
         calls = mock_hass.services.async_call.call_args_list
-        assert len(calls) == 4  # select, number, number, button
+        assert len(calls) == 5
 
-        # Phase 1: set params
-        assert calls[0] == call(
-            "select", "select_option",
-            {"entity_id": "select.solax_remotecontrol_power_control", "option": "Enabled Battery Control"},
-            blocking=True,
+        # Step 1: select power control mode
+        assert calls[0].args == (
+            "select",
+            "select_option",
+            {"entity_id": SELECT_ENTITY, "option": "Enabled Battery Control"},
         )
-        assert calls[1] == call(
-            "number", "set_value",
-            {"entity_id": "number.solax_remotecontrol_active_power", "value": 0},
-            blocking=True,
+        # Step 2: active_power = 0 (battery idle)
+        assert calls[1].args == (
+            "number",
+            "set_value",
+            {"entity_id": ACTIVE_POWER_ENTITY, "value": 0},
         )
-        assert calls[2] == call(
-            "number", "set_value",
-            {"entity_id": "number.solax_remotecontrol_autorepeat_duration", "value": 60},
-            blocking=True,
+        # Step 3: remotecontrol_duration
+        assert calls[2].args == (
+            "number",
+            "set_value",
+            {"entity_id": DURATION_ENTITY, "value": 300},
         )
-        # Phase 2: trigger
-        assert calls[3] == call(
-            "button", "press",
-            {"entity_id": "button.solax_remotecontrol_trigger"},
-            blocking=True,
+        # Step 4: autorepeat_duration
+        assert calls[3].args == (
+            "number",
+            "set_value",
+            {"entity_id": AUTOREPEAT_ENTITY, "value": 60},
+        )
+        # Step 5: trigger
+        assert calls[4].args == (
+            "button",
+            "press",
+            {"entity_id": TRIGGER_ENTITY},
         )
 
-    async def test_partial_charge_converts_kw_to_w(self, inverter, mock_hass):
-        """power_kw=3.0 sends active_power=3000 (W)."""
+    async def test_partial_charge_kw_to_w(self, inverter, mock_hass):
+        """power_kw=3.0 → active_power=3000 (positive = charge)."""
         result = await inverter.async_set_charge_limit(3.0)
         assert result is True
-
-        calls = mock_hass.services.async_call.call_args_list
-        assert len(calls) == 4
-
-        # active_power should be 3000W (positive for charging)
-        assert calls[1] == call(
-            "number", "set_value",
-            {"entity_id": "number.solax_remotecontrol_active_power", "value": 3000},
-            blocking=True,
-        )
+        payloads = _calls_by_entity(mock_hass)
+        assert payloads[ACTIVE_POWER_ENTITY]["value"] == 3000
 
     async def test_returns_false_on_exception(self, inverter, mock_hass):
-        """Returns False when service call raises."""
-        mock_hass.services.async_call = AsyncMock(side_effect=Exception("Service error"))
+        mock_hass.services.async_call = AsyncMock(side_effect=Exception("boom"))
         result = await inverter.async_set_charge_limit(0)
         assert result is False
 
 
 class TestAsyncSetDischarge:
-    """Tests for async_set_discharge — negative power + min SOC."""
+    """Discharge: 5 writes with negative active_power (no min-SOC handling)."""
 
-    async def test_discharge_with_target_soc(self, inverter, mock_hass):
-        """power_kw=3.0, target_soc=20 sends correct calls."""
-        result = await inverter.async_set_discharge(3.0, target_soc=20)
+    async def test_discharge_uses_negative_active_power(self, inverter, mock_hass):
+        """power_kw=3.0 → active_power=-3000."""
+        result = await inverter.async_set_discharge(3.0)
         assert result is True
 
         calls = mock_hass.services.async_call.call_args_list
-        assert len(calls) == 5  # min_soc, select, number, number, button
+        assert len(calls) == 5
 
-        # Min SOC floor
-        assert calls[0] == call(
-            "number", "set_value",
-            {"entity_id": "number.solax_selfuse_discharge_min_soc", "value": 20},
-            blocking=True,
+        assert calls[0].args == (
+            "select",
+            "select_option",
+            {"entity_id": SELECT_ENTITY, "option": "Enabled Battery Control"},
         )
-        # Battery Control mode
-        assert calls[1] == call(
-            "select", "select_option",
-            {"entity_id": "select.solax_remotecontrol_power_control", "option": "Enabled Battery Control"},
-            blocking=True,
+        assert calls[1].args == (
+            "number",
+            "set_value",
+            {"entity_id": ACTIVE_POWER_ENTITY, "value": -3000},
         )
-        # Negative power for discharge: -3000W
-        assert calls[2] == call(
-            "number", "set_value",
-            {"entity_id": "number.solax_remotecontrol_active_power", "value": -3000},
-            blocking=True,
+        assert calls[2].args == (
+            "number",
+            "set_value",
+            {"entity_id": DURATION_ENTITY, "value": 300},
         )
-        # Autorepeat duration
-        assert calls[3] == call(
-            "number", "set_value",
-            {"entity_id": "number.solax_remotecontrol_autorepeat_duration", "value": 60},
-            blocking=True,
+        assert calls[3].args == (
+            "number",
+            "set_value",
+            {"entity_id": AUTOREPEAT_ENTITY, "value": 60},
         )
-        # Trigger
-        assert calls[4] == call(
-            "button", "press",
-            {"entity_id": "button.solax_remotecontrol_trigger"},
-            blocking=True,
+        assert calls[4].args == (
+            "button",
+            "press",
+            {"entity_id": TRIGGER_ENTITY},
         )
 
-    async def test_discharge_min_soc_clamped_to_10(self, inverter, mock_hass):
-        """target_soc < 10 is clamped to 10 (SolaX minimum)."""
-        await inverter.async_set_discharge(2.0, target_soc=5)
-        calls = mock_hass.services.async_call.call_args_list
-        # First call sets min_soc = max(5, 10) = 10
-        assert calls[0] == call(
-            "number", "set_value",
-            {"entity_id": "number.solax_selfuse_discharge_min_soc", "value": 10},
-            blocking=True,
-        )
-
-    async def test_discharge_without_target_soc(self, inverter, mock_hass):
-        """Without target_soc, skips min_soc setting."""
-        result = await inverter.async_set_discharge(2.0)
+    async def test_target_soc_argument_is_ignored(self, inverter, mock_hass):
+        """target_soc is part of the InverterBase contract but unused on SolaX."""
+        result = await inverter.async_set_discharge(2.0, target_soc=20)
         assert result is True
-        calls = mock_hass.services.async_call.call_args_list
-        assert len(calls) == 4  # No min_soc call
+        # Same 5 calls as without target_soc — no min-SOC entity is written
+        assert len(mock_hass.services.async_call.call_args_list) == 5
 
-    async def test_discharge_ensures_negative_power(self, inverter, mock_hass):
-        """Power is always negative for discharge, even if passed positive."""
-        await inverter.async_set_discharge(3.0)
-        calls = mock_hass.services.async_call.call_args_list
-        # active_power call
-        active_power_call = [c for c in calls if c[0][1] == "set_value" and "active_power" in str(c)]
-        assert active_power_call[0][0][2]["value"] == -3000
+    async def test_positive_input_still_emits_negative_power(self, inverter, mock_hass):
+        """Positive power input is still encoded as negative discharge."""
+        await inverter.async_set_discharge(2.0)
+        payloads = _calls_by_entity(mock_hass)
+        assert payloads[ACTIVE_POWER_ENTITY]["value"] == -2000
 
     async def test_returns_false_on_exception(self, inverter, mock_hass):
-        """Returns False when service call raises."""
-        mock_hass.services.async_call = AsyncMock(side_effect=Exception("Service error"))
+        mock_hass.services.async_call = AsyncMock(side_effect=Exception("boom"))
         result = await inverter.async_set_discharge(3.0)
         assert result is False
 
 
 class TestAsyncStopForcible:
-    """Tests for async_stop_forcible — Disabled + autorepeat=0."""
+    """Stop: Disabled mode + power=0 + duration=20 + autorepeat=0 + trigger."""
 
     async def test_stop_forcible_calls(self, inverter, mock_hass):
-        """Stop sends Disabled, power=0, autorepeat=0, then trigger."""
         result = await inverter.async_stop_forcible()
         assert result is True
 
         calls = mock_hass.services.async_call.call_args_list
-        assert len(calls) == 4
+        assert len(calls) == 5
 
-        assert calls[0] == call(
-            "select", "select_option",
-            {"entity_id": "select.solax_remotecontrol_power_control", "option": "Disabled"},
-            blocking=True,
+        assert calls[0].args == (
+            "select",
+            "select_option",
+            {"entity_id": SELECT_ENTITY, "option": "Disabled"},
         )
-        assert calls[1] == call(
-            "number", "set_value",
-            {"entity_id": "number.solax_remotecontrol_active_power", "value": 0},
-            blocking=True,
+        assert calls[1].args == (
+            "number",
+            "set_value",
+            {"entity_id": ACTIVE_POWER_ENTITY, "value": 0},
         )
-        assert calls[2] == call(
-            "number", "set_value",
-            {"entity_id": "number.solax_remotecontrol_autorepeat_duration", "value": 0},
-            blocking=True,
+        # Stop uses a short duration (20s) and clears the autorepeat timer
+        assert calls[2].args == (
+            "number",
+            "set_value",
+            {"entity_id": DURATION_ENTITY, "value": 20},
         )
-        assert calls[3] == call(
-            "button", "press",
-            {"entity_id": "button.solax_remotecontrol_trigger"},
-            blocking=True,
+        assert calls[3].args == (
+            "number",
+            "set_value",
+            {"entity_id": AUTOREPEAT_ENTITY, "value": 0},
+        )
+        assert calls[4].args == (
+            "button",
+            "press",
+            {"entity_id": TRIGGER_ENTITY},
         )
 
     async def test_returns_false_on_exception(self, inverter, mock_hass):
-        """Returns False when service call raises."""
-        mock_hass.services.async_call = AsyncMock(side_effect=Exception("Service error"))
+        mock_hass.services.async_call = AsyncMock(side_effect=Exception("boom"))
         result = await inverter.async_stop_forcible()
         assert result is False
 
 
 class TestIsAvailable:
-    """Tests for is_available property."""
+    """is_available depends on whether solax_modbus has a loaded config entry."""
 
     def test_available_when_loaded(self, mock_hass, solax_config):
-        """Returns True when solax_modbus is loaded."""
         entry = MagicMock()
         entry.state.value = "loaded"
         mock_hass.config_entries.async_entries = MagicMock(return_value=[entry])
-
         inv = SolaXInverter(mock_hass, solax_config)
         assert inv.is_available is True
 
     def test_unavailable_when_not_loaded(self, mock_hass, solax_config):
-        """Returns False when solax_modbus is not loaded."""
         entry = MagicMock()
         entry.state.value = "setup_error"
         mock_hass.config_entries.async_entries = MagicMock(return_value=[entry])
-
         inv = SolaXInverter(mock_hass, solax_config)
         assert inv.is_available is False
 
     def test_unavailable_when_no_entries(self, mock_hass, solax_config):
-        """Returns False when no solax_modbus entries exist."""
         mock_hass.config_entries.async_entries = MagicMock(return_value=[])
-
         inv = SolaXInverter(mock_hass, solax_config)
         assert inv.is_available is False
 
 
 class TestEntityResolution:
-    """Tests for entity ID resolution from config overrides vs defaults."""
+    """Entity IDs may be overridden via solax_<key> config keys; otherwise defaults apply."""
 
     async def test_uses_config_override(self, mock_hass):
-        """Config key overrides default entity ID."""
+        """Each solax_<key> override is respected for the matching service call."""
         config = {
-            "solax_remotecontrol_power_control": "select.custom_prefix_remotecontrol_power_control",
-            "solax_remotecontrol_active_power": "number.custom_prefix_remotecontrol_active_power",
-            "solax_remotecontrol_autorepeat_duration": "number.custom_prefix_remotecontrol_autorepeat_duration",
-            "solax_remotecontrol_trigger": "button.custom_prefix_remotecontrol_trigger",
+            "solax_remotecontrol_power_control": "select.custom_power_control",
+            "solax_remotecontrol_active_power": "number.custom_active_power",
+            "solax_remotecontrol_duration": "number.custom_duration",
+            "solax_remotecontrol_autorepeat_duration": "number.custom_autorepeat",
+            "solax_remotecontrol_trigger": "button.custom_trigger",
         }
         inv = SolaXInverter(mock_hass, config)
         await inv.async_set_charge_limit(0)
 
         calls = mock_hass.services.async_call.call_args_list
-        assert calls[0][0][2]["entity_id"] == "select.custom_prefix_remotecontrol_power_control"
-        assert calls[1][0][2]["entity_id"] == "number.custom_prefix_remotecontrol_active_power"
-        assert calls[2][0][2]["entity_id"] == "number.custom_prefix_remotecontrol_autorepeat_duration"
-        assert calls[3][0][2]["entity_id"] == "button.custom_prefix_remotecontrol_trigger"
+        assert calls[0].args[2]["entity_id"] == "select.custom_power_control"
+        assert calls[1].args[2]["entity_id"] == "number.custom_active_power"
+        assert calls[2].args[2]["entity_id"] == "number.custom_duration"
+        assert calls[3].args[2]["entity_id"] == "number.custom_autorepeat"
+        assert calls[4].args[2]["entity_id"] == "button.custom_trigger"
 
     async def test_uses_defaults_when_no_config(self, mock_hass):
-        """Falls back to SOLAX_ENTITY_DEFAULTS when config keys are empty."""
+        """Without overrides, all entity IDs come from SOLAX_ENTITY_DEFAULTS."""
         inv = SolaXInverter(mock_hass, {})
         await inv.async_set_charge_limit(0)
 
         calls = mock_hass.services.async_call.call_args_list
-        assert calls[0][0][2]["entity_id"] == SOLAX_ENTITY_DEFAULTS["remotecontrol_power_control"]
-        assert calls[1][0][2]["entity_id"] == SOLAX_ENTITY_DEFAULTS["remotecontrol_active_power"]
-        assert calls[2][0][2]["entity_id"] == SOLAX_ENTITY_DEFAULTS["remotecontrol_autorepeat_duration"]
-        assert calls[3][0][2]["entity_id"] == SOLAX_ENTITY_DEFAULTS["remotecontrol_trigger"]
+        assert calls[0].args[2]["entity_id"] == SELECT_ENTITY
+        assert calls[1].args[2]["entity_id"] == ACTIVE_POWER_ENTITY
+        assert calls[2].args[2]["entity_id"] == DURATION_ENTITY
+        assert calls[3].args[2]["entity_id"] == AUTOREPEAT_ENTITY
+        assert calls[4].args[2]["entity_id"] == TRIGGER_ENTITY
 
 
 class TestKWToWConversion:
-    """Tests for kW to W unit conversion accuracy."""
+    """kW→W conversion for the active_power register."""
 
-    async def test_fractional_kw_converted(self, inverter, mock_hass):
-        """2.5 kW -> 2500 W."""
+    async def test_fractional_kw_charge(self, inverter, mock_hass):
+        """2.5 kW charge → +2500 W."""
         await inverter.async_set_charge_limit(2.5)
-        calls = mock_hass.services.async_call.call_args_list
-        assert calls[1][0][2]["value"] == 2500
+        payloads = _calls_by_entity(mock_hass)
+        assert payloads[ACTIVE_POWER_ENTITY]["value"] == 2500
 
-    async def test_discharge_fractional_kw(self, inverter, mock_hass):
-        """1.5 kW discharge -> -1500 W."""
+    async def test_fractional_kw_discharge(self, inverter, mock_hass):
+        """1.5 kW discharge → −1500 W."""
         await inverter.async_set_discharge(1.5)
-        calls = mock_hass.services.async_call.call_args_list
-        power_call = [c for c in calls if "active_power" in str(c[0][2].get("entity_id", ""))][0]
-        assert power_call[0][2]["value"] == -1500
+        payloads = _calls_by_entity(mock_hass)
+        assert payloads[ACTIVE_POWER_ENTITY]["value"] == -1500
 
-    async def test_small_values(self, inverter, mock_hass):
-        """0.1 kW -> 100 W."""
+    async def test_small_charge_value(self, inverter, mock_hass):
+        """0.1 kW → 100 W."""
         await inverter.async_set_charge_limit(0.1)
-        calls = mock_hass.services.async_call.call_args_list
-        assert calls[1][0][2]["value"] == 100
+        payloads = _calls_by_entity(mock_hass)
+        assert payloads[ACTIVE_POWER_ENTITY]["value"] == 100

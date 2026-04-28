@@ -46,6 +46,8 @@ def _make_decision(**overrides):
         "discharge_demand_total_kwh": 0.0,
         "discharge_power_kw": 0.0,
         "discharge_start_time": "",
+        # Hysteresis flag (added in the anti-oscillation revamp)
+        "discharge_hysteresis_active": False,
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
