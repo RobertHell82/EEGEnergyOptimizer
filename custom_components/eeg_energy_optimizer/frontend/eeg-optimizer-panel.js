@@ -1291,6 +1291,7 @@ class EegOptimizerPanel extends HTMLElement {
     if (this._navigating) return;
     this._navigating = true;
     try {
+      this._clearValidationError();
       const valid = this._validateCurrentStep();
       if (!valid) return;
 
@@ -1430,11 +1431,22 @@ class EegOptimizerPanel extends HTMLElement {
   }
 
   _showValidationError(msg) {
-    // Simple alert — could be upgraded to inline message
+    // Persist the message in state so a follow-up _render() (e.g. the
+    // finally block of an async probe) does not wipe it from the DOM.
+    this._validationError = msg;
     const el = this._shadow.querySelector(".validation-error");
     if (el) {
       el.textContent = msg;
       el.style.display = "block";
+    }
+  }
+
+  _clearValidationError() {
+    this._validationError = null;
+    const el = this._shadow.querySelector(".validation-error");
+    if (el) {
+      el.textContent = "";
+      el.style.display = "none";
     }
   }
 
@@ -2413,7 +2425,7 @@ class EegOptimizerPanel extends HTMLElement {
       </div>
       <div class="card">
         <h2>${WIZARD_STEPS[step]}</h2>
-        <div class="validation-error" style="display:none;color:var(--error-color,#f44336);margin-bottom:12px;font-size:14px"></div>
+        <div class="validation-error" style="display:${this._validationError ? "block" : "none"};color:var(--error-color,#f44336);margin-bottom:12px;font-size:14px">${this._validationError || ""}</div>
         ${this._wizardLoading ? '<div class="loading">Laden...</div>' : stepContent}
         <div class="wizard-nav">
           ${backBtn}
