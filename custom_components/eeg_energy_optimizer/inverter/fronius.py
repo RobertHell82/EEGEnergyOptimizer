@@ -168,7 +168,8 @@ class FroniusInverter(InverterBase):
         try:
             # Verify SunSpec ID at registers 40000-40001
             result = await self._client.read_holding_registers(
-                _SUNSPEC_START, 2, **_slave_kw(self._client, self._slave_id)
+                address=_SUNSPEC_START, count=2,
+                **_slave_kw(self._client, self._slave_id),
             )
             if result.isError():
                 _LOGGER.error("Fronius: failed to read SunSpec ID at %d", _SUNSPEC_START)
@@ -188,7 +189,8 @@ class FroniusInverter(InverterBase):
             address = _SUNSPEC_START + 2
             for i in range(_SUNSPEC_MAX_ITERATIONS):
                 result = await self._client.read_holding_registers(
-                    address, 2, **_slave_kw(self._client, self._slave_id)
+                    address=address, count=2,
+                    **_slave_kw(self._client, self._slave_id),
                 )
                 if result.isError():
                     _LOGGER.error(
@@ -257,7 +259,8 @@ class FroniusInverter(InverterBase):
 
         try:
             result = await self._client.read_holding_registers(
-                self._model124_base + _OFFSET_WCHAMAX, 1, **_slave_kw(self._client, self._slave_id)
+                address=self._model124_base + _OFFSET_WCHAMAX, count=1,
+                **_slave_kw(self._client, self._slave_id),
             )
             if result.isError():
                 _LOGGER.error("Fronius: failed to read WChaMax")
@@ -296,7 +299,8 @@ class FroniusInverter(InverterBase):
         address = self._model124_base + offset
         try:
             result = await self._client.write_register(
-                address, value, **_slave_kw(self._client, self._slave_id)
+                address=address, value=value,
+                **_slave_kw(self._client, self._slave_id),
             )
             if result.isError():
                 _LOGGER.error(
@@ -426,8 +430,8 @@ class FroniusInverter(InverterBase):
                 if self._minrsvpct_pre_discharge is None:
                     try:
                         result = await self._client.read_holding_registers(
-                            self._model124_base + _OFFSET_MINRSVPCT,
-                            1,
+                            address=self._model124_base + _OFFSET_MINRSVPCT,
+                            count=1,
                             **_slave_kw(self._client, self._slave_id),
                         )
                         if not result.isError():

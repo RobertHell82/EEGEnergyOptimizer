@@ -754,7 +754,8 @@ async def _probe_fronius_modbus(host: str, port: int, slave_id: int = 1) -> dict
 
         # SunSpec header at 40000-40001 must read "SunS"
         r = await asyncio.wait_for(
-            client.read_holding_registers(40000, 2, **slave_kw), timeout=5
+            client.read_holding_registers(address=40000, count=2, **slave_kw),
+            timeout=5,
         )
         if r.isError():
             result["error"] = "Modbus-Fehler beim Lesen des SunSpec-Headers."
@@ -771,7 +772,8 @@ async def _probe_fronius_modbus(host: str, port: int, slave_id: int = 1) -> dict
         #   40004..40019 Manufacturer (16 regs / 32 chars)
         #   40020..40035 Model (16 regs)
         r = await asyncio.wait_for(
-            client.read_holding_registers(40002, 34, **slave_kw), timeout=5
+            client.read_holding_registers(address=40002, count=34, **slave_kw),
+            timeout=5,
         )
         if r.isError():
             result["error"] = "Modbus-Fehler beim Lesen des Common Blocks."
