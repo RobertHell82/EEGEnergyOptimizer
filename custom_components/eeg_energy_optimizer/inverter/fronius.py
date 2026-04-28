@@ -496,8 +496,16 @@ class FroniusInverter(InverterBase):
 
     @property
     def is_available(self) -> bool:
-        """Whether the Modbus TCP connection is established."""
-        return self._client is not None and self._client.connected
+        """Whether the inverter is reachable.
+
+        Fronius is driven over a direct Modbus TCP connection that we open
+        lazily, so checking ``self._client.connected`` would falsely report
+        unavailable before the first operation runs (e.g. when the user's
+        first action after setup is a manual control click). As long as a
+        host is configured, treat the inverter as available — the real
+        TCP probe happens inside _ensure_connected when an operation runs.
+        """
+        return bool(self._host)
 
     async def async_disconnect(self) -> None:
         """Disconnect Modbus TCP client for cleanup (called on entry unload)."""
