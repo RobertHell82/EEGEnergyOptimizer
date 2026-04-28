@@ -37,6 +37,8 @@ from .const import (
     CONF_PV_POWER_SENSOR_2,
     CONF_UPDATE_INTERVAL_FAST,
     CONF_UPDATE_INTERVAL_SLOW,
+    COMBINED_BATTERY_POWER_SENSOR_ID,
+    COMBINED_GRID_POWER_SENSOR_ID,
     CONSUMPTION_SENSOR,
     DEFAULT_LOOKBACK_WEEKS,
     DEFAULT_UPDATE_INTERVAL_FAST,
@@ -931,15 +933,14 @@ class BatteryPowerCombinedSensor(SensorEntity):
         self.hass = hass
         self._charge_id = config.get(CONF_BATTERY_POWER_CHARGE_SENSOR, "")
         self._discharge_id = config.get(CONF_BATTERY_POWER_DISCHARGE_SENSOR, "")
-        # entity_id pinned via the suggested_object_id so the resulting
-        # entity matches COMBINED_BATTERY_POWER_SENSOR_ID exactly
+        # Pin the exact entity_id. Using suggested_object_id alone is not
+        # enough — when the entity is bound to a device, HA still prefixes
+        # the device slug, producing a doubled "eeg_energy_optimizer_..."
+        # path that mismatches the canonical ID written to config.
+        self.entity_id = COMBINED_BATTERY_POWER_SENSOR_ID
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_battery_power_combined"
         self._attr_device_info = _device_info(entry.entry_id)
         self._attr_native_value: float | None = None
-
-    @property
-    def suggested_object_id(self) -> str:
-        return "eeg_energy_optimizer_battery_power"
 
     async def async_update(self) -> None:
         c = _read_power_kw(self.hass, self._charge_id)
@@ -968,13 +969,11 @@ class GridPowerCombinedSensor(SensorEntity):
         self.hass = hass
         self._export_id = config.get(CONF_GRID_POWER_EXPORT_SENSOR, "")
         self._import_id = config.get(CONF_GRID_POWER_IMPORT_SENSOR, "")
+        # See BatteryPowerCombinedSensor.__init__ for why entity_id is pinned.
+        self.entity_id = COMBINED_GRID_POWER_SENSOR_ID
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_grid_power_combined"
         self._attr_device_info = _device_info(entry.entry_id)
         self._attr_native_value: float | None = None
-
-    @property
-    def suggested_object_id(self) -> str:
-        return "eeg_energy_optimizer_grid_power"
 
     async def async_update(self) -> None:
         e = _read_power_kw(self.hass, self._export_id)

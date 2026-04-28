@@ -633,6 +633,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         pass
     hass.data[DOMAIN][entry.entry_id]["writes_store"] = writes_store
 
+    # Migration: earlier builds of the synthetic Fronius pair sensors used
+    # suggested_object_id without pinning entity_id. HA prefixed the device
+    # slug anyway, producing IDs like
+    #   sensor.eeg_energy_optimizer_eeg_energy_optimizer_battery_power
+    # which do not match the canonical IDs the rest of the integration
+    # writes into config (CONF_BATTERY_POWER_SENSOR / CONF_GRID_POWER_SENSOR
+    # → COMBINED_*_SENSOR_ID). Result: Hausverbrauch / Netzleistung /
+    # Batterieleistung read from a non-existent entity → "unknown".
+    # Rename the legacy registry entries back to canonical before the
+    # platforms are forwarded so the new sensor classes attach cleanly.
+    try:
+        from homeassistant.helpers import entity_registry as er
+        ent_reg = er.async_get(hass)
+        for unique_id, canonical in (
+            (f"{DOMAIN}_{entry.entry_id}_battery_power_combined", COMBINED_BATTERY_POWER_SENSOR_ID),
+            (f"{DOMAIN}_{entry.entry_id}_grid_power_combined", COMBINED_GRID_POWER_SENSOR_ID),
+        ):
+            existing = ent_reg.async_get_entity_id("sensor", DOMAIN, unique_id)
+            if existing and existing != canonical:
+                # Free the canonical slot if a stale entity squats on it
+                blocker = ent_reg.async_get(canonical)
+                if blocker and blocker.unique_id != unique_id:
+                    ent_reg.async_update_entity(
+                        canonical, new_entity_id=f"{canonical}_legacy"
+                    )
+                ent_reg.async_update_entity(existing, new_entity_id=canonical)
+                _LOGGER.info(
+                    "Renamed combined sensor %s -> %s", existing, canonical
+                )
+    except Exception:
+        _LOGGER.exception("Combined-sensor entity_id migration failed (non-fatal)")
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     hass.data[DOMAIN][entry.entry_id]["platforms_loaded"] = True
 
