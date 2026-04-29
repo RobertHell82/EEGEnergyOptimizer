@@ -3,6 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 EEG Energy Optimizer** — Phases 1-6 (shipped 2026-03-22)
+- 🚧 **v1.1 Telemetrie & Wirksamkeitsanalyse** — Phases 7-10 (siehe `.planning/milestones/v1.1-telemetry-ROADMAP.md`)
 
 ## Phases
 
@@ -20,6 +21,15 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 </details>
 
+### v1.1 Telemetrie & Wirksamkeitsanalyse
+
+- [ ] Phase 7: Backend-Skelett (Cloudflare) — Worker, D1, R2, Auth, Event-Endpoints (separates Repo `EEGEnergyOptimzierBackend`)
+- [ ] Phase 8: HA Reporter-Modul — UUID, Event-Queue, Decision-Refactor, Opt-in im Panel
+- [ ] Phase 9: Dashboard — Cloudflare Pages SPA mit Cloudflare Access
+- [ ] Phase 10: Sicherheit & Pflege — Rate-Limits, Daten-Rotation, Privacy-Doku
+
+Full details: `.planning/milestones/v1.1-telemetry-ROADMAP.md`
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -30,3 +40,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 4. Onboarding Panel | v1.0 | 3/3 | Complete | 2026-03-22 |
 | 5. Robustness & Error Handling | v1.0 | 1/1 | Complete | 2026-03-22 |
 | 6. Polish & Tech Debt | v1.0 | 2/2 | Complete | 2026-03-22 |
+| 7. Backend-Skelett (Cloudflare) | v1.1 | n/a | Complete (separates Repo) | 2026-04-29 |
+| 8. HA Reporter-Modul | v1.1 | 0/4 | In Progress (CONTEXT) | — |
+| 9. Dashboard | v1.1 | 0/0 | Planned | — |
+| 10. Sicherheit & Pflege | v1.1 | 0/0 | Planned | — |
