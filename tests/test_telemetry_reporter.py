@@ -74,11 +74,17 @@ class _FakeResponse:
         return str(self._body or "")
 
 
-def _make_session(post_responses=None, delete_responses=None):
-    """Build a MagicMock session whose .post and .delete return scripted FakeResponses.
+def _make_session(post_responses=None, delete_responses=None, post_default=None, delete_default=None):
+    """Build a session whose .post and .delete return scripted FakeResponses.
 
-    post_responses / delete_responses: list of either _FakeResponse instances
-    or callables that take (url, **kwargs) and return _FakeResponse.
+    Capture-Always: jeder Aufruf wird in ``session._captured_posts`` /
+    ``session._captured_deletes`` aufgezeichnet, unabhängig davon, ob der Test
+    später ``session.post.side_effect`` umsetzt — wir wrappen die Konsumenten-
+    Schicht in ``_capturing_post`` / ``_capturing_delete`` und lassen sie an
+    eine austauschbare Strategie delegieren.
+
+    post_responses / delete_responses: list (FIFO scripted)
+    post_default / delete_default: callable used after responses exhausted
     """
     session = MagicMock()
     captured_posts: list[dict] = []
@@ -87,27 +93,55 @@ def _make_session(post_responses=None, delete_responses=None):
     post_iter = iter(post_responses or [])
     delete_iter = iter(delete_responses or [])
 
-    def _post(url, **kwargs):
-        captured_posts.append({"url": url, **kwargs})
+    def _post_strategy(url, **kwargs):
         try:
             nxt = next(post_iter)
         except StopIteration:
-            nxt = _FakeResponse(204, None)
+            if post_default is not None:
+                return post_default(url, **kwargs)
+            return _FakeResponse(204, None)
         return nxt(url, **kwargs) if callable(nxt) else nxt
 
-    def _delete(url, **kwargs):
-        captured_deletes.append({"url": url, **kwargs})
+    def _delete_strategy(url, **kwargs):
         try:
             nxt = next(delete_iter)
         except StopIteration:
-            nxt = _FakeResponse(204, None)
+            if delete_default is not None:
+                return delete_default(url, **kwargs)
+            return _FakeResponse(204, None)
         return nxt(url, **kwargs) if callable(nxt) else nxt
 
-    session.post = MagicMock(side_effect=_post)
-    session.delete = MagicMock(side_effect=_delete)
+    def _capturing_post(url, **kwargs):
+        captured_posts.append({"url": url, **kwargs})
+        # Tests may swap session.post.side_effect to supply a different
+        # response strategy after _make_session() returns — we honor that
+        # while still capturing.
+        strategy = session.post._strategy
+        return strategy(url, **kwargs)
+
+    def _capturing_delete(url, **kwargs):
+        captured_deletes.append({"url": url, **kwargs})
+        strategy = session.delete._strategy
+        return strategy(url, **kwargs)
+
+    session.post = MagicMock(side_effect=_capturing_post)
+    session.post._strategy = _post_strategy
+
+    session.delete = MagicMock(side_effect=_capturing_delete)
+    session.delete._strategy = _delete_strategy
+
     session._captured_posts = captured_posts
     session._captured_deletes = captured_deletes
     return session
+
+
+def _set_post_strategy(session, strategy):
+    """Replace the response strategy without losing the capture wrapper."""
+    session.post._strategy = strategy
+
+
+def _set_delete_strategy(session, strategy):
+    session.delete._strategy = strategy
 
 
 @pytest.fixture
@@ -371,8 +405,7 @@ async def test_429_respects_retry_after(hass, shared_backing, monkeypatch):
     # _next_attempt_at into the past to simulate that the cooloff has expired.
     reporter._next_attempt_at = datetime.now(tz=timezone.utc) - timedelta(seconds=1)
     # Provide a successful POST for the live send + drains
-    session.post.side_effect = None
-    session.post.return_value = _FakeResponse(204)
+    _set_post_strategy(session, lambda *a, **kw: _FakeResponse(204))
     await reporter.send_state_change({"ts": "z", "transition": "a->b"})
     # Now POST happens again — at least 1 new call (live send)
     assert session.post.call_count >= 2
@@ -394,8 +427,7 @@ async def test_backoff_grows_then_resets(hass, shared_backing, monkeypatch):
     def make_500(*_a, **_kw):
         return _FakeResponse(500)
 
-    session = _make_session()
-    session.post.side_effect = make_500
+    session = _make_session(post_default=make_500)
     monkeypatch.setattr(tm, "async_get_clientsession", lambda h: session)
 
     reporter = tm.TelemetryReporter(hass, buf)
@@ -414,7 +446,7 @@ async def test_backoff_grows_then_resets(hass, shared_backing, monkeypatch):
     assert 0 <= delta.total_seconds() <= expected_delay + 5
 
     # Now a 204 response resets
-    session.post.side_effect = lambda *a, **kw: _FakeResponse(204)
+    _set_post_strategy(session, lambda *a, **kw: _FakeResponse(204))
     reporter._next_attempt_at = None
     await reporter.send_state_change({"ts": "ok", "transition": "a->b"})
     assert reporter._consecutive_failures == 0
@@ -437,8 +469,7 @@ async def test_successful_send_drains_buffer_fifo(hass, shared_backing, monkeypa
         await buf.append("/v1/snapshot", {"ts": f"t{i}"})
     assert buf.size() == 12
 
-    session = _make_session()
-    session.post.side_effect = lambda *a, **kw: _FakeResponse(204)
+    session = _make_session(post_default=lambda *a, **kw: _FakeResponse(204))
     monkeypatch.setattr(tm, "async_get_clientsession", lambda h: session)
 
     reporter = tm.TelemetryReporter(hass, buf)
@@ -488,8 +519,7 @@ async def test_send_snapshot_batch_chunks_at_100(hass, shared_backing, monkeypat
     buf = await _make_buffer(hass, shared_backing)
     await buf.set_identity("u", "k", "2026-01-01T00:00:00+00:00")
 
-    session = _make_session()
-    session.post.side_effect = lambda *a, **kw: _FakeResponse(204)
+    session = _make_session(post_default=lambda *a, **kw: _FakeResponse(204))
     monkeypatch.setattr(tm, "async_get_clientsession", lambda h: session)
 
     reporter = tm.TelemetryReporter(hass, buf)
@@ -638,12 +668,13 @@ async def test_payload_field_names_match_types_ts(hass, shared_backing, monkeypa
         "context": {"endpoint": "set_charge_limit"},
     }
 
-    # Allow snapshot drain to also POST, but with empty buffer it's a single POST per send
-    session = _make_session()
-    session.post.side_effect = lambda *a, **kw: _FakeResponse(
-        201 if str(a[0]).endswith("/v1/register") else 204,
-        {"installation_id": "uuid-x", "api_key": "key-y"} if str(a[0]).endswith("/v1/register") else None,
-    )
+    # Allow snapshot drain to also POST, but with empty buffer it's a single POST per send.
+    def _strategy(url, **kwargs):
+        if str(url).endswith("/v1/register"):
+            return _FakeResponse(201, {"installation_id": "uuid-x", "api_key": "key-y"})
+        return _FakeResponse(204, None)
+
+    session = _make_session(post_default=_strategy)
     monkeypatch.setattr(tm, "async_get_clientsession", lambda h: session)
 
     reporter = tm.TelemetryReporter(hass, buf)
