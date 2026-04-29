@@ -5,11 +5,13 @@ Sensors are read via the native HA Fronius Integration (Solar API).
 Only 2-3 registers written per operation: StorCtl_Mod, InWRte, OutWRte.
 
 SunSpec Model 124 register offsets (relative to discovered base address):
-  +0  WChaMax      uint16  R   Max battery power in W
-  +3  StorCtl_Mod  bitfield16 RW  Control mode (Bit 0=Charge, Bit 1=Discharge)
-  +5  MinRsvPct    uint16(SF-2) RW  Min reserve %
-  +10 OutWRte      int16(SF-2)  RW  Discharge rate % of WChaMax
-  +11 InWRte       int16(SF-2)  RW  Charge rate % of WChaMax
+  +0  WChaMax              uint16  R   Max battery power in W
+  +3  StorCtl_Mod          bitfield16 RW  Control mode (Bit 0=Charge, Bit 1=Discharge)
+  +5  MinRsvPct            uint16(SF-2) RW  Min reserve %
+  +10 OutWRte              int16(SF-2)  RW  Discharge rate % of WChaMax
+  +11 InWRte               int16(SF-2)  RW  Charge rate % of WChaMax
+  +12 InOutWRte_WinTms     uint16  RW  Window time before rate becomes effective (s)
+  +13 InOutWRte_RvrtTms    uint16  RW  Auto-revert period after rate is set (s, 0 = no revert)
 """
 
 from __future__ import annotations
@@ -52,6 +54,8 @@ _OFFSET_STORCTL_MOD = 3
 _OFFSET_MINRSVPCT = 5
 _OFFSET_OUTWRTE = 10
 _OFFSET_INWRTE = 11
+_OFFSET_WINTMS = 12
+_OFFSET_RVRTTMS = 13
 
 # SunSpec identification
 _SUNSPEC_ID_WORD0 = 0x5375  # "Su"
@@ -361,6 +365,19 @@ class FroniusInverter(InverterBase):
             if not await self._write_register(_OFFSET_INWRTE, inwrte_value):
                 return False
 
+            # Disable Fronius watchdog timers. If WinTms or RvrtTms hold a
+            # non-zero value (whether from factory defaults or — historically —
+            # from earlier versions of this integration that wrote to the
+            # wrong offsets), the inverter would either delay the limit
+            # taking effect or auto-revert StorCtl_Mod after a few seconds,
+            # making the block inconsistent or wholly ineffective. Force
+            # both timers to 0 so the limit becomes effective immediately
+            # and stays in place until we explicitly change it.
+            if not await self._write_register(_OFFSET_WINTMS, 0):
+                return False
+            if not await self._write_register(_OFFSET_RVRTTMS, 0):
+                return False
+
             # StorCtl_Mod = 1 (Charge Limit active) — activates InWRte set above
             if not await self._write_register(_OFFSET_STORCTL_MOD, 1):
                 return False
@@ -448,6 +465,15 @@ class FroniusInverter(InverterBase):
                 min_rsv = int(target_soc * 100)
                 if not await self._write_register(_OFFSET_MINRSVPCT, min_rsv):
                     _LOGGER.warning("Fronius: failed to set MinRsvPct (non-critical)")
+
+            # Disable Fronius watchdog timers — see _set_charge_limit_locked
+            # for the rationale. Without this, discharge would auto-revert
+            # after RvrtTms seconds (or never become effective if WinTms is
+            # high), making the discharge unreliable.
+            if not await self._write_register(_OFFSET_WINTMS, 0):
+                return False
+            if not await self._write_register(_OFFSET_RVRTTMS, 0):
+                return False
 
             # StorCtl_Mod = 3 (Bits 0+1: Charge + Discharge Limit active) —
             # written LAST so that all rate/reserve registers are already in
