@@ -13,6 +13,10 @@ HACS-kompatible Home Assistant Integration für vorausschauendes Batteriemanagem
 - **Live-Dashboard** — Sidebar-Panel mit Energiefluss, Diagrammen, PeakShare-Bedarfskurve, manueller Wechselrichtersteuerung und Aktivitätsprotokoll
 - **Einrichtungsassistent** — schrittweises Onboarding mit automatischer Sensorerkennung
 
+### Community-Statistik (optional)
+
+Auf Wunsch sendet der EEG Energy Optimizer anonymisierte Diagnose- und Wirksamkeitsdaten an einen vom Maintainer betriebenen Cloudflare-Backend. Damit lassen sich Schwachstellen schneller finden und die Wirksamkeit der EEG-Steuerung über mehrere Anlagen hinweg auswerten — ohne Personenbezug. Übermittelt werden ausschließlich technische Werte (State-Changes, halbstündliche Snapshots, Outcome-Events am Block-Ende, Failure-Events). **Nicht übermittelt** werden Sensor-IDs, IP-Adressen, Anlagenname, Adresse oder Energiegemeinschafts-Mitgliedsdaten. Die Funktion ist standardmäßig **aus**; aktivieren und vollständig löschen lässt sie sich jederzeit im Panel unter *Einstellungen → Community-Statistik*.
+
 ## Unterstützte Wechselrichter
 
 - **Huawei SUN2000** (via [Huawei Solar](https://github.com/wlcrs/huawei_solar) Integration)
