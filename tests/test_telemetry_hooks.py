@@ -298,3 +298,296 @@ async def test_v12_to_v13_migration_adds_telemetry_enabled():
     # Final state after all migration steps should be v13 with telemetry_enabled=False
     assert entry.version == 13
     assert entry.data.get(CONF_TELEMETRY_ENABLED) is False
+
+
+# ---------------------------------------------------------------------------
+# Outcome-Hook Tests (W-1, W-2) — statistics._maybe_send_outcome
+# ---------------------------------------------------------------------------
+#
+# Diese Tests pinnen das Outcome-Verhalten in statistics.py:
+#   - event_type via _normalize_state (W-2)
+#   - peak_power_kw = max(abs(grid_now_kw)) über window
+#   - actual_pv_kwh / actual_consumption_kwh = trapezoidal
+#   - block_predictions wird nach Outcome gepoppt
+#   - graceful Fallbacks wenn Daten fehlen
+#
+# Testidiom: wir konstruieren FeedinStatistics, hängen einen vollständigen
+# Reporter-Mock + ein data-Dict ein, öffnen die Session manuell und schließen
+# sie via _close_session(now_local) → das löst _maybe_send_outcome aus.
+
+
+def _make_outcome_hass(grid_kw=0.0):
+    """Return a hass mock whose grid sensor reads the given kW value."""
+    hass = MagicMock()
+    state = MagicMock()
+    state.state = str(grid_kw)
+    state.attributes = {"unit_of_measurement": "kW"}
+    hass.states.get = MagicMock(return_value=state)
+    # async_create_task should run the coroutine inline so AsyncMocks see the call
+    def _create_task(coro):
+        # Awaiting/closing the coroutine prevents asyncio warnings
+        try:
+            coro.close()
+        except Exception:
+            pass
+        return MagicMock()
+    hass.async_create_task = MagicMock(side_effect=_create_task)
+    return hass
+
+
+def _make_outcome_stats(hass=None, identity_known=True, configured=True):
+    """Create a FeedinStatistics with reporter + data dict wired in."""
+    from custom_components.eeg_energy_optimizer.statistics import FeedinStatistics
+
+    if hass is None:
+        hass = _make_outcome_hass()
+    config = {"grid_power_sensor": "sensor.grid", "inverter_type": "huawei_sun2000"}
+    stats = FeedinStatistics(hass, "entry-id", config)
+
+    reporter = MagicMock()
+    reporter.is_configured = configured
+    reporter.send_outcome = AsyncMock()
+    reporter._buffer = MagicMock()
+    reporter._buffer.identity_known = MagicMock(return_value=identity_known)
+
+    data: dict = {
+        "snapshot_queue": [],
+        "block_predictions": {},
+        "optimizer": None,
+    }
+    stats.set_reporter(reporter, data)
+    return stats, reporter, data
+
+
+def _open_morning_session(stats, kwh=0.5, start_iso="2026-04-15T05:30:00+00:00"):
+    """Manually open a morning session in the stats with a known accumulated kwh."""
+    stats._current_session = {
+        "state": "morning",
+        "start_utc": start_iso,
+        "start_local": "07:30",
+        "date": "2026-04-15",
+        "accumulated_kwh": kwh,
+    }
+    stats._dirty = True
+
+
+def _open_evening_session(stats, kwh=1.5, start_iso="2026-04-15T18:00:00+00:00"):
+    stats._current_session = {
+        "state": "evening",
+        "start_utc": start_iso,
+        "start_local": "20:00",
+        "date": "2026-04-15",
+        "accumulated_kwh": kwh,
+    }
+    stats._dirty = True
+
+
+# ---------------------------------------------------------------------------
+# a) Outcome with full predictions + trapezoid actuals
+# ---------------------------------------------------------------------------
+def test_outcome_emitted_on_block_end_with_predictions():
+    stats, reporter, data = _make_outcome_stats()
+
+    started = datetime(2026, 4, 15, 5, 30, tzinfo=timezone.utc)
+    ended = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": started.isoformat(),
+        "soc_start_pct": 90,
+        "predicted_pv_kwh": 8.0,
+        "predicted_consumption_kwh": 1.5,
+    }
+
+    # 4 snapshots inside [started, ended] — 30 min apart
+    snaps = []
+    times = [
+        datetime(2026, 4, 15, 5, 30, tzinfo=timezone.utc),
+        datetime(2026, 4, 15, 6, 0, tzinfo=timezone.utc),
+        datetime(2026, 4, 15, 6, 30, tzinfo=timezone.utc),
+        datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc),
+    ]
+    grids = [0.5, 1.5, 2.0, 1.0]      # peak abs = 2.0
+    pvs = [1.0, 3.0, 4.0, 2.0]        # trapezoid kwh
+    cons = [0.5, 0.4, 0.3, 0.2]
+    for ts, g, pv, c in zip(times, grids, pvs, cons):
+        snaps.append({
+            "ts": ts.isoformat(), "state": "morgen_einspeisung", "mode": "ein",
+            "grid_now_kw": g, "pv_now_kw": pv, "consumption_now_kw": c,
+        })
+    data["snapshot_queue"] = list(snaps)
+
+    # last_decision provides soc_end_pct
+    last_decision = SimpleNamespace(
+        snapshot={"soc_pct": 30}
+    )
+    data["optimizer"] = SimpleNamespace(last_decision=last_decision)
+
+    _open_morning_session(stats, kwh=4.5, start_iso=started.isoformat())
+    stats._close_session(ended)
+
+    assert reporter.send_outcome.await_count == 1 or reporter.send_outcome.call_count == 1
+    payload = (reporter.send_outcome.call_args or reporter.send_outcome.await_args).args[0]
+    assert payload["event_type"] == "morgen_einspeisung"
+    assert payload["soc_start_pct"] == 90
+    assert payload["soc_end_pct"] == 30
+    assert payload["predicted_pv_kwh"] == 8.0
+    assert payload["predicted_consumption_kwh"] == 1.5
+    # peak: max abs(grid_now_kw) = 2.0
+    assert payload["peak_power_kw"] == pytest.approx(2.0)
+    # PV trapezoid: (1+3)/2*0.5 + (3+4)/2*0.5 + (4+2)/2*0.5 = 1 + 1.75 + 1.5 = 4.25
+    assert payload["actual_pv_kwh"] == pytest.approx(4.25, rel=1e-9)
+    # Cons trapezoid: (0.5+0.4)/2*0.5 + (0.4+0.3)/2*0.5 + (0.3+0.2)/2*0.5 = 0.225 + 0.175 + 0.125 = 0.525
+    assert payload["actual_consumption_kwh"] == pytest.approx(0.525, rel=1e-9)
+    assert payload["grid_export_kwh"] == pytest.approx(4.5)
+    # block_predictions popped
+    assert "morgen_einspeisung" not in data["block_predictions"]
+
+
+# ---------------------------------------------------------------------------
+# a2) Outcome event_type uses _normalize_state for both states (W-2)
+# ---------------------------------------------------------------------------
+def test_outcome_event_type_uses_normalize_state():
+    from custom_components.eeg_energy_optimizer import _normalize_state
+
+    # Morning session
+    stats, reporter, data = _make_outcome_stats()
+    _open_morning_session(stats)
+    stats._close_session(datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc))
+    assert reporter.send_outcome.call_count == 1
+    p1 = reporter.send_outcome.call_args.args[0]
+    assert p1["event_type"] == _normalize_state(STATE_MORGEN_EINSPEISUNG)
+
+    # Evening session — fresh stats, fresh reporter mock
+    stats2, reporter2, data2 = _make_outcome_stats()
+    _open_evening_session(stats2)
+    stats2._close_session(datetime(2026, 4, 15, 21, 0, tzinfo=timezone.utc))
+    assert reporter2.send_outcome.call_count == 1
+    p2 = reporter2.send_outcome.call_args.args[0]
+    assert p2["event_type"] == _normalize_state(STATE_ABEND_ENTLADUNG)
+
+
+# ---------------------------------------------------------------------------
+# a3) Peak falls back to None when no grid samples
+# ---------------------------------------------------------------------------
+def test_outcome_peak_power_falls_back_to_none_when_no_grid_samples():
+    stats, reporter, data = _make_outcome_stats()
+    started = datetime(2026, 4, 15, 5, 30, tzinfo=timezone.utc)
+    ended = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": started.isoformat(),
+        "soc_start_pct": 80,
+        "predicted_pv_kwh": 5.0,
+        "predicted_consumption_kwh": 1.0,
+    }
+    # All grid samples None
+    data["snapshot_queue"] = [
+        {"ts": (started + timedelta(minutes=30)).isoformat(),
+         "grid_now_kw": None, "pv_now_kw": 2.0, "consumption_now_kw": 0.4},
+        {"ts": (started + timedelta(minutes=60)).isoformat(),
+         "grid_now_kw": None, "pv_now_kw": 3.0, "consumption_now_kw": 0.3},
+    ]
+    _open_morning_session(stats, start_iso=started.isoformat())
+    stats._close_session(ended)
+    payload = reporter.send_outcome.call_args.args[0]
+    assert payload["peak_power_kw"] is None
+
+
+# ---------------------------------------------------------------------------
+# a4) Actuals fall back to None when <2 samples
+# ---------------------------------------------------------------------------
+def test_outcome_actuals_fall_back_to_none_with_lt_2_samples():
+    stats, reporter, data = _make_outcome_stats()
+    started = datetime(2026, 4, 15, 5, 30, tzinfo=timezone.utc)
+    ended = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": started.isoformat(),
+        "soc_start_pct": 80,
+        "predicted_pv_kwh": 5.0,
+        "predicted_consumption_kwh": 1.0,
+    }
+    # Only 1 snapshot inside the window
+    data["snapshot_queue"] = [{
+        "ts": (started + timedelta(minutes=30)).isoformat(),
+        "grid_now_kw": 1.0, "pv_now_kw": 2.0, "consumption_now_kw": 0.5,
+    }]
+    _open_morning_session(stats, start_iso=started.isoformat())
+    stats._close_session(ended)
+    payload = reporter.send_outcome.call_args.args[0]
+    assert payload["actual_pv_kwh"] is None
+    assert payload["actual_consumption_kwh"] is None
+    # peak still works with single sample
+    assert payload["peak_power_kw"] == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# a5) Window filters snapshots outside [started_at, ended_at]
+# ---------------------------------------------------------------------------
+def test_outcome_window_filters_snapshots_by_block_range():
+    stats, reporter, data = _make_outcome_stats()
+    started = datetime(2026, 4, 15, 5, 30, tzinfo=timezone.utc)
+    ended = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": started.isoformat(),
+        "soc_start_pct": 80,
+        "predicted_pv_kwh": 5.0,
+        "predicted_consumption_kwh": 1.0,
+    }
+    # 2 BEFORE started, 3 inside, 1 AFTER ended
+    before = [
+        {"ts": "2026-04-15T04:30:00+00:00", "grid_now_kw": 99.0, "pv_now_kw": 99.0, "consumption_now_kw": 99.0},
+        {"ts": "2026-04-15T05:00:00+00:00", "grid_now_kw": 99.0, "pv_now_kw": 99.0, "consumption_now_kw": 99.0},
+    ]
+    inside = [
+        {"ts": "2026-04-15T06:00:00+00:00", "grid_now_kw": 1.0, "pv_now_kw": 2.0, "consumption_now_kw": 0.4},
+        {"ts": "2026-04-15T06:30:00+00:00", "grid_now_kw": 2.0, "pv_now_kw": 3.0, "consumption_now_kw": 0.3},
+        {"ts": "2026-04-15T07:00:00+00:00", "grid_now_kw": 1.5, "pv_now_kw": 2.5, "consumption_now_kw": 0.2},
+    ]
+    after = [
+        {"ts": "2026-04-15T08:00:00+00:00", "grid_now_kw": 99.0, "pv_now_kw": 99.0, "consumption_now_kw": 99.0},
+    ]
+    data["snapshot_queue"] = before + inside + after
+    _open_morning_session(stats, start_iso=started.isoformat())
+    stats._close_session(ended)
+    payload = reporter.send_outcome.call_args.args[0]
+    # Peak should be 2.0 (inside) — 99 (outside) must NOT contribute
+    assert payload["peak_power_kw"] == pytest.approx(2.0)
+    # PV trapezoid: (2+3)/2*0.5 + (3+2.5)/2*0.5 = 1.25 + 1.375 = 2.625
+    assert payload["actual_pv_kwh"] == pytest.approx(2.625, rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# b) Silent emission when block_predictions empty (still emits with None values)
+# ---------------------------------------------------------------------------
+def test_outcome_silent_when_no_predictions():
+    stats, reporter, data = _make_outcome_stats()
+    # No block_predictions entry — ended_at missing started_at fallback
+    _open_morning_session(stats, start_iso="2026-04-15T05:30:00+00:00")
+    stats._close_session(datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc))
+    assert reporter.send_outcome.call_count == 1
+    payload = reporter.send_outcome.call_args.args[0]
+    assert payload["event_type"] == "morgen_einspeisung"
+    assert payload["predicted_pv_kwh"] is None
+    assert payload["predicted_consumption_kwh"] is None
+    assert payload["actual_pv_kwh"] is None
+    assert payload["actual_consumption_kwh"] is None
+    assert payload["peak_power_kw"] is None
+
+
+# ---------------------------------------------------------------------------
+# c) Silent when reporter not configured
+# ---------------------------------------------------------------------------
+def test_outcome_silent_when_reporter_not_configured():
+    stats, reporter, data = _make_outcome_stats(configured=False)
+    _open_morning_session(stats)
+    stats._close_session(datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc))
+    assert reporter.send_outcome.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# d) Silent when no identity
+# ---------------------------------------------------------------------------
+def test_outcome_silent_when_no_identity():
+    stats, reporter, data = _make_outcome_stats(identity_known=False)
+    _open_morning_session(stats)
+    stats._close_session(datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc))
+    assert reporter.send_outcome.call_count == 0
+
