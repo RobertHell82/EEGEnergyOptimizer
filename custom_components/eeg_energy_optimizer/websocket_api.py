@@ -1393,7 +1393,11 @@ async def ws_telemetry_get_status(
         "registered_at": identity.get("registered_at") if identity else None,
         "queue_size": len(snap_q) + buf_size,
         "buffer_size": buf_size,
-        "last_send_at": data.get("telemetry_last_send_at") if data else None,
+        "last_send_at": (
+            getattr(reporter, "last_success_at", None)
+            if reporter is not None
+            else None
+        ) or (data.get("telemetry_last_send_at") if data else None),
     })
 
 

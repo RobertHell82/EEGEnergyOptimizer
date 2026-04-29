@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
 
-from .const import DOMAIN
+from .const import CONF_TELEMETRY_ENABLED, DOMAIN
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigFlowResult
@@ -32,6 +32,9 @@ class EegEnergyOptimizerConfigFlow(ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
             return self.async_create_entry(
                 title="EEG Energy Optimizer",
-                data={"setup_complete": False},
+                data={
+                    "setup_complete": False,
+                    CONF_TELEMETRY_ENABLED: True,
+                },
             )
         return self.async_show_form(step_id="user", data_schema=vol.Schema({}))

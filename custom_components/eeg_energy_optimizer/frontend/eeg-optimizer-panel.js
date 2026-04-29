@@ -3376,6 +3376,22 @@ class EegOptimizerPanel extends HTMLElement {
       statusText = "Nicht registriert";
     }
 
+    let lastSendText = "";
+    if (registered && enabled) {
+      if (s.last_send_at) {
+        const ds = new Date(s.last_send_at);
+        const dsStr = isNaN(ds.getTime())
+          ? s.last_send_at
+          : ds.toLocaleString("de-DE");
+        lastSendText = `Letzte Übertragung: ${dsStr}`;
+      } else {
+        lastSendText = "Letzte Übertragung: noch keine seit Start (nächster Flush spätestens nach 60 Min)";
+      }
+    }
+    const lastSendRow = lastSendText
+      ? `<div class="help-text" style="margin-bottom:12px">${lastSendText}</div>`
+      : "";
+
     const errorRow = this._telemetryError
       ? `<div class="help-text" style="color:var(--error-color,#d33);margin-bottom:12px">${this._telemetryError}</div>`
       : "";
@@ -3409,6 +3425,30 @@ class EegOptimizerPanel extends HTMLElement {
           </div>
         </label>
         <div class="help-text" style="margin-bottom:12px">${statusText}</div>
+        ${lastSendRow}
+        <details style="margin-bottom:12px">
+          <summary style="cursor:pointer;font-size:13px;color:var(--secondary-text-color);user-select:none">
+            Datenschutz-Details (was wird gesendet?)
+          </summary>
+          <div class="help-text" style="margin-top:10px;line-height:1.5">
+            <strong>Übermittelt:</strong>
+            <ul style="margin:6px 0 10px 18px;padding:0">
+              <li><strong>Profil</strong> (bei Setup, Restart, Settings-Change): App-/HA-Version, Wechselrichter-Typ, Batterie-Kapazität, PV-Peak, Prognose-Quelle, Land, Whitelist-Settings (numerische/kategorische Werte, keine Entity-IDs)</li>
+              <li><strong>Snapshot</strong> (alle 30 Min, gebündelt 1×/h): Zustand, Modus, SOC %, PV-/Verbrauchs-/Netz-/Batterie-Leistung, dynamischer Min-SOC, Hysterese</li>
+              <li><strong>State-Change</strong> (sofort): Übergang, Begründungs-Codes, Snapshot</li>
+              <li><strong>Outcome</strong> (Block-Ende): eingespeiste kWh, Dauer, SOC-Start/-Ende, predicted-vs-actual PV/Verbrauch</li>
+              <li><strong>Failure</strong> (bei Auftreten): Kategorie, Schweregrad, gehashte Fehlermeldung</li>
+            </ul>
+            <strong>Nicht übermittelt:</strong>
+            <ul style="margin:6px 0 10px 18px;padding:0">
+              <li>Keine Entity-IDs / Sensor-Namen</li>
+              <li>Keine IP-Adressen (serverseitig nicht persistiert)</li>
+              <li>Kein Anlagenname, keine Adresse, keine Geokoordinaten</li>
+              <li>Keine EEG-Mitgliedsdaten, keine personenbezogenen Daten</li>
+            </ul>
+            <strong>Identifikation:</strong> einmalig erzeugte UUIDv4 + API-Key, lokal gespeichert. Beim Löschen werden alle Daten serverseitig kaskadiert entfernt und die UUID lokal verworfen.
+          </div>
+        </details>
         ${errorRow}
         ${deleteBtn}
       </div>

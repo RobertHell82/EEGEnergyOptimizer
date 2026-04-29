@@ -13,9 +13,33 @@ HACS-kompatible Home Assistant Integration für vorausschauendes Batteriemanagem
 - **Live-Dashboard** — Sidebar-Panel mit Energiefluss, Diagrammen, PeakShare-Bedarfskurve, manueller Wechselrichtersteuerung und Aktivitätsprotokoll
 - **Einrichtungsassistent** — schrittweises Onboarding mit automatischer Sensorerkennung
 
-### Community-Statistik (optional)
+### Community-Statistik
 
-Auf Wunsch sendet der EEG Energy Optimizer anonymisierte Diagnose- und Wirksamkeitsdaten an einen vom Maintainer betriebenen Cloudflare-Backend. Damit lassen sich Schwachstellen schneller finden und die Wirksamkeit der EEG-Steuerung über mehrere Anlagen hinweg auswerten — ohne Personenbezug. Übermittelt werden ausschließlich technische Werte (State-Changes, halbstündliche Snapshots, Outcome-Events am Block-Ende, Failure-Events). **Nicht übermittelt** werden Sensor-IDs, IP-Adressen, Anlagenname, Adresse oder Energiegemeinschafts-Mitgliedsdaten. Die Funktion ist standardmäßig **aus**; aktivieren und vollständig löschen lässt sie sich jederzeit im Panel unter *Einstellungen → Community-Statistik*.
+Der EEG Energy Optimizer sendet anonymisierte Diagnose- und Wirksamkeitsdaten an einen vom Maintainer betriebenen Cloudflare-Backend. Damit lassen sich Schwachstellen schneller finden und die Wirksamkeit der EEG-Steuerung über mehrere Anlagen hinweg auswerten — ohne Personenbezug. Die Funktion ist bei **neuen Installationen standardmäßig aktiv**; deaktivieren und vollständig löschen lässt sie sich jederzeit im Panel unter *Einstellungen → Community-Statistik*. Bestehende Installationen behalten ihre vorherige Einstellung (Default war zuvor *aus*).
+
+#### Was übermittelt wird
+
+| Kategorie | Frequenz | Inhalt |
+|-----------|----------|--------|
+| **Profil** | bei Setup, Restart, Settings-Change | App-Version, HA-Version, Wechselrichter-Typ, Batterie-Kapazität, PV-Peak, Prognose-Quelle, Länder-ISO-Code, gefilterte Settings (Whitelist) |
+| **Snapshot** | alle 30 Min, gebündelt 1×/h | Zeitstempel, Zustand (Normal/Morgen-Einspeisung/Abend-Entladung), Modus (Ein/Test), SOC %, PV-/Verbrauchs-/Netz-/Batterie-Leistung, dynamischer Min-SOC, Hysterese-Flag |
+| **State-Change** | bei jedem Übergang (sofort) | Zeitstempel, Übergang (von→nach), Begründungs-Codes (`reasons`/`blocked_by`), Snapshot |
+| **Outcome** | nach Block-Ende | Block-Typ, Start/Ende, Dauer, ins Netz eingespeiste kWh, Peak-Leistung, SOC-Start/-Ende, predicted-vs-actual PV/Verbrauch |
+| **Failure** | bei Auftreten (mit Dedup) | Zeitstempel, Kategorie, Schweregrad, gehashte Fehlermeldung, Kontext-JSON |
+
+Die Settings-Whitelist enthält ausschließlich numerische/kategorische Konfigurationswerte (Sicherheitspuffer, Mindest-SOC, Morgenfenster-Endzeit, Entlade-Leistung etc.) — **keine Entity-IDs**, keine Sensor-Namen.
+
+#### Was nicht übermittelt wird
+
+- Keine Entity-IDs / Sensor-Namen
+- Keine IP-Adressen (werden serverseitig nicht persistiert)
+- Kein Anlagenname, keine Adresse, keine Geokoordinaten
+- Keine Mitgliedsdaten der Energiegemeinschaft
+- Keine sonstigen personenbezogenen Daten
+
+#### Identifikation
+
+Pro Anlage wird einmalig eine zufällige **UUIDv4** + ein **API-Key** erzeugt und lokal gespeichert. Es gibt keinen Bezug zu HA-Account, IP, Hardware-ID oder sonstigen Identifikatoren. Beim Klick auf „Daten löschen" werden alle Daten dieser Anlage serverseitig kaskadiert gelöscht und die UUID lokal entfernt.
 
 ## Unterstützte Wechselrichter
 

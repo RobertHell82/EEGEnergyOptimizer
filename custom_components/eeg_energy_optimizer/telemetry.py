@@ -88,6 +88,7 @@ class TelemetryReporter:
         self._next_attempt_at: datetime | None = None
         self._send_lock = asyncio.Lock()
         self._session: Any = None  # lazy
+        self._last_success_at: str | None = None
 
     # ------------------------------------------------------------------
     # Configuration
@@ -362,6 +363,12 @@ class TelemetryReporter:
     def _on_success(self) -> None:
         self._consecutive_failures = 0
         self._next_attempt_at = None
+        self._last_success_at = _now_utc().isoformat()
+
+    @property
+    def last_success_at(self) -> str | None:
+        """ISO-Timestamp der letzten erfolgreichen Backend-Übertragung (UTC)."""
+        return self._last_success_at
 
     def _on_4xx(self, endpoint: str, status: int) -> None:
         _LOGGER.warning(

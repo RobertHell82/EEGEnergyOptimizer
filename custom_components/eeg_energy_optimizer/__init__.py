@@ -1254,6 +1254,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     entry.async_on_unload(unsub_flush)
                 except Exception:  # pragma: no cover
                     _LOGGER.exception("Telemetry: failed to register flush timer")
+
+                # Boot-Send: Profile-Update + Buffer-Drain als Hintergrund-Task,
+                # damit nach Restart sofort Verbindung validiert wird, gepufferte
+                # Events drainen und die "Letzte Übertragung"-Anzeige aktuell ist.
+                if telemetry_buffer.identity_known():
+                    async def _boot_telemetry_send():
+                        try:
+                            identity = telemetry_buffer.get_identity() or {}
+                            profile = _build_telemetry_profile(
+                                hass, entry,
+                                identity_registered_at=identity.get("registered_at"),
+                            )
+                            await reporter.update_profile(profile)
+                            await reporter.flush_buffer()
+                        except Exception:  # pragma: no cover
+                            _LOGGER.exception("Telemetry boot send failed")
+                    hass.async_create_task(_boot_telemetry_send())
+                else:
+                    # Default-on Opt-Out: neue Installationen werden mit
+                    # cfg_enabled=True angelegt (config_flow.py). Damit das Flag
+                    # auch wirkt, registrieren wir hier einmalig im Hintergrund.
+                    # Bestehende Installationen mit explizit gewähltem False
+                    # landen nicht in diesem Block, weil cfg_enabled bereits
+                    # oben gefiltert hat.
+                    async def _auto_register():
+                        try:
+                            profile = _build_telemetry_profile(
+                                hass, entry, identity_registered_at=None,
+                            )
+                            await reporter.register(profile)
+                        except Exception:  # pragma: no cover
+                            _LOGGER.exception("Telemetry auto-register failed")
+                    hass.async_create_task(_auto_register())
     else:
         missing = []
         if not coordinator:
