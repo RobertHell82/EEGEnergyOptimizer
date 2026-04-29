@@ -30,7 +30,7 @@ from .const import (
     INVERTER_SIGN_CONVENTIONS,
 )
 from .inverter import create_inverter
-from .optimizer import EEGOptimizer
+from .optimizer import EEGOptimizer, REASON_DISCHARGE_ABORTED_TODAY
 from .websocket_api import async_register_websocket_commands
 
 _LOGGER = logging.getLogger(__name__)
@@ -766,9 +766,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     prev_zustand[0] = decision.zustand
                 elif decision.zustand != prev_zustand[0]:
                     reason = decision.zustand
-                    # Watchdog: Begründung anhängen wenn Entladung wegen Netzbezug abgebrochen
+                    # Watchdog: Begründung anhängen wenn Entladung wegen Netzbezug
+                    # abgebrochen — Detektion über kanonischen Katalog-Key (D-09)
+                    # statt String-Suche in der deutschen Freitext-Liste.
                     if (prev_zustand[0] == "Abend-Entladung"
-                            and any("Netzbezug" in r for r in decision.discharge_reasons)):
+                            and REASON_DISCHARGE_ABORTED_TODAY in decision.blocked_by):
                         reason = "Normal — Netzbezug > 1 kW für > 5 Min, Entladung für heute abgebrochen"
                     _log_activity(decision, reason)
                     prev_zustand[0] = decision.zustand

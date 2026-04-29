@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from .const import (
     CONF_BATTERY_CAPACITY_KWH,
     CONF_BATTERY_CAPACITY_SENSOR,
+    CONF_BATTERY_POWER_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
     CONF_DISCHARGE_POWER_KW,
     CONF_DISCHARGE_START_TIME,
@@ -28,7 +29,9 @@ from .const import (
     CONF_MORNING_END_TIME,
     CONF_MORNING_START_OFFSET,
     CONF_PEAKSHARE_COMMUNITY,
+    CONF_PV_POWER_SENSOR,
     CONF_SAFETY_BUFFER_PCT,
+    CONSUMPTION_SENSOR,
     DEFAULT_DISCHARGE_POWER_KW,
     DEFAULT_DISCHARGE_START_TIME,
     DEFAULT_ENABLE_PEAKSHARE,
@@ -158,6 +161,33 @@ def _read_float(hass: Any, entity_id: str) -> float | None:
         return float(state.state)
     except (ValueError, TypeError):
         return None
+
+
+def _read_power_kw(hass: Any, entity_id: str) -> float | None:
+    """Read a power sensor and normalise to kW.
+
+    Mirrors the helper in sensor.py to avoid an import cycle. Returns None for
+    missing/unknown/unavailable/empty sensors (NOT 0.0 — backend analytics
+    distinguish "0 W exported" from "we couldn't read").
+
+    - Unit "W" → divide by 1000
+    - Unit "kW" or unset → return as-is
+    """
+    if not entity_id:
+        return None
+    state = hass.states.get(entity_id)
+    if state is None:
+        return None
+    if state.state in ("unknown", "unavailable", ""):
+        return None
+    try:
+        val = float(state.state)
+    except (ValueError, TypeError):
+        return None
+    unit = (state.attributes.get("unit_of_measurement") or "").strip()
+    if unit == "W":
+        return val / 1000.0
+    return val
 
 
 @dataclass
@@ -485,6 +515,37 @@ class EEGOptimizer:
             )
 
         return snap
+
+    def _current_power_readings(self) -> dict:
+        """Read live power values for the snapshot payload (D-09).
+
+        Returns dict mit pv_now_kw / consumption_now_kw / grid_now_kw /
+        battery_now_kw — float|None pro Eintrag (None bei nicht
+        konfiguriertem oder nicht verfügbarem Sensor).
+
+        Sign-Konventionen folgen INVERTER_SIGN_CONVENTIONS:
+          positiv = Export (Grid) bzw. Laden (Battery).
+
+        Wichtig: Bei fehlenden Sensoren NICHT 0.0 zurückgeben — Backend-
+        Analytics unterscheiden "0 W exportiert" von "konnten nicht lesen".
+        """
+        cfg = self._config
+        inv_type = cfg.get(CONF_INVERTER_TYPE, "")
+        signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
+        battery_sign = signs.get("battery_sign", 1)
+        grid_sign = signs.get("grid_sign", 1)
+
+        pv_raw = _read_power_kw(self._hass, cfg.get(CONF_PV_POWER_SENSOR, ""))
+        grid_raw = _read_power_kw(self._hass, cfg.get(CONF_GRID_POWER_SENSOR, ""))
+        bat_raw = _read_power_kw(self._hass, cfg.get(CONF_BATTERY_POWER_SENSOR, ""))
+        cons_raw = _read_power_kw(self._hass, CONSUMPTION_SENSOR)
+
+        return {
+            "pv_now_kw": pv_raw,
+            "grid_now_kw": (grid_raw * grid_sign) if grid_raw is not None else None,
+            "battery_now_kw": (bat_raw * battery_sign) if bat_raw is not None else None,
+            "consumption_now_kw": cons_raw,
+        }
 
     def _resolve_capacity(self) -> float:
         """Resolve battery capacity: sensor -> manual fallback."""
@@ -1061,10 +1122,11 @@ class EEGOptimizer:
             decision.blocked_by = list(block_blocked_by_keys) + list(dis_blocked_by_keys)
 
         # Lean Snapshot für State-Change-Payload (D-09).
-        # Live-Power-Readings (pv_now_kw, grid_now_kw, ...) werden in 08-01 Task 2
-        # via _current_power_readings() ergänzt.
+        # Field-Namen matchen 1:1 SnapshotPayload (EEGEnergyOptimzierBackend/src/types.ts).
+        readings = self._current_power_readings()
         decision.snapshot = {
             **snap.to_telemetry_dict(),
+            **readings,
             "min_soc_dyn": int(round(min_soc)),
             "hysteresis": bool(hysteresis_active),
         }

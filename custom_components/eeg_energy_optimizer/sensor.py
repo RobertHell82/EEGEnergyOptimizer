@@ -882,6 +882,12 @@ class EntscheidungsSensor(SensorEntity):
             "entladeleistung_kw": decision.entladeleistung_kw,
             "ausführung": decision.ausführung,
             "letzte_aktualisierung": decision.timestamp,
+            # Telemetrie-Diagnose (D-09): kanonische Katalog-Keys + lean Snapshot.
+            # list()/dict() — defensive Kopien, damit Mutationen am Decision-Objekt
+            # nach dem Update nicht in den Sensor-State leaken.
+            "reasons": list(decision.reasons),
+            "blocked_by": list(decision.blocked_by),
+            "snapshot": dict(decision.snapshot),
             # Morning delay status card
             "morning_status": decision.morning_status,
             "morning_reason": decision.morning_reason,

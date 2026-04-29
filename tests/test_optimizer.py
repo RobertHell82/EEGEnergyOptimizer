@@ -1475,3 +1475,221 @@ class TestShouldDischargeBranches:
         self._assert_invariants(should, reasons, blocked_by)
         assert should is False
         assert REASON_SOC_BELOW_MIN in blocked_by
+
+
+# ---------------------------------------------------------------------------
+# _current_power_readings + Decision.snapshot full shape (Task 2)
+# ---------------------------------------------------------------------------
+
+
+def _make_state(value, unit: str = "kW"):
+    """Build a MagicMock that mimics hass state object."""
+    state = MagicMock()
+    state.state = value
+    state.attributes = {"unit_of_measurement": unit}
+    return state
+
+
+class TestCurrentPowerReadings:
+    """EEGOptimizer._current_power_readings reads + normalises live power values (D-09)."""
+
+    def _make_opt_with_sensors(self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+                               inverter_type: str = "huawei_sun2000"):
+        from custom_components.eeg_energy_optimizer.const import (
+            CONF_BATTERY_POWER_SENSOR,
+            CONF_GRID_POWER_SENSOR,
+            CONF_INVERTER_TYPE,
+            CONF_PV_POWER_SENSOR,
+        )
+        cfg = _make_config(**{
+            CONF_INVERTER_TYPE: inverter_type,
+            CONF_PV_POWER_SENSOR: "sensor.pv_power",
+            CONF_GRID_POWER_SENSOR: "sensor.grid_power",
+            CONF_BATTERY_POWER_SENSOR: "sensor.battery_power",
+        })
+        return _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider, cfg)
+
+    def test_huawei_signs_unchanged(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        """Huawei: battery_sign=1, grid_sign=1 → values pass through unchanged."""
+        opt = self._make_opt_with_sensors(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, "huawei_sun2000"
+        )
+        states = {
+            "sensor.pv_power": _make_state("3.5", "kW"),
+            "sensor.grid_power": _make_state("-1.2", "kW"),
+            "sensor.battery_power": _make_state("0.8", "kW"),
+            "sensor.eeg_energy_optimizer_hausverbrauch": _make_state("2.1", "kW"),
+        }
+        mock_hass.states.get = MagicMock(side_effect=lambda eid: states.get(eid))
+        readings = opt._current_power_readings()
+        assert readings == {
+            "pv_now_kw": 3.5,
+            "grid_now_kw": -1.2,
+            "battery_now_kw": 0.8,
+            "consumption_now_kw": 2.1,
+        }
+
+    def test_solax_inverts_grid_and_battery(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        """SolaX Gen4: grid_sign=-1, battery_sign=-1 → grid/battery flipped, PV/consumption not."""
+        opt = self._make_opt_with_sensors(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, "solax_gen4"
+        )
+        states = {
+            "sensor.pv_power": _make_state("4.0", "kW"),
+            "sensor.grid_power": _make_state("1.5", "kW"),  # raw +1.5 → after flip -1.5
+            "sensor.battery_power": _make_state("-0.5", "kW"),  # raw -0.5 → after flip +0.5
+            "sensor.eeg_energy_optimizer_hausverbrauch": _make_state("2.5", "kW"),
+        }
+        mock_hass.states.get = MagicMock(side_effect=lambda eid: states.get(eid))
+        readings = opt._current_power_readings()
+        assert readings["pv_now_kw"] == 4.0
+        assert readings["consumption_now_kw"] == 2.5
+        assert readings["grid_now_kw"] == -1.5
+        assert readings["battery_now_kw"] == 0.5
+
+    def test_unit_W_is_converted_to_kW(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        opt = self._make_opt_with_sensors(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, "huawei_sun2000"
+        )
+        states = {
+            "sensor.pv_power": _make_state("3500", "W"),
+            "sensor.grid_power": _make_state("-1200", "W"),
+            "sensor.battery_power": _make_state("800", "W"),
+            "sensor.eeg_energy_optimizer_hausverbrauch": _make_state("2100", "W"),
+        }
+        mock_hass.states.get = MagicMock(side_effect=lambda eid: states.get(eid))
+        readings = opt._current_power_readings()
+        assert readings["pv_now_kw"] == pytest.approx(3.5)
+        assert readings["grid_now_kw"] == pytest.approx(-1.2)
+        assert readings["battery_now_kw"] == pytest.approx(0.8)
+        assert readings["consumption_now_kw"] == pytest.approx(2.1)
+
+    def test_unknown_or_unavailable_returns_none_not_zero(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        """D-09: None for missing sensors — backend distinguishes 'we couldn't read' from '0 W'."""
+        opt = self._make_opt_with_sensors(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, "huawei_sun2000"
+        )
+        states = {
+            "sensor.pv_power": _make_state("unknown", "kW"),
+            "sensor.grid_power": _make_state("unavailable", "kW"),
+            "sensor.battery_power": _make_state("", "kW"),
+            "sensor.eeg_energy_optimizer_hausverbrauch": None,  # state-get returns None
+        }
+        mock_hass.states.get = MagicMock(side_effect=lambda eid: states.get(eid))
+        readings = opt._current_power_readings()
+        assert readings == {
+            "pv_now_kw": None,
+            "grid_now_kw": None,
+            "battery_now_kw": None,
+            "consumption_now_kw": None,
+        }
+        # Critical: NOT 0.0 — that would corrupt analytics
+        for key, val in readings.items():
+            assert val is not 0.0  # noqa: F632
+
+    def test_empty_config_entity_returns_none(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        """An empty config-entry value (\"\") is treated as 'no sensor configured' → None."""
+        from custom_components.eeg_energy_optimizer.const import (
+            CONF_BATTERY_POWER_SENSOR,
+            CONF_GRID_POWER_SENSOR,
+            CONF_INVERTER_TYPE,
+            CONF_PV_POWER_SENSOR,
+        )
+        cfg = _make_config(**{
+            CONF_INVERTER_TYPE: "huawei_sun2000",
+            CONF_PV_POWER_SENSOR: "",
+            CONF_GRID_POWER_SENSOR: "",
+            CONF_BATTERY_POWER_SENSOR: "",
+        })
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider, cfg)
+        # Hausverbrauch is a fixed entity_id, so still attempted — but mock returns None
+        mock_hass.states.get = MagicMock(return_value=None)
+        readings = opt._current_power_readings()
+        assert readings["pv_now_kw"] is None
+        assert readings["grid_now_kw"] is None
+        assert readings["battery_now_kw"] is None
+        assert readings["consumption_now_kw"] is None
+
+
+class TestDecisionSnapshotFullShape:
+    """Decision.snapshot field-name parity with EEGEnergyOptimzierBackend/src/types.ts SnapshotPayload."""
+
+    def test_snapshot_keys_match_backend_schema(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """decision.snapshot must contain exactly the SnapshotPayload field names (D-03).
+
+        See EEGEnergyOptimzierBackend/src/types.ts::SnapshotPayload — keys:
+        soc_pct, pv_now_kw, consumption_now_kw, grid_now_kw, battery_now_kw,
+        plus min_soc_dyn + hysteresis populated by _evaluate.
+        """
+        from custom_components.eeg_energy_optimizer.const import (
+            CONF_BATTERY_POWER_SENSOR,
+            CONF_GRID_POWER_SENSOR,
+            CONF_INVERTER_TYPE,
+            CONF_PV_POWER_SENSOR,
+        )
+        cfg = _make_config(**{
+            CONF_INVERTER_TYPE: "huawei_sun2000",
+            CONF_PV_POWER_SENSOR: "sensor.pv_power",
+            CONF_GRID_POWER_SENSOR: "sensor.grid_power",
+            CONF_BATTERY_POWER_SENSOR: "sensor.battery_power",
+        })
+        states = {
+            "sensor.pv_power": _make_state("3.5", "kW"),
+            "sensor.grid_power": _make_state("-1.2", "kW"),
+            "sensor.battery_power": _make_state("0.8", "kW"),
+            "sensor.eeg_energy_optimizer_hausverbrauch": _make_state("2.1", "kW"),
+        }
+        mock_hass.states.get = MagicMock(side_effect=lambda eid: states.get(eid))
+
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider, cfg)
+            snap = _make_snapshot(
+                now=now,
+                battery_soc=72.4,
+                battery_capacity_kwh=10.0,
+                consumption_overnight_kwh=3.0,
+                pv_tomorrow_kwh=40.0,
+                consumption_tomorrow_daylight_kwh=9.0,
+                sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+            )
+            decision = opt._evaluate(snap, MODE_TEST)
+
+        # Field-name parity with SnapshotPayload (types.ts)
+        expected_keys = {
+            "soc_pct",
+            "pv_now_kw",
+            "consumption_now_kw",
+            "grid_now_kw",
+            "battery_now_kw",
+            "min_soc_dyn",
+            "hysteresis",
+        }
+        assert set(decision.snapshot.keys()) == expected_keys
+
+        # Type assertions
+        assert isinstance(decision.snapshot["soc_pct"], int)
+        assert decision.snapshot["soc_pct"] == 72
+        assert isinstance(decision.snapshot["min_soc_dyn"], int)
+        assert isinstance(decision.snapshot["hysteresis"], bool)
+        # *_kw fields are float (or None when sensor missing)
+        for k in ("pv_now_kw", "consumption_now_kw", "grid_now_kw", "battery_now_kw"):
+            v = decision.snapshot[k]
+            assert v is None or isinstance(v, float), f"{k} must be float|None, got {type(v)}"
+
+    def test_snapshot_kw_fields_none_when_sensors_missing(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """When power sensors are unavailable, *_kw fields are None (not 0.0)."""
+        mock_hass.states.get = MagicMock(return_value=None)
+
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+            snap = _make_snapshot(now=now)
+            decision = opt._evaluate(snap, MODE_TEST)
+
+        for k in ("pv_now_kw", "consumption_now_kw", "grid_now_kw", "battery_now_kw"):
+            assert decision.snapshot[k] is None, f"{k} should be None when sensors missing"
