@@ -141,8 +141,10 @@ CONF_ENABLE_MANUAL_CONTROL = "enable_manual_control"
 # Im DEV-Repo bleiben sie leer → TelemetryReporter ist ein No-Op.
 # Siehe .planning/milestones/v1.1-phases/08-ha-reporter-modul/08-CONTEXT.md, D-01.
 TELEMETRY_BACKEND_URL = "https://eeg-telemetry.robert-hell.workers.dev"
-# Siehe 08-CONTEXT.md D-01 — leer im DEV-Repo, Release-Build injiziert den echten Token.
-TELEMETRY_BOOTSTRAP_TOKEN = ""
+# Siehe 08-CONTEXT.md D-01 — Bootstrap-Token gibt Anlagen das Recht, sich am Backend
+# einmalig zu registrieren. Pro Anlage wird ein eigener api_key generiert; der hardcoded
+# Bootstrap-Token dient nur als IP-Rate-Limit-Schutz, nicht als echte Authentifizierung.
+TELEMETRY_BOOTSTRAP_TOKEN = "4c604d119e5e4c08f0a020e3d2aab487bcd05ab62de3fcaf0dd9138185744fa6"
 
 # Storage-Keys (D-04, D-06). Identity und Buffer nutzen GETRENNTE Dateien,
 # damit ein korrupter Buffer die Identity nicht zerstören kann.
