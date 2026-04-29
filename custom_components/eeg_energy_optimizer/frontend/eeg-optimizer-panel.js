@@ -633,6 +633,7 @@ class EegOptimizerPanel extends HTMLElement {
     this._activityLoadingMore = false;
     this._activityShowAll = false;
     this._activityFilter = ""; // "" = alle, "Morgen-Einspeisung", "Abend-Entladung"
+    this._activityLogOpen = this._loadPref("activity_log_open", "0", ["0", "1"]) === "1";
     this._loadConfigPending = false;
     this._connectionLostSeen = false;
     this._manualControlOpen = false;
@@ -1149,6 +1150,11 @@ class EegOptimizerPanel extends HTMLElement {
         break;
       case "toggle-manual-control":
         this._manualControlOpen = !this._manualControlOpen;
+        this._render();
+        break;
+      case "toggle-activity-log":
+        this._activityLogOpen = !this._activityLogOpen;
+        this._savePref("activity_log_open", this._activityLogOpen ? "1" : "0");
         this._render();
         break;
       case "toggle-simulation":
@@ -4885,28 +4891,31 @@ class EegOptimizerPanel extends HTMLElement {
         })() : ""}
         `}
 
-        <!-- Activity Timeline -->
+        <!-- Activity Timeline (collapsible) -->
         <div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div data-action="toggle-activity-log" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
             <h3 style="margin:0">
               <ha-icon icon="mdi:history" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
               Aktivit\u00e4tsprotokoll
             </h3>
-            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-              <select data-field="activity_filter" style="font-size:12px;padding:2px 4px;background:var(--card-background-color);color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:4px">
-                <option value="" ${this._activityFilter === "" ? "selected" : ""}>Alle Zust\u00e4nde</option>
-                <option value="Morgen-Einspeisung" ${this._activityFilter === "Morgen-Einspeisung" ? "selected" : ""}>Morgen-Einspeisung</option>
-                <option value="Abend-Entladung" ${this._activityFilter === "Abend-Entladung" ? "selected" : ""}>Abend-Entladung</option>
-              </select>
-              <label data-action="toggle-activity-show-all" style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--secondary-text-color);cursor:pointer;user-select:none">
-                <input type="checkbox" ${this._activityShowAll ? "checked" : ""} style="pointer-events:none;margin:0"> Alle Eintr\u00e4ge
-              </label>
-              <button class="btn-link" data-action="refresh-activity-log" style="font-size:12px">
-                <ha-icon icon="mdi:refresh" style="--mdc-icon-size:14px;vertical-align:middle"></ha-icon> Aktualisieren
-              </button>
-            </div>
+            <ha-icon icon="mdi:chevron-${this._activityLogOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
+          </div>
+          ${this._activityLogOpen ? `
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px">
+            <select data-field="activity_filter" style="font-size:12px;padding:2px 4px;background:var(--card-background-color);color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:4px">
+              <option value="" ${this._activityFilter === "" ? "selected" : ""}>Alle Zust\u00e4nde</option>
+              <option value="Morgen-Einspeisung" ${this._activityFilter === "Morgen-Einspeisung" ? "selected" : ""}>Morgen-Einspeisung</option>
+              <option value="Abend-Entladung" ${this._activityFilter === "Abend-Entladung" ? "selected" : ""}>Abend-Entladung</option>
+            </select>
+            <label data-action="toggle-activity-show-all" style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--secondary-text-color);cursor:pointer;user-select:none">
+              <input type="checkbox" ${this._activityShowAll ? "checked" : ""} style="pointer-events:none;margin:0"> Alle Eintr\u00e4ge
+            </label>
+            <button class="btn-link" data-action="refresh-activity-log" style="font-size:12px">
+              <ha-icon icon="mdi:refresh" style="--mdc-icon-size:14px;vertical-align:middle"></ha-icon> Aktualisieren
+            </button>
           </div>
           ${this._renderActivityTimeline()}
+          ` : ""}
         </div>
 
         ${this._config?.enable_manual_control ? `
