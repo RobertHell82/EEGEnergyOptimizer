@@ -8,8 +8,8 @@ SunSpec Model 124 register offsets (relative to discovered base address):
   +0  WChaMax      uint16  R   Max battery power in W
   +3  StorCtl_Mod  bitfield16 RW  Control mode (Bit 0=Charge, Bit 1=Discharge)
   +5  MinRsvPct    uint16(SF-2) RW  Min reserve %
-  +12 OutWRte      int16(SF-2)  RW  Discharge rate % of WChaMax
-  +13 InWRte       int16(SF-2)  RW  Charge rate % of WChaMax
+  +10 OutWRte      int16(SF-2)  RW  Discharge rate % of WChaMax
+  +11 InWRte       int16(SF-2)  RW  Charge rate % of WChaMax
 """
 
 from __future__ import annotations
@@ -50,8 +50,8 @@ def _slave_kw(client: Any, slave_id: int) -> dict:
 _OFFSET_WCHAMAX = 0
 _OFFSET_STORCTL_MOD = 3
 _OFFSET_MINRSVPCT = 5
-_OFFSET_OUTWRTE = 12
-_OFFSET_INWRTE = 13
+_OFFSET_OUTWRTE = 10
+_OFFSET_INWRTE = 11
 
 # SunSpec identification
 _SUNSPEC_ID_WORD0 = 0x5375  # "Su"
