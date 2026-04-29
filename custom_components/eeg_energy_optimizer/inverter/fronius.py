@@ -393,20 +393,19 @@ class FroniusInverter(InverterBase):
             self._close_client()
             return False
 
-    # TODO: KONZEPT open question 8.1 — StorCtl_Mod=3 may force grid discharge
-    # even when house consumption could absorb battery output. Needs validation
-    # on real Fronius Gen24 hardware. If confirmed, consider using StorCtl_Mod=2
-    # (discharge-only) combined with separate charge blocking via a follow-up
-    # StorCtl_Mod=1 write, or test if the inverter self-consumption logic still
-    # applies under StorCtl_Mod=3.
     async def async_set_discharge(
         self, power_kw: float, target_soc: float | None = None
     ) -> bool:
-        """Force battery discharge at given power.
+        """Force battery discharge into the grid at the given power.
 
-        Sets StorCtl_Mod=3 (Charge + Discharge Limit active),
-        OutWRte to discharge percent, InWRte=0 to block charging.
-        Optionally sets MinRsvPct for SOC floor.
+        Sets InWRte=-percent (lower bound), OutWRte=+percent (upper bound),
+        and StorCtl_Mod=3 (both limits active). Per Fronius Modbus manual
+        example 6, this collapses the [InWRte, OutWRte] power window onto a
+        single point, enforcing discharge at the requested rate independent
+        of house consumption — what the EEG evening feed-in needs.
+
+        Optionally sets MinRsvPct as a SOC floor; the previous MinRsvPct is
+        snapshotted on first call so async_stop_forcible() can restore it.
         """
         async with self._lock:
             return await self._set_discharge_locked(power_kw, target_soc)
@@ -430,11 +429,24 @@ class FroniusInverter(InverterBase):
             # discharge mode active but stale rate values from a previous
             # operation. See ME-03 in REVIEW.md / set_charge_limit comment.
 
-            # InWRte = 0 (block charging during discharge)
-            if not await self._write_register(_OFFSET_INWRTE, 0):
+            # Force-discharge into the grid (independent of house consumption):
+            # per Fronius Modbus manual example 6, "Discharging with 50% of
+            # nominal power" requires OutWRte=+50%, InWRte=-50%, StorCtl_Mod=3,
+            # which yields the window [-WChaMax/2, -WChaMax/2] — i.e. an
+            # exactly enforced discharge. With InWRte=0 the inverter would
+            # only discharge what the house actually consumes, defeating the
+            # EEG evening feed-in purpose.
+            #
+            # Modbus holding registers are unsigned 16-bit; encode the signed
+            # int16 value as two's-complement before writing.
+            inwrte_signed = -percent
+            inwrte_value = inwrte_signed & 0xFFFF
+            if not await self._write_register(_OFFSET_INWRTE, inwrte_value):
                 return False
 
-            # OutWRte = discharge percent
+            # OutWRte = +percent (upper discharge bound, mirrors InWRte's
+            # absolute value so the [InWRte, OutWRte] window collapses onto
+            # the desired forced discharge point)
             if not await self._write_register(_OFFSET_OUTWRTE, percent):
                 return False
 

@@ -173,8 +173,12 @@ class TestAsyncSetDischarge:
     async def test_discharge_with_target_soc_writes_full_sequence(
         self, inverter, mock_modbus_client
     ):
-        """power_kw=2.5, target_soc=15 → InWRte=0, OutWRte=5000, MinRsvPct=1500,
-        WinTms=0, RvrtTms=0, StorCtl_Mod=3."""
+        """power_kw=2.5, target_soc=15 → InWRte=-5000 (forced discharge),
+        OutWRte=+5000, MinRsvPct=1500, WinTms=0, RvrtTms=0, StorCtl_Mod=3.
+
+        InWRte is the negative of the discharge percent (in two's-complement
+        16-bit), per Fronius Modbus manual example 6 — see _set_discharge_locked.
+        """
         # Pre-discharge MinRsvPct read returns 500 (5%)
         mock_modbus_client.read_holding_registers = AsyncMock(
             return_value=_ok_response([500])
@@ -185,7 +189,8 @@ class TestAsyncSetDischarge:
         calls = mock_modbus_client.write_register.call_args_list
         assert len(calls) == 6
         base = inverter._model124_base
-        assert (calls[0].kwargs["address"], calls[0].kwargs["value"]) == (base + _OFFSET_INWRTE, 0)
+        # -5000 as unsigned 16-bit = 60536
+        assert (calls[0].kwargs["address"], calls[0].kwargs["value"]) == (base + _OFFSET_INWRTE, (-5000) & 0xFFFF)
         assert (calls[1].kwargs["address"], calls[1].kwargs["value"]) == (base + _OFFSET_OUTWRTE, 5000)
         assert (calls[2].kwargs["address"], calls[2].kwargs["value"]) == (base + _OFFSET_MINRSVPCT, 1500)
         assert (calls[3].kwargs["address"], calls[3].kwargs["value"]) == (base + _OFFSET_WINTMS, 0)
