@@ -657,6 +657,10 @@ class EegOptimizerPanel extends HTMLElement {
     this._settingsData = {};
     this._peakshareCommunitiesCache = [];
     this._peakshareCommunitiesLoading = false;
+    // Community-Statistik (Phase 8: Telemetrie-Opt-In)
+    this._telemetryStatus = null;
+    this._telemetryError = null;
+    this._telemetryBusy = false;
     this._lastHassUpdate = Date.now();
 
     // Recover from network switches / long sleep when tab becomes visible
@@ -748,6 +752,15 @@ class EegOptimizerPanel extends HTMLElement {
       }
       const btn = e.target.closest("[data-action]") || e.target;
       const action = btn?.dataset?.action;
+      if (action === "toggle-telemetry") {
+        // Checkbox: nutze den (nach Klick aktualisierten) checked-Zustand
+        this._handleTelemetryToggle(!!btn.checked);
+        return;
+      }
+      if (action === "forget-telemetry") {
+        this._handleTelemetryForget();
+        return;
+      }
       if (action) {
         this._handleAction(action, btn.dataset);
       }
@@ -2220,6 +2233,16 @@ class EegOptimizerPanel extends HTMLElement {
           this._simActive = true;
         }
       } catch (_) { /* ignore */ }
+
+      // Telemetrie-Status laden (Community-Statistik). Fire-and-forget — Fehler dürfen
+      // den Settings-Load nicht blockieren.
+      this._hass.callWS({ type: "eeg_optimizer/telemetry_get_status" })
+        .then(s => { this._telemetryStatus = s; this._render(); })
+        .catch(err => {
+          console.warn("EEG Optimizer: telemetry status load failed", err);
+          this._telemetryStatus = { configured: false, enabled: false, registered: false };
+          this._render();
+        });
     }
 
     this._initialized = true;
@@ -3287,6 +3310,9 @@ class EegOptimizerPanel extends HTMLElement {
           </div>` : ""}
         </div>
 
+        <!-- Card: Community-Statistik (D-28, Phase 8 Telemetrie-Opt-In) -->
+        ${this._renderTelemetrySection()}
+
         <!-- Card 3: Erweiterte Einstellungen -->
         <div class="card" style="margin-bottom:16px">
           <h3 style="margin:0 0 16px">Erweiterte Einstellungen</h3>
@@ -3324,6 +3350,120 @@ class EegOptimizerPanel extends HTMLElement {
 
         <button class="btn-primary" data-action="save-settings" style="width:100%;padding:12px">Speichern</button>
       </div>`;
+  }
+
+  /* ── Community-Statistik (Telemetrie-Opt-In) ───── */
+
+  _renderTelemetrySection() {
+    const s = this._telemetryStatus || { configured: false, enabled: false, registered: false };
+    const enabled = !!s.enabled;
+    const registered = !!s.registered;
+    const notConfigured = !s.configured;
+    const hasIdentity = !!s.installation_id_prefix;
+
+    let statusText;
+    if (notConfigured) {
+      statusText = "Backend-URL noch nicht eingerichtet (DEV-Build)";
+    } else if (registered && s.registered_at) {
+      const d = new Date(s.registered_at);
+      const dStr = isNaN(d.getTime()) ? s.registered_at : d.toLocaleDateString("de-DE");
+      statusText = `Registriert als anonyme Anlage <code>${s.installation_id_prefix || ""}</code> seit ${dStr}`;
+    } else if (hasIdentity && !enabled) {
+      statusText = "Pausiert — Identität bleibt gespeichert";
+    } else if (enabled && !registered) {
+      statusText = "Registrierung läuft …";
+    } else {
+      statusText = "Nicht registriert";
+    }
+
+    const errorRow = this._telemetryError
+      ? `<div class="help-text" style="color:var(--error-color,#d33);margin-bottom:12px">${this._telemetryError}</div>`
+      : "";
+
+    const showDeleteBtn = registered || hasIdentity;
+    const deleteBtn = showDeleteBtn
+      ? `<button class="btn-secondary"
+                 data-action="forget-telemetry"
+                 ${this._telemetryBusy ? "disabled" : ""}
+                 style="background:var(--error-color,#d33);color:#fff;border:0;width:100%;padding:12px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+           <ha-icon icon="mdi:delete-forever"></ha-icon>Daten löschen
+         </button>`
+      : "";
+
+    return `
+      <div class="card" style="margin-bottom:16px">
+        <h3 style="margin:0 0 8px">Community-Statistik</h3>
+        <div class="help-text" style="margin-bottom:12px">
+          Hilf der EEG-Community: deine Anlage sendet anonymisierte Diagnose- und
+          Wirksamkeits-Daten an einen Cloudflare-Backend. Keine personenbezogenen Daten,
+          keine Sensor-IDs, keine IP-Adressen. Du kannst das jederzeit wieder ausschalten
+          oder alle Daten löschen.
+        </div>
+        <label style="display:flex;align-items:center;gap:12px;cursor:pointer;margin-bottom:12px">
+          <input type="checkbox"
+                 data-action="toggle-telemetry"
+                 ${enabled ? "checked" : ""}
+                 ${notConfigured || this._telemetryBusy ? "disabled" : ""}>
+          <div>
+            <div style="font-weight:500">Community-Statistik aktivieren</div>
+          </div>
+        </label>
+        <div class="help-text" style="margin-bottom:12px">${statusText}</div>
+        ${errorRow}
+        ${deleteBtn}
+      </div>
+    `;
+  }
+
+  async _handleTelemetryToggle(checked) {
+    if (this._telemetryBusy) return;
+    this._telemetryBusy = true;
+    this._telemetryError = null;
+    this._render();
+    try {
+      const cmd = checked ? "eeg_optimizer/telemetry_enable" : "eeg_optimizer/telemetry_disable";
+      const res = await this._hass.callWS({ type: cmd });
+      if (!res || res.success === false) {
+        const errKey = res && res.error ? `: ${res.error}` : "";
+        this._telemetryError = `Aktivieren fehlgeschlagen${errKey}`;
+      }
+    } catch (err) {
+      this._telemetryError = `Aktivieren fehlgeschlagen: ${err && err.message ? err.message : err}`;
+    } finally {
+      // Status nach jedem Toggle frisch holen — Quelle der Wahrheit ist das Backend.
+      try {
+        this._telemetryStatus = await this._hass.callWS({ type: "eeg_optimizer/telemetry_get_status" });
+      } catch (_) { /* ignore */ }
+      this._telemetryBusy = false;
+      this._render();
+    }
+  }
+
+  async _handleTelemetryForget() {
+    if (this._telemetryBusy) return;
+    const ok = window.confirm(
+      "Wirklich alle Daten löschen?\n\n" +
+      "Alle gesendeten Telemetriedaten werden vom Server entfernt und die lokale " +
+      "Anmeldung wird gelöscht. Diese Aktion kann nicht rückgängig gemacht werden."
+    );
+    if (!ok) return;
+    this._telemetryBusy = true;
+    this._telemetryError = null;
+    this._render();
+    try {
+      const res = await this._hass.callWS({ type: "eeg_optimizer/telemetry_forget" });
+      if (res && res.backend_deleted === false) {
+        this._telemetryError = "Backend-Aufruf fehlgeschlagen — lokale Daten wurden trotzdem gelöscht.";
+      }
+    } catch (err) {
+      this._telemetryError = "Backend-Aufruf fehlgeschlagen — lokale Daten wurden trotzdem gelöscht.";
+    } finally {
+      try {
+        this._telemetryStatus = await this._hass.callWS({ type: "eeg_optimizer/telemetry_get_status" });
+      } catch (_) { /* ignore */ }
+      this._telemetryBusy = false;
+      this._render();
+    }
   }
 
   /* ── Info modal overlay ─────────────────────────── */

@@ -24,5 +24,23 @@
         }
       }
     }
+  },
+  "panel": {
+    "telemetry": {
+      "title": "Community-Statistik",
+      "description": "Hilf der EEG-Community: deine Anlage sendet anonymisierte Diagnose- und Wirksamkeits-Daten an einen Cloudflare-Backend. Keine personenbezogenen Daten, keine Sensor-IDs, keine IP-Adressen. Du kannst das jederzeit wieder ausschalten oder alle Daten löschen.",
+      "toggle_label": "Community-Statistik aktivieren",
+      "status_registered": "Registriert als anonyme Anlage {prefix} seit {date}",
+      "status_not_registered": "Nicht registriert",
+      "status_disabled": "Pausiert — Identität bleibt gespeichert",
+      "status_not_configured": "Backend-URL noch nicht eingerichtet (DEV-Build)",
+      "delete_button": "Daten löschen",
+      "delete_confirm_title": "Wirklich alle Daten löschen?",
+      "delete_confirm_body": "Alle gesendeten Telemetriedaten werden vom Server entfernt und die lokale Anmeldung wird gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
+      "delete_confirm_ok": "Endgültig löschen",
+      "delete_confirm_cancel": "Abbrechen",
+      "enable_error": "Aktivieren fehlgeschlagen",
+      "forget_warning": "Backend-Aufruf fehlgeschlagen — lokale Daten wurden trotzdem gelöscht."
+    }
   }
 }
