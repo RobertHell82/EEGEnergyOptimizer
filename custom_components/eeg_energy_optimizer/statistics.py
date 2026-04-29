@@ -19,11 +19,40 @@ from .const import (
     CONF_INVERTER_TYPE,
     DOMAIN,
     INVERTER_SIGN_CONVENTIONS,
+    STATE_ABEND_ENTLADUNG,
+    STATE_MORGEN_EINSPEISUNG,
     STATE_TO_STATS_KEY,
     STATS_COMPACT_AFTER_DAYS,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _trapezoid_kwh(samples: list[tuple[datetime, float]]) -> float:
+    """Trapezoidal integration of power (kW) over time → energy (kWh).
+
+    Formel: sum(((p[i] + p[i+1]) / 2) * dt_hours)
+    wobei dt_hours = (samples[i+1].ts - samples[i].ts).total_seconds() / 3600.
+
+    Returns 0.0 bei <2 nutzbaren Samples. Filtert None-Werte vor der Integration.
+    Sortiert nach ts, damit out-of-order Samples sauber integriert werden.
+
+    W-1 — Outcome predicted-vs-actual: actual_pv_kwh / actual_consumption_kwh
+    werden aus dem 30-min Snapshot-Queue über das Block-Fenster gerechnet.
+    """
+    valid = sorted(
+        [(ts, p) for ts, p in samples if p is not None],
+        key=lambda x: x[0],
+    )
+    if len(valid) < 2:
+        return 0.0
+    total = 0.0
+    for i in range(len(valid) - 1):
+        dt_hours = (valid[i + 1][0] - valid[i][0]).total_seconds() / 3600.0
+        if dt_hours <= 0:
+            continue
+        total += ((valid[i][1] + valid[i + 1][1]) / 2.0) * dt_hours
+    return total
 
 # HA imports guarded for test environment
 try:
@@ -104,6 +133,13 @@ class FeedinStatistics:
         self._last_update_utc: datetime | None = None
         self._dirty = False
         self._first_cycle = True
+
+        # Phase 8 — Telemetry-Hooks. Werden via set_reporter() injiziert; bleiben
+        # None für Test-Setups oder bevor der Reporter im async_setup_entry-Flow
+        # erstellt ist. _maybe_send_outcome wird zum stillen No-Op solange einer
+        # der beiden None ist.
+        self._reporter: Any = None
+        self._data: dict | None = None
 
     # ------------------------------------------------------------------
     # Persistence
@@ -307,7 +343,157 @@ class FeedinStatistics:
         state_data["total_duration_min"] = state_data.get("total_duration_min", 0) + duration_min
         state_data["count"] = state_data.get("count", 0) + 1
 
+        # Phase 8 — Outcome-Telemetrie (D-15). Vor dem _dirty-Flush, damit die
+        # Aggregates bereits in den Daily-Stats sind, falls der Reporter blockiert.
+        try:
+            self._maybe_send_outcome(session, now_local, kwh, duration_min)
+        except Exception:  # pragma: no cover — defensiv, niemals den FeedinStats-Flow zerlegen
+            _LOGGER.exception("Telemetry: outcome emission failed")
+
         self._dirty = True
+
+    # ------------------------------------------------------------------
+    # Phase 8 — Telemetry injection + Outcome emission (W-1, W-2)
+    # ------------------------------------------------------------------
+
+    def set_reporter(self, reporter: Any, data: dict) -> None:
+        """Wire den TelemetryReporter + per-entry data dict ein.
+
+        Wird im async_setup_entry-Flow aufgerufen, NACHDEM Reporter und
+        snapshot_queue / block_predictions im data-Dict abgelegt wurden.
+        Solange diese Methode nicht aufgerufen wurde, bleibt _maybe_send_outcome
+        ein stilles No-Op.
+        """
+        self._reporter = reporter
+        self._data = data
+
+    def _maybe_send_outcome(
+        self,
+        session: dict,
+        now_local: datetime,
+        kwh: float,
+        duration_min: int,
+    ) -> None:
+        """Sendet ein Outcome-Event ans Backend (D-15, W-1, W-2).
+
+        Aufgerufen aus _close_session am Block-Ende. Liest:
+          - data["block_predictions"][event_type] für predicted_* + soc_start
+          - data["snapshot_queue"] für peak_power_kw + actual_pv/consumption
+          - data["optimizer"].last_decision.snapshot["soc_pct"] für soc_end
+        """
+        if self._reporter is None or not getattr(self._reporter, "is_configured", False):
+            return
+        buf = getattr(self._reporter, "_buffer", None)
+        if buf is None or not buf.identity_known():
+            return
+
+        # W-2 — _normalize_state ist die einzige Kanonisierungsfunktion. Lazy-Import,
+        # um Zirkularität zu vermeiden (statistics ← __init__).
+        from . import _normalize_state
+
+        stats_key = session.get("state")
+        if stats_key == "morning":
+            event_type = _normalize_state(STATE_MORGEN_EINSPEISUNG)
+        elif stats_key == "evening":
+            event_type = _normalize_state(STATE_ABEND_ENTLADUNG)
+        else:
+            return  # unbekannter Session-Typ — nichts zu senden
+
+        data = self._data or {}
+        predictions = (data.get("block_predictions") or {}).get(event_type)
+
+        # SOC-Ende: bevorzugt aus dem optimizer.last_decision.snapshot — das ist
+        # der genaueste Wert (Zyklus, in dem Block beendet wurde).
+        soc_end: int | None = None
+        opt = data.get("optimizer")
+        if opt is not None:
+            last_dec = getattr(opt, "last_decision", None)
+            if last_dec is not None:
+                snap = getattr(last_dec, "snapshot", None) or {}
+                raw_soc = snap.get("soc_pct")
+                if raw_soc is not None:
+                    try:
+                        soc_end = int(round(float(raw_soc)))
+                    except (TypeError, ValueError):
+                        soc_end = None
+
+        # ---- W-1: peak_power_kw + actual_pv_kwh + actual_consumption_kwh ----
+        peak_power_kw: float | None = None
+        actual_pv_kwh: float | None = None
+        actual_consumption_kwh: float | None = None
+
+        ended_at_dt = now_local.astimezone(timezone.utc)
+        started_at_str: str | None = (predictions or {}).get("started_at")
+        started_at_dt: datetime | None = None
+        if started_at_str:
+            try:
+                started_at_dt = datetime.fromisoformat(
+                    str(started_at_str).replace("Z", "+00:00")
+                )
+            except (ValueError, TypeError):
+                started_at_dt = None
+
+        if started_at_dt is not None:
+            queue = data.get("snapshot_queue") or []
+            window: list[tuple[datetime, dict]] = []
+            for snap in queue:
+                ts_raw = snap.get("ts") if isinstance(snap, dict) else None
+                if not ts_raw:
+                    continue
+                try:
+                    ts_dt = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    continue
+                if started_at_dt <= ts_dt <= ended_at_dt:
+                    window.append((ts_dt, snap))
+
+            grids = [
+                abs(s["grid_now_kw"]) for _, s in window
+                if s.get("grid_now_kw") is not None
+            ]
+            if grids:
+                peak_power_kw = round(max(grids), 3)
+
+            pv_samples = [
+                (ts, s.get("pv_now_kw")) for ts, s in window
+                if s.get("pv_now_kw") is not None
+            ]
+            cons_samples = [
+                (ts, s.get("consumption_now_kw")) for ts, s in window
+                if s.get("consumption_now_kw") is not None
+            ]
+            if len(pv_samples) >= 2:
+                actual_pv_kwh = round(_trapezoid_kwh(pv_samples), 3)
+            if len(cons_samples) >= 2:
+                actual_consumption_kwh = round(_trapezoid_kwh(cons_samples), 3)
+
+        payload = {
+            "event_type": event_type,
+            "started_at": started_at_str if started_at_str else session.get("start_utc", ""),
+            "ended_at": ended_at_dt.isoformat(),
+            "duration_minutes": int(duration_min),
+            "grid_export_kwh": float(round(kwh, 3)),
+            "peak_power_kw": peak_power_kw,
+            "soc_start_pct": (predictions or {}).get("soc_start_pct"),
+            "soc_end_pct": soc_end,
+            "predicted_pv_kwh": (predictions or {}).get("predicted_pv_kwh"),
+            "actual_pv_kwh": actual_pv_kwh,
+            "predicted_consumption_kwh": (predictions or {}).get("predicted_consumption_kwh"),
+            "actual_consumption_kwh": actual_consumption_kwh,
+            "terminated_by": "block_end",
+        }
+
+        # Predictions poppen, damit eine Folge-Session denselben Typs keine
+        # veralteten predicted_*-Werte bekommt.
+        bp = data.get("block_predictions")
+        if isinstance(bp, dict):
+            bp.pop(event_type, None)
+
+        # Fire-and-forget — Reporter handled Buffer/Retry bei Fehler.
+        try:
+            self._hass.async_create_task(self._reporter.send_outcome(payload))
+        except Exception:  # pragma: no cover — defensiv
+            _LOGGER.exception("Telemetry: failed to schedule send_outcome")
 
     def _split_session_at_midnight(self, now_local: datetime) -> None:
         """Split the current session at midnight boundary."""
