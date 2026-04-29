@@ -51,6 +51,6 @@ _ws_module.ActiveConnection = MagicMock
 
 # Wichtig: `from homeassistant.components import websocket_api` greift NICHT auf
 # sys.modules zu, sondern auf das Attribut `websocket_api` des `homeassistant.components`
-# MagicMock — das standardmaessig ein eigener MagicMock ist (nicht unser gepatchter).
+# MagicMock — das standardmäßig ein eigener MagicMock ist (nicht unser gepatchter).
 # Daher: gepatchtes Modul auch als Attribut auf homeassistant.components legen.
 sys.modules["homeassistant.components"].websocket_api = _ws_module
