@@ -41,6 +41,6 @@ Full details: `.planning/milestones/v1.1-telemetry-ROADMAP.md`
 | 5. Robustness & Error Handling | v1.0 | 1/1 | Complete | 2026-03-22 |
 | 6. Polish & Tech Debt | v1.0 | 2/2 | Complete | 2026-03-22 |
 | 7. Backend-Skelett (Cloudflare) | v1.1 | n/a | Complete (separates Repo) | 2026-04-29 |
-| 8. HA Reporter-Modul | v1.1 | 0/4 | In Progress (CONTEXT) | — |
+| 8. HA Reporter-Modul | v1.1 | 4/4 | Complete | 2026-04-29 |
 | 9. Dashboard | v1.1 | 0/0 | Planned | — |
 | 10. Sicherheit & Pflege | v1.1 | 0/0 | Planned | — |
