@@ -28,8 +28,30 @@ from custom_components.eeg_energy_optimizer.const import (
     STATE_NORMAL,
 )
 from custom_components.eeg_energy_optimizer.optimizer import (
+    ALL_REASONS,
     Decision,
     EEGOptimizer,
+    REASON_BEFORE_DISCHARGE_START,
+    REASON_DISCHARGE_ABORTED_TODAY,
+    REASON_HARD_CUTOFF_AFTER_4AM,
+    REASON_HYSTERESIS_STRICT,
+    REASON_IN_MORNING_WINDOW,
+    REASON_LABELS_DE,
+    REASON_MORNING_DELAY_DISABLED,
+    REASON_NIGHT_DISCHARGE_DISABLED,
+    REASON_OUTSIDE_MORNING_WINDOW,
+    REASON_OVERNIGHT_DEMAND_TOO_HIGH,
+    REASON_PEAKSHARE_BEFORE_WINDOW,
+    REASON_PEAKSHARE_WINDOW_ACTIVE,
+    REASON_PEAKSHARE_WINDOW_EXPIRED,
+    REASON_PV_FORECAST_BELOW_THRESHOLD,
+    REASON_PV_FORECAST_EXCEEDS_DEMAND,
+    REASON_PV_FORECAST_NONE,
+    REASON_SOC_ABOVE_MIN,
+    REASON_SOC_BELOW_MIN,
+    REASON_SUNRISE_UNKNOWN,
+    REASON_TOMORROW_PV_INSUFFICIENT,
+    REASON_TOMORROW_PV_SUFFICIENT,
     Snapshot,
 )
 
@@ -95,7 +117,7 @@ class TestShouldBlockCharging:
             pv_remaining_today_kwh=20.0,
             consumption_today_kwh=10.0,
         )
-        assert opt._should_block_charging(snap) is True
+        assert opt._should_block_charging(snap)[0] is True
 
     def test_morning_block_false_when_factor_below_threshold(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -109,7 +131,7 @@ class TestShouldBlockCharging:
             pv_remaining_today_kwh=5.0,
             consumption_today_kwh=10.0,  # factor = 0.5 < 1.25
         )
-        assert opt._should_block_charging(snap) is False
+        assert opt._should_block_charging(snap)[0] is False
 
     def test_morning_block_false_after_end_time(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -123,7 +145,7 @@ class TestShouldBlockCharging:
             pv_remaining_today_kwh=20.0,
             consumption_today_kwh=10.0,  # factor = 2.0
         )
-        assert opt._should_block_charging(snap) is False
+        assert opt._should_block_charging(snap)[0] is False
 
     def test_morning_block_false_before_window(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -137,14 +159,14 @@ class TestShouldBlockCharging:
             pv_remaining_today_kwh=20.0,
             consumption_today_kwh=10.0,
         )
-        assert opt._should_block_charging(snap) is False
+        assert opt._should_block_charging(snap)[0] is False
 
     def test_morning_block_false_when_sunrise_none(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
         opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
         snap = _make_snapshot(sunrise=None)
-        assert opt._should_block_charging(snap) is False
+        assert opt._should_block_charging(snap)[0] is False
 
 
 # ---------------------------------------------------------------------------
@@ -189,9 +211,12 @@ class TestShouldDischarge:
             consumption_tomorrow_kwh=12.0,
             consumption_overnight_kwh=3.0,
         )
-        should, min_soc, reasons, _ = opt._should_discharge(snap)
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
         assert should is True
-        assert len(reasons) == 0
+        assert len(blocked_by) == 0
+        # All emitted catalog keys must be members of ALL_REASONS
+        assert set(reasons).issubset(ALL_REASONS)
+        assert set(blocked_by).issubset(ALL_REASONS)
 
     def test_discharge_false_when_soc_below_min(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -205,9 +230,9 @@ class TestShouldDischarge:
             consumption_tomorrow_kwh=12.0,
             consumption_overnight_kwh=3.0,
         )
-        should, min_soc, reasons, _ = opt._should_discharge(snap)
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
         assert should is False
-        assert any("SOC" in r for r in reasons)
+        assert REASON_SOC_BELOW_MIN in blocked_by
 
     def test_discharge_false_when_tomorrow_not_surplus(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -222,9 +247,9 @@ class TestShouldDischarge:
             consumption_tomorrow_kwh=12.0,
             consumption_overnight_kwh=3.0,
         )
-        should, min_soc, reasons, _ = opt._should_discharge(snap)
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
         assert should is False
-        assert any("morgen" in r.lower() or "prognose" in r.lower() for r in reasons)
+        assert REASON_TOMORROW_PV_INSUFFICIENT in blocked_by
 
     def test_discharge_false_before_start_time(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -236,9 +261,9 @@ class TestShouldDischarge:
             pv_tomorrow_kwh=40.0,
             consumption_tomorrow_kwh=12.0,
         )
-        should, min_soc, reasons, _ = opt._should_discharge(snap)
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
         assert should is False
-        assert any("zeit" in r.lower() or "uhrzeit" in r.lower() or "start" in r.lower() for r in reasons)
+        assert REASON_BEFORE_DISCHARGE_START in blocked_by
 
 
 # ---------------------------------------------------------------------------
@@ -571,7 +596,7 @@ class TestDaylightConsumption:
             pv_tomorrow_kwh=40.0,
             consumption_overnight_kwh=3.0,
         )
-        should, min_soc, reasons, _ = opt._should_discharge(snap)
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
         assert should is True  # uses full-day 12.0 not daylight 8.0
 
     def test_discharge_detail_still_uses_full_day(
@@ -639,9 +664,9 @@ class TestHysteresis:
             consumption_tomorrow_daylight_kwh=9.0,
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
         )
-        should, min_soc, reasons, _ = opt._should_discharge(snap)
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
         assert should is True
-        assert not any("SOC" in r for r in reasons)
+        assert REASON_SOC_BELOW_MIN not in blocked_by
 
     def test_discharge_reactivation_requires_5pct_above_min_soc(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -664,9 +689,9 @@ class TestHysteresis:
             consumption_tomorrow_daylight_kwh=9.0,
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
         )
-        should, min_soc, reasons, _ = opt._should_discharge(snap)
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
         assert should is False
-        assert any("SOC" in r for r in reasons)
+        assert REASON_SOC_BELOW_MIN in blocked_by
 
     def test_discharge_reactivation_succeeds_with_enough_margin(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -688,7 +713,7 @@ class TestHysteresis:
             consumption_tomorrow_daylight_kwh=9.0,
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
         )
-        should, min_soc, reasons, _ = opt._should_discharge(snap)
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
         assert should is True
 
     def test_discharge_no_hysteresis_while_still_active(
@@ -711,7 +736,7 @@ class TestHysteresis:
             consumption_tomorrow_daylight_kwh=9.0,
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
         )
-        should, min_soc, reasons, _ = opt._should_discharge(snap)
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
         assert should is True
 
     def test_morning_first_activation_uses_normal_threshold(
@@ -730,7 +755,7 @@ class TestHysteresis:
             battery_soc=50.0,
             battery_capacity_kwh=10.0,
         )
-        assert opt._should_block_charging(snap) is True
+        assert opt._should_block_charging(snap)[0] is True
 
     def test_morning_reactivation_requires_10pct_above_demand(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -754,7 +779,7 @@ class TestHysteresis:
             battery_soc=50.0,
             battery_capacity_kwh=10.0,
         )
-        assert opt._should_block_charging(snap) is False
+        assert opt._should_block_charging(snap)[0] is False
 
     def test_morning_reactivation_succeeds_with_enough_margin(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -777,7 +802,7 @@ class TestHysteresis:
             battery_soc=50.0,
             battery_capacity_kwh=10.0,
         )
-        assert opt._should_block_charging(snap) is True
+        assert opt._should_block_charging(snap)[0] is True
 
     def test_morning_no_hysteresis_while_still_active(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -800,7 +825,7 @@ class TestHysteresis:
             battery_soc=50.0,
             battery_capacity_kwh=10.0,
         )
-        assert opt._should_block_charging(snap) is True
+        assert opt._should_block_charging(snap)[0] is True
 
     def test_hysteresis_does_not_apply_on_different_day(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -822,7 +847,7 @@ class TestHysteresis:
             consumption_tomorrow_daylight_kwh=9.0,
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
         )
-        should, min_soc, reasons, _ = opt._should_discharge(snap)
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
         assert should is True
 
     def test_evaluate_tracks_activation_dates(
@@ -862,9 +887,9 @@ class TestHysteresis:
             consumption_tomorrow_daylight_kwh=9.0,
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
         )
-        should, min_soc, reasons, _ = opt._should_discharge(snap)
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
         assert should is False
-        assert any("04:00" in r for r in reasons)
+        assert REASON_HARD_CUTOFF_AFTER_4AM in blocked_by
 
     def test_discharge_active_before_0400_cutoff(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -880,5 +905,573 @@ class TestHysteresis:
             consumption_tomorrow_daylight_kwh=9.0,
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
         )
-        should, min_soc, reasons, _ = opt._should_discharge(snap)
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
         assert should is True
+
+
+# ---------------------------------------------------------------------------
+# Reasons-Katalog (D-09 to D-12): closed snake_case key set
+# ---------------------------------------------------------------------------
+
+import re
+
+
+_EXPECTED_REASON_KEYS: frozenset[str] = frozenset({
+    # Morning side
+    "pv_forecast_exceeds_demand",
+    "pv_forecast_below_threshold",
+    "pv_forecast_none",
+    "in_morning_window",
+    "outside_morning_window",
+    "morning_delay_disabled",
+    "sunrise_unknown",
+    "hysteresis_strict",
+    # Discharge side
+    "night_discharge_disabled",
+    "overnight_demand_too_high",
+    "before_discharge_start",
+    "peakshare_before_window",
+    "peakshare_window_active",
+    "peakshare_window_expired",
+    "hard_cutoff_after_4am",
+    "soc_above_min",
+    "soc_below_min",
+    "tomorrow_pv_sufficient",
+    "tomorrow_pv_insufficient",
+    "discharge_aborted_today",
+})
+
+
+class TestReasonsCatalog:
+    """D-12: Begründungs-Strings sind ein fixierter, dokumentierter Schlüssel-Katalog."""
+
+    def test_reasons_catalog_is_closed_set(self):
+        """ALL_REASONS contains exactly the documented keys; no orphans, no extras."""
+        assert ALL_REASONS == _EXPECTED_REASON_KEYS, (
+            f"ALL_REASONS mismatch.\n"
+            f"  Missing: {_EXPECTED_REASON_KEYS - ALL_REASONS}\n"
+            f"  Extra:   {ALL_REASONS - _EXPECTED_REASON_KEYS}"
+        )
+
+    def test_reasons_are_snake_case(self):
+        """Every key matches ^[a-z][a-z_0-9]*$ — no whitespace, no UPPERCASE."""
+        pat = re.compile(r"^[a-z][a-z_0-9]*$")
+        for key in ALL_REASONS:
+            assert pat.match(key), f"{key!r} is not snake_case"
+
+    def test_reason_labels_de_covers_every_key(self):
+        """REASON_LABELS_DE has a German rendering for every catalog key."""
+        for key in ALL_REASONS:
+            assert key in REASON_LABELS_DE, f"REASON_LABELS_DE missing key: {key}"
+            label = REASON_LABELS_DE[key]
+            assert isinstance(label, str) and label, f"label for {key} must be non-empty string"
+
+    def test_reason_labels_de_has_no_orphans(self):
+        """Every label key is a member of ALL_REASONS (no stale keys)."""
+        for key in REASON_LABELS_DE:
+            assert key in ALL_REASONS, f"REASON_LABELS_DE has orphan key: {key}"
+
+    def test_reason_constants_match_expected_values(self):
+        """Spot-check that imported constants resolve to their documented snake_case keys."""
+        assert REASON_PV_FORECAST_EXCEEDS_DEMAND == "pv_forecast_exceeds_demand"
+        assert REASON_PV_FORECAST_BELOW_THRESHOLD == "pv_forecast_below_threshold"
+        assert REASON_PV_FORECAST_NONE == "pv_forecast_none"
+        assert REASON_IN_MORNING_WINDOW == "in_morning_window"
+        assert REASON_OUTSIDE_MORNING_WINDOW == "outside_morning_window"
+        assert REASON_MORNING_DELAY_DISABLED == "morning_delay_disabled"
+        assert REASON_SUNRISE_UNKNOWN == "sunrise_unknown"
+        assert REASON_HYSTERESIS_STRICT == "hysteresis_strict"
+        assert REASON_NIGHT_DISCHARGE_DISABLED == "night_discharge_disabled"
+        assert REASON_OVERNIGHT_DEMAND_TOO_HIGH == "overnight_demand_too_high"
+        assert REASON_BEFORE_DISCHARGE_START == "before_discharge_start"
+        assert REASON_PEAKSHARE_BEFORE_WINDOW == "peakshare_before_window"
+        assert REASON_PEAKSHARE_WINDOW_ACTIVE == "peakshare_window_active"
+        assert REASON_PEAKSHARE_WINDOW_EXPIRED == "peakshare_window_expired"
+        assert REASON_HARD_CUTOFF_AFTER_4AM == "hard_cutoff_after_4am"
+        assert REASON_SOC_ABOVE_MIN == "soc_above_min"
+        assert REASON_SOC_BELOW_MIN == "soc_below_min"
+        assert REASON_TOMORROW_PV_SUFFICIENT == "tomorrow_pv_sufficient"
+        assert REASON_TOMORROW_PV_INSUFFICIENT == "tomorrow_pv_insufficient"
+        assert REASON_DISCHARGE_ABORTED_TODAY == "discharge_aborted_today"
+
+
+# ---------------------------------------------------------------------------
+# Snapshot.to_telemetry_dict (D-09 lean snapshot for state-change payload)
+# ---------------------------------------------------------------------------
+
+
+class TestSnapshotToTelemetryDict:
+    """Snapshot.to_telemetry_dict() returns a deterministic lean dict for telemetry."""
+
+    def test_to_telemetry_dict_returns_soc_pct_int(self):
+        snap = Snapshot(
+            now=datetime(2026, 6, 15, 8, 0, tzinfo=timezone.utc),
+            battery_soc=42.7,
+        )
+        d = snap.to_telemetry_dict()
+        assert d == {"soc_pct": 43}
+        assert isinstance(d["soc_pct"], int)
+
+    def test_to_telemetry_dict_rounds_half_to_even_python_default(self):
+        """round() uses banker's rounding — 50.5 → 50, 51.5 → 52 (Python 3 default)."""
+        snap = Snapshot(
+            now=datetime(2026, 6, 15, 8, 0, tzinfo=timezone.utc),
+            battery_soc=50.0,
+        )
+        assert snap.to_telemetry_dict() == {"soc_pct": 50}
+
+    def test_to_telemetry_dict_handles_zero_soc(self):
+        snap = Snapshot(
+            now=datetime(2026, 6, 15, 8, 0, tzinfo=timezone.utc),
+            battery_soc=0.0,
+        )
+        assert snap.to_telemetry_dict() == {"soc_pct": 0}
+
+
+# ---------------------------------------------------------------------------
+# _should_block_charging — branch coverage with catalog keys
+# ---------------------------------------------------------------------------
+
+
+class TestShouldBlockChargingBranches:
+    """Every branch in _should_block_charging emits documented catalog keys."""
+
+    def _assert_invariants(self, block, reasons, blocked_by):
+        """Closed-set + mutual-exclusion invariants."""
+        assert isinstance(block, bool)
+        assert isinstance(reasons, list)
+        assert isinstance(blocked_by, list)
+        assert set(reasons).issubset(ALL_REASONS), (
+            f"reasons {reasons} contains non-catalog keys"
+        )
+        assert set(blocked_by).issubset(ALL_REASONS), (
+            f"blocked_by {blocked_by} contains non-catalog keys"
+        )
+        if block:
+            assert blocked_by == [], "blocked_by must be empty when block=True"
+        else:
+            assert reasons == [], "reasons must be empty when block=False"
+
+    def test_feature_off(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        from custom_components.eeg_energy_optimizer.const import CONF_ENABLE_MORNING_DELAY
+        cfg = _make_config(**{CONF_ENABLE_MORNING_DELAY: False})
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider, cfg)
+        snap = _make_snapshot()
+        block, reasons, blocked_by = opt._should_block_charging(snap)
+        self._assert_invariants(block, reasons, blocked_by)
+        assert block is False
+        assert blocked_by == [REASON_MORNING_DELAY_DISABLED]
+
+    def test_sunrise_today_none(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        snap = _make_snapshot(sunrise_today=None)
+        block, reasons, blocked_by = opt._should_block_charging(snap)
+        self._assert_invariants(block, reasons, blocked_by)
+        assert block is False
+        assert blocked_by == [REASON_SUNRISE_UNKNOWN]
+
+    def test_outside_morning_window(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 14, 0, tzinfo=timezone.utc),  # afternoon
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=20.0,
+        )
+        block, reasons, blocked_by = opt._should_block_charging(snap)
+        self._assert_invariants(block, reasons, blocked_by)
+        assert block is False
+        assert blocked_by == [REASON_OUTSIDE_MORNING_WINDOW]
+
+    def test_in_window_pv_none(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc),
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=None,
+        )
+        block, reasons, blocked_by = opt._should_block_charging(snap)
+        self._assert_invariants(block, reasons, blocked_by)
+        assert block is False
+        assert REASON_IN_MORNING_WINDOW in blocked_by
+        assert REASON_PV_FORECAST_NONE in blocked_by
+
+    def test_in_window_pv_zero(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc),
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=0.0,
+        )
+        block, reasons, blocked_by = opt._should_block_charging(snap)
+        self._assert_invariants(block, reasons, blocked_by)
+        assert block is False
+        assert REASON_IN_MORNING_WINDOW in blocked_by
+        assert REASON_PV_FORECAST_NONE in blocked_by
+
+    def test_in_window_pv_below_threshold(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        # bedarf = consumption_today_daylight(7.0)*1.25 + missing_battery(5.0) = 13.75
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc),
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=10.0,  # less than 13.75
+            consumption_today_daylight_kwh=7.0,
+            battery_soc=50.0,
+            battery_capacity_kwh=10.0,
+        )
+        block, reasons, blocked_by = opt._should_block_charging(snap)
+        self._assert_invariants(block, reasons, blocked_by)
+        assert block is False
+        assert REASON_IN_MORNING_WINDOW in blocked_by
+        assert REASON_PV_FORECAST_BELOW_THRESHOLD in blocked_by
+
+    def test_in_window_pv_exceeds_demand(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc),
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=20.0,  # exceeds 13.75
+            consumption_today_daylight_kwh=7.0,
+            battery_soc=50.0,
+            battery_capacity_kwh=10.0,
+        )
+        block, reasons, blocked_by = opt._should_block_charging(snap)
+        self._assert_invariants(block, reasons, blocked_by)
+        assert block is True
+        assert REASON_IN_MORNING_WINDOW in reasons
+        assert REASON_PV_FORECAST_EXCEEDS_DEMAND in reasons
+
+    def test_reactivation_pv_below_strict_threshold(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        """Hysteresis active, PV ≤ 1.1×bedarf — blocked with hysteresis_strict + below_threshold."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc)
+        opt._morning_activated_date = now.strftime("%Y-%m-%d")
+        opt._last_eval_zustand = STATE_NORMAL
+        # bedarf = 13.75, threshold = 15.125
+        snap = _make_snapshot(
+            now=now,
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=14.5,  # > 13.75 but < 15.125
+            consumption_today_daylight_kwh=7.0,
+            battery_soc=50.0,
+            battery_capacity_kwh=10.0,
+        )
+        block, reasons, blocked_by = opt._should_block_charging(snap)
+        self._assert_invariants(block, reasons, blocked_by)
+        assert block is False
+        assert REASON_IN_MORNING_WINDOW in blocked_by
+        assert REASON_HYSTERESIS_STRICT in blocked_by
+        assert REASON_PV_FORECAST_BELOW_THRESHOLD in blocked_by
+
+    def test_reactivation_pv_exceeds_strict_threshold(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        """Hysteresis active, PV > 1.1×bedarf — blocks with hysteresis_strict + exceeds_demand."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc)
+        opt._morning_activated_date = now.strftime("%Y-%m-%d")
+        opt._last_eval_zustand = STATE_NORMAL
+        # bedarf = 13.75, threshold = 15.125
+        snap = _make_snapshot(
+            now=now,
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=16.0,  # > 15.125
+            consumption_today_daylight_kwh=7.0,
+            battery_soc=50.0,
+            battery_capacity_kwh=10.0,
+        )
+        block, reasons, blocked_by = opt._should_block_charging(snap)
+        self._assert_invariants(block, reasons, blocked_by)
+        assert block is True
+        assert REASON_IN_MORNING_WINDOW in reasons
+        assert REASON_HYSTERESIS_STRICT in reasons
+        assert REASON_PV_FORECAST_EXCEEDS_DEMAND in reasons
+
+
+# ---------------------------------------------------------------------------
+# _should_discharge — branch coverage with catalog keys
+# ---------------------------------------------------------------------------
+
+
+class _StubPeakShare:
+    """Minimal stub for PeakShareProvider used in branch tests."""
+
+    def __init__(self, plan=None, plan_date=None):
+        self._discharge_plan = plan
+        self._discharge_plan_date = plan_date
+
+    def get_discharge_plan(self, *_args, **_kwargs):
+        return self._discharge_plan
+
+
+class TestShouldDischargeBranches:
+    """Every branch in _should_discharge emits documented catalog keys."""
+
+    def _assert_invariants(self, should, reasons, blocked_by):
+        assert isinstance(should, bool)
+        assert isinstance(reasons, list)
+        assert isinstance(blocked_by, list)
+        assert set(reasons).issubset(ALL_REASONS), (
+            f"reasons {reasons} contains non-catalog keys"
+        )
+        assert set(blocked_by).issubset(ALL_REASONS), (
+            f"blocked_by {blocked_by} contains non-catalog keys"
+        )
+        if should:
+            assert blocked_by == [], "blocked_by must be empty when discharge active"
+        else:
+            assert reasons == [], "reasons must be empty when discharge blocked"
+
+    def test_feature_off(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        from custom_components.eeg_energy_optimizer.const import CONF_ENABLE_NIGHT_DISCHARGE
+        cfg = _make_config(**{CONF_ENABLE_NIGHT_DISCHARGE: False})
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider, cfg)
+        snap = _make_snapshot(now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc))
+        should, min_soc, reasons, blocked_by, hyst = opt._should_discharge(snap)
+        self._assert_invariants(should, reasons, blocked_by)
+        assert should is False
+        assert blocked_by == [REASON_NIGHT_DISCHARGE_DISABLED]
+        assert hyst is False
+
+    def test_min_soc_at_or_above_100(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        # With huge overnight consumption, min_soc >= 100
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            battery_capacity_kwh=5.0,
+            consumption_overnight_kwh=10.0,  # 10*1.25/5*100=250 → min_soc=260 → clamped to 100
+        )
+        should, min_soc, reasons, blocked_by, hyst = opt._should_discharge(snap)
+        self._assert_invariants(should, reasons, blocked_by)
+        assert should is False
+        assert min_soc == 100.0
+        assert REASON_OVERNIGHT_DEMAND_TOO_HIGH in blocked_by
+
+    def test_before_discharge_start(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 18, 0, tzinfo=timezone.utc),  # before 20:00
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+        )
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
+        self._assert_invariants(should, reasons, blocked_by)
+        assert should is False
+        assert REASON_BEFORE_DISCHARGE_START in blocked_by
+
+    def test_fixed_time_all_ok(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
+        self._assert_invariants(should, reasons, blocked_by)
+        assert should is True
+        assert REASON_SOC_ABOVE_MIN in reasons
+        assert REASON_TOMORROW_PV_SUFFICIENT in reasons
+
+    def test_hard_cutoff_after_4am(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 16, 4, 0, tzinfo=timezone.utc),
+            battery_soc=60.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=1.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
+        self._assert_invariants(should, reasons, blocked_by)
+        assert should is False
+        assert REASON_HARD_CUTOFF_AFTER_4AM in blocked_by
+
+    def test_soc_below_min(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            battery_soc=5.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+        )
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
+        self._assert_invariants(should, reasons, blocked_by)
+        assert should is False
+        assert REASON_SOC_BELOW_MIN in blocked_by
+
+    def test_tomorrow_pv_insufficient(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=2.0,  # too low
+            consumption_tomorrow_daylight_kwh=9.0,
+        )
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
+        self._assert_invariants(should, reasons, blocked_by)
+        assert should is False
+        assert REASON_TOMORROW_PV_INSUFFICIENT in blocked_by
+
+    def test_hysteresis_strict_with_soc_below(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        opt._discharge_activated_date = now.strftime("%Y-%m-%d")
+        opt._last_eval_zustand = STATE_NORMAL
+        # min_soc = 48; SOC = 52 → only 4% above, below 5% hysteresis margin
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=52.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons, blocked_by, hyst = opt._should_discharge(snap)
+        self._assert_invariants(should, reasons, blocked_by)
+        assert should is False
+        assert REASON_HYSTERESIS_STRICT in blocked_by
+        assert REASON_SOC_BELOW_MIN in blocked_by
+        assert hyst is True
+
+    def test_solaredge_aborted_today(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        from custom_components.eeg_energy_optimizer.const import CONF_INVERTER_TYPE
+        cfg = _make_config(**{CONF_INVERTER_TYPE: "solaredge_storedge"})
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider, cfg)
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        opt._discharge_aborted_date = now.strftime("%Y-%m-%d")
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
+        self._assert_invariants(should, reasons, blocked_by)
+        assert should is False
+        assert REASON_DISCHARGE_ABORTED_TODAY in blocked_by
+
+    def test_peakshare_before_window(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        from custom_components.eeg_energy_optimizer.const import CONF_ENABLE_PEAKSHARE
+        cfg = _make_config(**{CONF_ENABLE_PEAKSHARE: True})
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider, cfg)
+        now = datetime(2026, 6, 15, 19, 0, tzinfo=timezone.utc)
+        plan_start = datetime(2026, 6, 15, 20, 0, tzinfo=timezone.utc)
+        plan_end = datetime(2026, 6, 15, 22, 0, tzinfo=timezone.utc)
+        opt._peakshare = _StubPeakShare(plan=(plan_start, plan_end))
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 6, 15, 20, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
+        self._assert_invariants(should, reasons, blocked_by)
+        assert should is False
+        assert REASON_PEAKSHARE_BEFORE_WINDOW in blocked_by
+
+    def test_peakshare_window_expired(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        from custom_components.eeg_energy_optimizer.const import CONF_ENABLE_PEAKSHARE
+        cfg = _make_config(**{CONF_ENABLE_PEAKSHARE: True})
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider, cfg)
+        now = datetime(2026, 6, 15, 23, 0, tzinfo=timezone.utc)
+        plan_start = datetime(2026, 6, 15, 20, 0, tzinfo=timezone.utc)
+        plan_end = datetime(2026, 6, 15, 22, 0, tzinfo=timezone.utc)
+        opt._peakshare = _StubPeakShare(plan=(plan_start, plan_end))
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 6, 15, 20, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
+        self._assert_invariants(should, reasons, blocked_by)
+        assert should is False
+        assert REASON_PEAKSHARE_WINDOW_EXPIRED in blocked_by
+
+    def test_peakshare_window_active_all_ok(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        from custom_components.eeg_energy_optimizer.const import CONF_ENABLE_PEAKSHARE
+        cfg = _make_config(**{CONF_ENABLE_PEAKSHARE: True})
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider, cfg)
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        plan_start = datetime(2026, 6, 15, 20, 0, tzinfo=timezone.utc)
+        plan_end = datetime(2026, 6, 15, 22, 0, tzinfo=timezone.utc)
+        opt._peakshare = _StubPeakShare(plan=(plan_start, plan_end))
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 6, 15, 20, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
+        self._assert_invariants(should, reasons, blocked_by)
+        assert should is True
+        assert REASON_PEAKSHARE_WINDOW_ACTIVE in reasons
+        assert REASON_SOC_ABOVE_MIN in reasons
+        assert REASON_TOMORROW_PV_SUFFICIENT in reasons
+
+    def test_peakshare_window_soc_below(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
+        from custom_components.eeg_energy_optimizer.const import CONF_ENABLE_PEAKSHARE
+        cfg = _make_config(**{CONF_ENABLE_PEAKSHARE: True})
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider, cfg)
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        plan_start = datetime(2026, 6, 15, 20, 0, tzinfo=timezone.utc)
+        plan_end = datetime(2026, 6, 15, 22, 0, tzinfo=timezone.utc)
+        # available_kwh = (5 - 48) → negative → no plan computed (peakshare returns None branch)
+        # Use SOC just above min — but min_soc is 48 with consumption 3 → SOC 5 is below
+        opt._peakshare = _StubPeakShare(plan=(plan_start, plan_end))
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=20.0,  # below min_soc of 48
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 6, 15, 20, 30, tzinfo=timezone.utc),
+        )
+        # Note: when available_kwh <= 0, peakshare_plan stays None and falls back to fixed time
+        # So this exercises fixed-time + soc_below_min branch.
+        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
+        self._assert_invariants(should, reasons, blocked_by)
+        assert should is False
+        assert REASON_SOC_BELOW_MIN in blocked_by
