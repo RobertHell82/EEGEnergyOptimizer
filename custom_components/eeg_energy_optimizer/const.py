@@ -174,3 +174,8 @@ TELEMETRY_SETTINGS_KEYS = (
     "peakshare_community",
     "forecast_source",
 )
+
+# Phase 8 — Runtime Watchdog-Schwellen (08-03, D-16)
+SENSOR_UNAVAIL_THRESHOLD_S = 600        # Sensor 10 min unverfügbar → Failure
+FORECAST_NONE_STREAK_THRESHOLD = 3      # 3 aufeinanderfolgende None-Forecasts → Failure
+FAILURE_DEDUP_WINDOW_S = 3600           # 1 h Dedup pro (category, message_hash)

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import collections
+import hashlib
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -13,6 +14,11 @@ import logging
 from .const import (
     DOMAIN,
     MODE_AUS,
+    MODE_EIN,
+    MODE_TEST,
+    CONF_BATTERY_CAPACITY_KWH,
+    CONF_BATTERY_SOC_SENSOR,
+    CONF_FORECAST_SOURCE,
     CONF_INVERTER_TYPE,
     CONF_PV_POWER_SENSOR,
     CONF_PV_POWER_SENSOR_2,
@@ -23,14 +29,24 @@ from .const import (
     CONF_GRID_POWER_EXPORT_SENSOR,
     CONF_GRID_POWER_IMPORT_SENSOR,
     CONF_LOOKBACK_WEEKS,
+    CONF_TELEMETRY_ENABLED,
     COMBINED_BATTERY_POWER_SENSOR_ID,
     COMBINED_GRID_POWER_SENSOR_ID,
     CONSUMPTION_SENSOR,
     DEFAULT_LOOKBACK_WEEKS,
+    FAILURE_DEDUP_WINDOW_S,
+    FORECAST_NONE_STREAK_THRESHOLD,
     INVERTER_SIGN_CONVENTIONS,
+    SENSOR_UNAVAIL_THRESHOLD_S,
+    STATE_ABEND_ENTLADUNG,
+    STATE_MORGEN_EINSPEISUNG,
+    STATE_NORMAL,
+    TELEMETRY_SETTINGS_KEYS,
 )
 from .inverter import create_inverter
 from .optimizer import EEGOptimizer, REASON_DISCHARGE_ABORTED_TODAY
+from .telemetry import TelemetryReporter
+from .telemetry_buffer import TelemetryBuffer
 from .websocket_api import async_register_websocket_commands
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,10 +56,193 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 try:
-    from homeassistant.helpers.event import async_track_time_interval, async_call_later
+    from homeassistant.helpers.event import (
+        async_call_later,
+        async_track_time_change,
+        async_track_time_interval,
+    )
 except ImportError:
     async_track_time_interval = None  # type: ignore[assignment]
+    async_track_time_change = None  # type: ignore[assignment]
     async_call_later = None  # type: ignore[assignment]
+
+try:
+    from homeassistant.util import dt as dt_util
+except ImportError:  # pragma: no cover — only triggered outside HA
+    dt_util = None  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — geteilte Module-Level-Helfer (W-2 / W-3 / W-6 / I-4)
+#
+# Diese drei Helfer sind die *einzigen* Stellen, an denen ihre jeweilige
+# Aufgabe erledigt wird. Sowohl _async_update_listener als auch
+# websocket_api.py::ws_telemetry_enable importieren _build_telemetry_profile
+# direkt aus diesem Modul, damit Profil-Shape und integration_started_at-
+# Resolver garantiert identisch sind.
+# ---------------------------------------------------------------------------
+
+
+def _normalize_state(zustand):
+    """W-2 / W-6 — kanonisiert Decision.zustand-Labels in lowercase snake_case.
+
+    Genutzt von:
+      - State-Change `transition`-Strings (W-2)
+      - Snapshot.state-Feld (W-6)
+      - Outcome.event_type (W-2)
+      - block_predictions Dict-Key (W-2)
+
+    Beispiele:
+      "Normal"             -> "normal"
+      "Morgen-Einspeisung" -> "morgen_einspeisung"
+      "Abend-Entladung"    -> "abend_entladung"
+    """
+    if zustand is None:
+        return None
+    return zustand.lower().replace(" ", "_").replace("-", "_")
+
+
+def _resolve_integration_started_at(entry, identity_registered_at):
+    """W-3 — einziger Resolver für profile.integration_started_at.
+
+    Reihenfolge:
+      1. entry.created_at (HA 2024.x+) → UTC ISO
+      2. identity_registered_at (von TelemetryBuffer.set_identity)
+      3. None
+    """
+    created_at = getattr(entry, "created_at", None)
+    if created_at is not None:
+        try:
+            # Bevorzugt UTC-Konvertierung über astimezone — funktioniert für
+            # alle datetime-Instanzen unabhängig vom HA dt_util-Stub im Test.
+            if hasattr(created_at, "astimezone"):
+                return created_at.astimezone(timezone.utc).isoformat()
+            if dt_util is not None:
+                result = dt_util.as_utc(created_at).isoformat()
+                if isinstance(result, str):
+                    return result
+            return str(created_at)
+        except Exception:  # pragma: no cover
+            pass
+    return identity_registered_at
+
+
+def _build_telemetry_profile(hass, entry, identity_registered_at):
+    """I-4 / W-3 — einziger Profil-Builder.
+
+    Wird von BEIDEN Pfaden genutzt:
+      - _async_update_listener (Settings-Change → reporter.update_profile)
+      - websocket_api.ws_telemetry_enable (Initial-Register → reporter.register)
+
+    Reporter._shape_profile wendet die Whitelist defensiv erneut an, aber die
+    Wahrheit lebt hier.
+    """
+    import json as _json
+    import pathlib as _pathlib
+
+    try:
+        from homeassistant.const import __version__ as HA_VERSION
+    except ImportError:  # pragma: no cover — Test-Umgebung ohne HA
+        HA_VERSION = None
+
+    # HA-Konvention: data + options gemerged
+    _data = getattr(entry, "data", {}) or {}
+    _options = getattr(entry, "options", {}) or {}
+    config = {**_data, **_options}
+    try:
+        manifest = _json.loads(
+            (_pathlib.Path(__file__).parent / "manifest.json").read_text()
+        )
+        app_version = manifest.get("version")
+    except Exception:  # pragma: no cover
+        app_version = None
+
+    settings = {k: config.get(k) for k in TELEMETRY_SETTINGS_KEYS if k in config}
+
+    return {
+        "integration_started_at": _resolve_integration_started_at(
+            entry, identity_registered_at
+        ),
+        "app_version": app_version,
+        "ha_version": HA_VERSION,
+        "inverter_type": config.get(CONF_INVERTER_TYPE),
+        "battery_capacity_kwh": config.get(CONF_BATTERY_CAPACITY_KWH),
+        "pv_peak_kwp": None,                # D-24
+        "forecast_provider": config.get(CONF_FORECAST_SOURCE),
+        "country_iso": getattr(hass.config, "country", None),
+        "settings": settings,
+    }
+
+
+def _now_utc() -> datetime:
+    """Helper für deterministische UTC-now (Telemetrie-Timestamps)."""
+    return datetime.now(tz=timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# Reine Payload-Builder — kein I/O, frei testbar (Hook-Glue Verifikation).
+# ---------------------------------------------------------------------------
+
+
+def _build_state_change_payload(decision, prev_zustand, mode_str):
+    """W-2 — baut die StateChangePayload aus einer Decision-Übergangs-Beobachtung.
+
+    `transition` und Snapshot.state nutzen denselben _normalize_state-Helper.
+
+    Args:
+        decision: Aktuelle Decision (neuer Zustand).
+        prev_zustand: Voriger Zustand (deutscher Label-String).
+        mode_str: "ein" oder "test" (lowercase). Caller hat MODE_AUS bereits gefiltert.
+    """
+    from_norm = _normalize_state(prev_zustand)
+    to_norm = _normalize_state(decision.zustand)
+    return {
+        "ts": decision.timestamp,
+        "transition": f"{from_norm}->{to_norm}",
+        "mode": mode_str,
+        "reasons": list(decision.reasons),
+        "blocked_by": list(decision.blocked_by),
+        "snapshot": dict(decision.snapshot),
+    }
+
+
+def _build_snapshot_payload(decision, mode_str, now):
+    """W-6 — baut die SnapshotPayload aus der zuletzt berechneten Decision.
+
+    `state` wird durch den gemeinsamen _normalize_state-Helper kanonisiert,
+    damit Phase-9-JOINs zwischen `snapshots.state` und `state_changes.transition`
+    sauber matchen.
+    """
+    payload = {
+        "ts": now.isoformat() if hasattr(now, "isoformat") else str(now),
+        "state": _normalize_state(decision.zustand),
+        "mode": mode_str,
+    }
+    payload.update(dict(decision.snapshot))
+    return payload
+
+
+def _build_block_predictions(decision):
+    """Captured beim Block-Start — predicted-Werte für späteren Outcome-Vergleich (W-1)."""
+    if decision.zustand == STATE_MORGEN_EINSPEISUNG:
+        predicted_pv = float(decision.morning_pv_today_kwh)
+        predicted_consumption = float(decision.morning_consumption_kwh)
+    elif decision.zustand == STATE_ABEND_ENTLADUNG:
+        predicted_pv = float(decision.discharge_pv_tomorrow_kwh)
+        predicted_consumption = float(decision.discharge_consumption_daylight_kwh)
+    else:
+        predicted_pv = 0.0
+        predicted_consumption = 0.0
+
+    soc_start = decision.discharge_soc
+    if not soc_start:
+        soc_start = (decision.snapshot or {}).get("soc_pct") or 0
+    return {
+        "started_at": decision.timestamp,
+        "soc_start_pct": int(round(soc_start)),
+        "predicted_pv_kwh": predicted_pv,
+        "predicted_consumption_kwh": predicted_consumption,
+    }
 
 PLATFORMS: list[str] = ["sensor", "select"]
 
@@ -533,12 +732,15 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.config_entries.async_update_entry(entry, data=new_data, version=12)
 
     if entry.version < 13:
-        # Pair-sensor support (Fronius). Schema-only bump — pair keys are
-        # written by the wizard / auto-detect when (and only when) the user
-        # actually has a Fronius / SolarNet split-sensor setup. Existing
-        # entries with single signed sensors get the bump without their data
-        # dict being touched.
-        hass.config_entries.async_update_entry(entry, data=entry.data, version=13)
+        # v13 vereint zwei Migrations-Intents (gemeinsam gedraftet):
+        #   1. Pair-sensor support (Fronius) — schema-only, pair keys werden
+        #      vom Wizard/Auto-Detect geschrieben, wenn der User tatsächlich
+        #      ein SolarNet split-sensor Setup hat.
+        #   2. Phase 8 Telemetrie (D-02): CONF_TELEMETRY_ENABLED=False als
+        #      sicherer Default für alle existierenden Installationen.
+        new_data = {**entry.data}
+        new_data.setdefault(CONF_TELEMETRY_ENABLED, False)
+        hass.config_entries.async_update_entry(entry, data=new_data, version=13)
 
     return True
 
@@ -681,14 +883,196 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data["peakshare"] = peakshare_provider
 
     if coordinator and provider:
-        optimizer = EEGOptimizer(hass, entry.entry_id, config, inverter, coordinator, provider, peakshare=peakshare_provider)
-        data["optimizer"] = optimizer
-
-        # Feed-in statistics tracker
+        # Feed-in statistics tracker (vor Optimizer, damit der failure_callback
+        # darauf zugreifen könnte; Reporter wird unmittelbar danach injiziert)
         from .statistics import FeedinStatistics
         feedin_stats = FeedinStatistics(hass, entry.entry_id, config)
         await feedin_stats.async_load()
         data["feedin_stats"] = feedin_stats
+
+        # ----------------------------------------------------------
+        # Phase 8: Telemetry Reporter Lifecycle (D-04 .. D-06)
+        # ----------------------------------------------------------
+        telemetry_buffer = TelemetryBuffer(hass)
+        await telemetry_buffer.load()
+        reporter = TelemetryReporter(hass, telemetry_buffer)
+        data["telemetry_buffer"] = telemetry_buffer
+        data["telemetry_reporter"] = reporter
+        # W-1: snapshot_queue wird sowohl vom 60-min Flush gedrained als
+        # auch vom Outcome-Hook (statistics._maybe_send_outcome) gelesen.
+        data["snapshot_queue"] = []
+        # event_type (snake_case) -> {predicted_pv_kwh, predicted_consumption_kwh,
+        #                             started_at, soc_start_pct}
+        data["block_predictions"] = {}
+        # (category, message_hash) -> last-emit datetime (UTC)
+        data["telemetry_failure_dedup"] = {}
+        data["telemetry_forecast_none_streak"] = 0
+        # sensor_role -> datetime|None (None = aktuell verfügbar)
+        data["telemetry_sensor_unavail_since"] = {}
+
+        # Reporter + data dict in FeedinStatistics einklinken (für Outcome-Hook)
+        if hasattr(feedin_stats, "set_reporter"):
+            feedin_stats.set_reporter(reporter, data)
+
+        # ----------------------------------------------------------
+        # Telemetrie-Failure-Helper (closures über data + reporter)
+        # ----------------------------------------------------------
+        def _emit_failure_dedup(*, category, severity, message_hash, context):
+            key = (category, message_hash)
+            last = data["telemetry_failure_dedup"].get(key)
+            now_ts = _now_utc()
+            if last is not None and (now_ts - last).total_seconds() < FAILURE_DEDUP_WINDOW_S:
+                return
+            data["telemetry_failure_dedup"][key] = now_ts
+            payload = {
+                "ts": now_ts.isoformat(),
+                "category": category,
+                "severity": severity,
+                "message_hash": message_hash,
+                "context": context,
+            }
+            try:
+                hass.async_create_task(reporter.send_failure(payload))
+            except Exception:  # pragma: no cover — defensive
+                _LOGGER.exception("Telemetry: failed to schedule send_failure")
+
+        def _optimizer_failure_callback(category, exc, action):
+            """W-4 — Inverter-Write-Exception → /v1/failure (D-16)."""
+            blob = (type(exc).__name__ + str(exc)[:200]).encode("utf-8")
+            mh = hashlib.sha256(blob).hexdigest()[:16]
+            _emit_failure_dedup(
+                category=category,
+                severity="error",
+                message_hash=mh,
+                context={
+                    "inverter_type": config.get(CONF_INVERTER_TYPE),
+                    "action": action,
+                },
+            )
+
+        def _check_sensor_unavailability():
+            """D-16 — 10-min Watchdog auf 5 essenzielle Sensoren."""
+            roles = {
+                "battery_soc": config.get(CONF_BATTERY_SOC_SENSOR, ""),
+                "pv_power": config.get(CONF_PV_POWER_SENSOR, ""),
+                "grid_power": config.get(CONF_GRID_POWER_SENSOR, ""),
+                "battery_power": config.get(CONF_BATTERY_POWER_SENSOR, ""),
+                "hausverbrauch": CONSUMPTION_SENSOR,
+            }
+            now_ts = _now_utc()
+            for role, eid in roles.items():
+                if not eid:
+                    data["telemetry_sensor_unavail_since"][role] = None
+                    continue
+                state = hass.states.get(eid)
+                unavailable = (
+                    state is None
+                    or getattr(state, "state", None) in ("unknown", "unavailable", "")
+                )
+                since = data["telemetry_sensor_unavail_since"].get(role)
+                if unavailable:
+                    if since is None:
+                        data["telemetry_sensor_unavail_since"][role] = now_ts
+                    elif (now_ts - since).total_seconds() >= SENSOR_UNAVAIL_THRESHOLD_S:
+                        _emit_failure_dedup(
+                            category="sensor_unavailable",
+                            severity="warning",
+                            message_hash=role,
+                            context={"sensor_role": role, "entity_id": eid},
+                        )
+                else:
+                    data["telemetry_sensor_unavail_since"][role] = None
+
+        def _check_forecast_streak(forecast):
+            """D-16 — 3 None-Forecasts in Folge → Failure (1 h Dedup)."""
+            try:
+                remaining = forecast.remaining_today_kwh
+                tomorrow = forecast.tomorrow_kwh
+            except AttributeError:
+                return
+            if remaining is None and tomorrow is None:
+                data["telemetry_forecast_none_streak"] += 1
+                if data["telemetry_forecast_none_streak"] >= FORECAST_NONE_STREAK_THRESHOLD:
+                    _emit_failure_dedup(
+                        category="forecast_provider",
+                        severity="warning",
+                        message_hash="all_none",
+                        context={
+                            "forecast_source": config.get(CONF_FORECAST_SOURCE),
+                        },
+                    )
+            else:
+                data["telemetry_forecast_none_streak"] = 0
+
+        def _emit_state_change(decision, prev, mode):
+            """W-2 — sendet StateChange-Event mit normalisiertem transition-String."""
+            mode_str = "ein" if mode == MODE_EIN else "test"
+            payload = _build_state_change_payload(decision, prev, mode_str)
+            try:
+                hass.async_create_task(reporter.send_state_change(payload))
+            except Exception:  # pragma: no cover
+                _LOGGER.exception("Telemetry: failed to schedule send_state_change")
+
+        def _capture_block_predictions(decision):
+            """W-2 — speichert Predictions beim Block-Start für späteren Outcome."""
+            event_type = _normalize_state(decision.zustand)
+            if event_type:
+                data["block_predictions"][event_type] = _build_block_predictions(decision)
+
+        def _on_snapshot_tick(now):
+            """D-14 — alle 30 min (xx:00, xx:30) ein Snapshot in den Queue schreiben."""
+            current_optimizer = data.get("optimizer")
+            if current_optimizer is None:
+                return
+            last_dec = current_optimizer.last_decision
+            if last_dec is None:
+                return
+            select = data.get("select")
+            mode = select._attr_current_option if select else MODE_AUS
+            if mode == MODE_AUS:
+                return  # D-08: keine Telemetrie wenn Aus
+            mode_str = "ein" if mode == MODE_EIN else "test"
+            snap_payload = _build_snapshot_payload(last_dec, mode_str, now)
+            data["snapshot_queue"].append(snap_payload)
+
+        async def _on_snapshot_flush(_now):
+            """D-14 — 60-min Flush: Queue → send_snapshot_batch + Buffer-Drain."""
+            queue = data.get("snapshot_queue") or []
+            data["snapshot_queue"] = []
+            cfg_enabled = config.get(CONF_TELEMETRY_ENABLED, False)
+            if (
+                queue
+                and cfg_enabled
+                and reporter.is_configured
+                and telemetry_buffer.identity_known()
+            ):
+                try:
+                    await reporter.send_snapshot_batch(queue)
+                except Exception:
+                    _LOGGER.exception("Telemetry: snapshot batch send failed")
+            # Auch den persistenten Buffer drainen (alte Events von Backend-Down-Phasen)
+            if reporter.is_configured and telemetry_buffer.identity_known():
+                try:
+                    await reporter.flush_buffer()
+                except Exception:  # pragma: no cover
+                    _LOGGER.exception("Telemetry: buffer flush failed")
+
+        # Optimizer mit failure_callback erzeugen (W-4)
+        optimizer = EEGOptimizer(
+            hass, entry.entry_id, config, inverter, coordinator, provider,
+            peakshare=peakshare_provider,
+            failure_callback=_optimizer_failure_callback,
+        )
+        data["optimizer"] = optimizer
+
+        # Telemetrie-Hooks im Closure-Scope für späteren Zugriff (Tests)
+        data["_emit_state_change"] = _emit_state_change
+        data["_capture_block_predictions"] = _capture_block_predictions
+        data["_on_snapshot_tick"] = _on_snapshot_tick
+        data["_on_snapshot_flush"] = _on_snapshot_flush
+        data["_check_sensor_unavailability"] = _check_sensor_unavailability
+        data["_check_forecast_streak"] = _check_forecast_streak
+        data["_emit_failure_dedup"] = _emit_failure_dedup
 
         # Activity log: persistent ring buffer (last 5000 entries)
         from homeassistant.helpers.storage import Store
@@ -760,6 +1144,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             # Activity logging: on state change + at full hours (:00)
             if decision:
+                # ----------------------------------------------------------
+                # Phase 8 — Telemetry State-Change + Watchdogs (D-13 / D-16)
+                # ----------------------------------------------------------
+                cfg_enabled = config.get(CONF_TELEMETRY_ENABLED, False)
+                telemetry_active = (
+                    cfg_enabled
+                    and reporter.is_configured
+                    and telemetry_buffer.identity_known()
+                )
+                if (
+                    telemetry_active
+                    and not first_cycle[0]
+                    and mode != MODE_AUS
+                    and decision.zustand != prev_zustand[0]
+                ):
+                    _emit_state_change(decision, prev_zustand[0], mode)
+                    # Predictions auf Normal → Block-Übergang capturen (D-15)
+                    if (
+                        prev_zustand[0] == STATE_NORMAL
+                        and decision.zustand in (
+                            STATE_MORGEN_EINSPEISUNG,
+                            STATE_ABEND_ENTLADUNG,
+                        )
+                    ):
+                        _capture_block_predictions(decision)
+
+                if telemetry_active and not first_cycle[0] and mode != MODE_AUS:
+                    # Watchdogs (D-16) — Sensor-Unavailability + Forecast-Streak
+                    try:
+                        _check_sensor_unavailability()
+                    except Exception:  # pragma: no cover
+                        _LOGGER.exception("Telemetry: sensor watchdog failed")
+                    try:
+                        _check_forecast_streak(
+                            current_optimizer._provider.get_forecast()
+                        )
+                    except Exception:  # pragma: no cover
+                        _LOGGER.exception("Telemetry: forecast watchdog failed")
+
                 # Skip first cycle — sensors may not have real data yet
                 if first_cycle[0]:
                     first_cycle[0] = False
@@ -811,6 +1234,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Run initial cycle immediately — sensors are already populated
             # by the synchronous slow+fast update in async_setup_entry
             await _optimizer_cycle()
+
+            # ----------------------------------------------------------
+            # Phase 8: Snapshot-Timer (30 min) + Flush-Timer (60 min)
+            # ----------------------------------------------------------
+            cfg_enabled = config.get(CONF_TELEMETRY_ENABLED, False)
+            if cfg_enabled and reporter.is_configured and async_track_time_change is not None:
+                try:
+                    unsub_snap = async_track_time_change(
+                        hass, _on_snapshot_tick, hour=None, minute=[0, 30], second=0,
+                    )
+                    entry.async_on_unload(unsub_snap)
+                except Exception:  # pragma: no cover — defensive
+                    _LOGGER.exception("Telemetry: failed to register snapshot timer")
+                try:
+                    unsub_flush = async_track_time_interval(
+                        hass, _on_snapshot_flush, timedelta(minutes=60),
+                    )
+                    entry.async_on_unload(unsub_flush)
+                except Exception:  # pragma: no cover
+                    _LOGGER.exception("Telemetry: failed to register flush timer")
     else:
         missing = []
         if not coordinator:
@@ -872,12 +1315,37 @@ async def _async_update_listener(
             new_optimizer = EEGOptimizer(
                 hass, entry.entry_id, config, inverter, coordinator, provider,
                 peakshare=peakshare_provider,
+                # failure_callback aus dem ursprünglichen Optimizer übernehmen
+                failure_callback=getattr(optimizer, "_failure_callback", None),
             )
             new_optimizer._prev_zustand = optimizer._prev_zustand
             new_optimizer._startup_time = optimizer._startup_time
             new_optimizer._grace_period_logged = optimizer._grace_period_logged
             data["optimizer"] = new_optimizer
             _LOGGER.info("EEG Energy Optimizer: Config hot-reloaded")
+
+            # ----------------------------------------------------------
+            # Phase 8: Profile-Update bei Settings-Change (D-17, W-3, I-4)
+            # ----------------------------------------------------------
+            reporter = data.get("telemetry_reporter")
+            buffer = data.get("telemetry_buffer")
+            if (
+                reporter is not None
+                and reporter.is_configured
+                and config.get(CONF_TELEMETRY_ENABLED, False)
+                and buffer is not None
+                and buffer.identity_known()
+            ):
+                try:
+                    identity = buffer.get_identity() or {}
+                    profile = _build_telemetry_profile(
+                        hass, entry,
+                        identity_registered_at=identity.get("registered_at"),
+                    )
+                    await reporter.update_profile(profile)
+                except Exception:  # pragma: no cover — defensive
+                    _LOGGER.exception("Telemetry profile update failed")
+
             # Run cycle immediately so dashboard reflects changes
             cycle_fn = data.get("_run_cycle")
             if cycle_fn:

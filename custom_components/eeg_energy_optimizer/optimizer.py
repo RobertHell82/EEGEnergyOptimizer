@@ -11,7 +11,7 @@ import logging
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from .const import (
     CONF_BATTERY_CAPACITY_KWH,
@@ -287,6 +287,8 @@ class EEGOptimizer:
         coordinator: Any,
         provider: Any,
         peakshare: Any = None,
+        *,
+        failure_callback: Optional[Callable[[str, Exception, str], None]] = None,
     ) -> None:
         self._hass = hass
         self._entry_id = entry_id
@@ -295,6 +297,9 @@ class EEGOptimizer:
         self._coordinator = coordinator
         self._provider = provider
         self._peakshare = peakshare
+        # W-4 — Telemetrie-Failure-Hook. Wird von __init__.py auf reporter.send_failure
+        # geroutet; bleibt None für Tests / Setups ohne Telemetrie.
+        self._failure_callback = failure_callback
         self._enable_peakshare = config.get(CONF_ENABLE_PEAKSHARE, DEFAULT_ENABLE_PEAKSHARE)
         self._peakshare_community = config.get(CONF_PEAKSHARE_COMMUNITY, DEFAULT_PEAKSHARE_COMMUNITY)
 
@@ -1244,8 +1249,23 @@ class EEGOptimizer:
                 await self._inverter.async_stop_forcible()
 
             self._prev_zustand = decision.zustand
-        except Exception:
+        except Exception as exc:
             _LOGGER.exception("Inverter command failed for state %s", decision.zustand)
+            # W-4 — Telemetrie-Hook für Inverter-Schreibfehler (D-16). Action je
+            # nach Zielzustand: charge / discharge / stop. Callback ist defensiv
+            # gewrappt — eine Exception darin darf den Optimizer-Zyklus nicht
+            # zerlegen.
+            if self._failure_callback is not None:
+                if decision.zustand == STATE_MORGEN_EINSPEISUNG:
+                    action = "charge"
+                elif decision.zustand == STATE_ABEND_ENTLADUNG:
+                    action = "discharge"
+                else:
+                    action = "stop"
+                try:
+                    self._failure_callback("inverter_write", exc, action)
+                except Exception:  # pragma: no cover — defensive
+                    _LOGGER.exception("Inverter failure callback raised")
 
     def _check_grid_import_watchdog(self, decision: Decision, snap: Snapshot) -> Decision:
         """Check for sustained grid import during discharge and abort if needed.
