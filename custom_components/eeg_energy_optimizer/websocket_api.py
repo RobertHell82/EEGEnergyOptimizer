@@ -26,12 +26,36 @@ from .const import (
     CONF_INVERTER_TYPE,
     CONF_PV_POWER_SENSOR,
     CONF_PV_POWER_SENSOR_2,
+    CONF_TELEMETRY_ENABLED,
     DOMAIN,
     INVERTER_TYPE_HUAWEI,
     INVERTER_TYPE_SOLAX,
     INVERTER_TYPE_SOLAREDGE,
     INVERTER_TYPE_FRONIUS,
+    TELEMETRY_SETTINGS_KEYS,
 )
+# I-4: Der shared Profile-Builder lebt in __init__.py. Da __init__.py uns
+# importiert, würde ein direkter `from . import _build_telemetry_profile`
+# einen Zirkular-Import erzeugen. Stattdessen: lazy lookup über das Modul-
+# Objekt zur Laufzeit (siehe `_get_build_telemetry_profile()` unten).
+def _get_build_telemetry_profile():
+    """Hole den shared Profile-Builder aus __init__.py.
+
+    I-4 / W-3 — eine einzige Quelle der Wahrheit. Tests können die Funktion
+    via patch.object(websocket_api, "_build_telemetry_profile", ...)
+    überschreiben — siehe `_build_telemetry_profile = ...` unter dem Import.
+    """
+    from . import _build_telemetry_profile as _impl
+    # Spiegele die aktuelle Referenz ins Modul, damit Tests via patch.object
+    # auf `websocket_api._build_telemetry_profile` zugreifen können.
+    return _impl
+
+
+# Modulvariable, die Tests via patch.object überschreiben können (I-4 / W-3
+# Single-Source-Pin in test_websocket_telemetry.py::test_enable_uses_shared_profile_helper).
+# Wird zur Laufzeit aus __init__.py gefüllt — der Import erfolgt lazy beim
+# ersten Aufruf des Befehls (siehe ws_telemetry_enable unten).
+_build_telemetry_profile = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -322,6 +346,11 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_peakshare_data)
     websocket_api.async_register_command(hass, ws_get_consumption_profile_status)
     websocket_api.async_register_command(hass, ws_refresh_consumption_profile)
+    # Phase 8 — Telemetry-Steuerung (D-32 / D-33)
+    websocket_api.async_register_command(hass, ws_telemetry_get_status)
+    websocket_api.async_register_command(hass, ws_telemetry_enable)
+    websocket_api.async_register_command(hass, ws_telemetry_disable)
+    websocket_api.async_register_command(hass, ws_telemetry_forget)
 
 
 @websocket_api.websocket_command(
@@ -1319,3 +1348,166 @@ async def ws_refresh_consumption_profile(
     payload = _consumption_status_payload(coordinator)
     payload["success"] = True
     connection.send_result(msg["id"], payload)
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — Telemetry control (D-32 / D-33)
+# ---------------------------------------------------------------------------
+#
+# 4 neue WebSocket-Befehle, die das Panel (08-04) ansteuert:
+#   - telemetry_get_status   → Status-Anzeige (registered? enabled? buffer?)
+#   - telemetry_enable       → Initial-Register, setzt CONF_TELEMETRY_ENABLED=True
+#   - telemetry_disable      → Pausiert Senden, Identity bleibt erhalten
+#   - telemetry_forget       → DELETE Backend + lokale Cleanup
+#
+# I-4 / W-3: ws_telemetry_enable nutzt den OBEN importierten
+# `_build_telemetry_profile` aus __init__.py — KEIN lokaler Profile-Builder.
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "eeg_optimizer/telemetry_get_status"}
+)
+@websocket_api.async_response
+async def ws_telemetry_get_status(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Liefert den aktuellen Telemetrie-Status für die Panel-Anzeige."""
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+    reporter = data.get("telemetry_reporter") if data else None
+    buffer = data.get("telemetry_buffer") if data else None
+    config = {**entry.data, **entry.options}
+    identity = buffer.get_identity() if buffer is not None else None
+    prefix = identity["installation_id"][:8] if identity else None
+    snap_q = data.get("snapshot_queue") if data else None
+    snap_q = snap_q if snap_q is not None else []
+    buf_size = buffer.size() if buffer is not None else 0
+    connection.send_result(msg["id"], {
+        "configured": bool(reporter and getattr(reporter, "is_configured", False)),
+        "enabled": bool(config.get(CONF_TELEMETRY_ENABLED, False)),
+        "registered": bool(identity),
+        "installation_id_prefix": prefix,
+        "registered_at": identity.get("registered_at") if identity else None,
+        "queue_size": len(snap_q) + buf_size,
+        "buffer_size": buf_size,
+        "last_send_at": data.get("telemetry_last_send_at") if data else None,
+    })
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "eeg_optimizer/telemetry_enable"}
+)
+@websocket_api.async_response
+async def ws_telemetry_enable(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Aktiviert die Telemetrie — Initial-Register beim Backend (D-30)."""
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+    reporter = data.get("telemetry_reporter") if data else None
+    buffer = data.get("telemetry_buffer") if data else None
+    if reporter is None or buffer is None:
+        connection.send_result(msg["id"], {
+            "success": False, "error": "telemetry_unavailable",
+        })
+        return
+    if not getattr(reporter, "is_configured", False):
+        connection.send_result(msg["id"], {
+            "success": False, "error": "backend_not_configured",
+        })
+        return
+    # Idempotent: schon aktiv → kein erneutes Register
+    if buffer.identity_known() and entry.data.get(CONF_TELEMETRY_ENABLED):
+        ident = buffer.get_identity() or {}
+        prefix = ident.get("installation_id", "")[:8] or None
+        connection.send_result(msg["id"], {
+            "success": True,
+            "already_active": True,
+            "installation_id_prefix": prefix,
+        })
+        return
+
+    # I-4 / W-3 — der gemeinsame Profile-Builder. Modulvariable wird beim
+    # ersten Aufruf gefüllt (kein Zirkular-Import zur Laufzeit, weil
+    # __init__.py jetzt vollständig geladen ist). Tests können die
+    # Modulvariable via patch.object überschreiben.
+    global _build_telemetry_profile
+    if _build_telemetry_profile is None:
+        _build_telemetry_profile = _get_build_telemetry_profile()
+    identity = buffer.get_identity() or {}
+    profile = _build_telemetry_profile(
+        hass, entry, identity_registered_at=identity.get("registered_at"),
+    )
+    try:
+        ok = await reporter.register(profile)
+    except Exception:
+        _LOGGER.exception("Telemetry: register call raised")
+        ok = False
+    if not ok:
+        connection.send_result(msg["id"], {
+            "success": False, "error": "register_failed",
+        })
+        return
+
+    new_data = {**entry.data, CONF_TELEMETRY_ENABLED: True}
+    hass.config_entries.async_update_entry(entry, data=new_data)
+    ident = buffer.get_identity() or {}
+    prefix = ident.get("installation_id", "")[:8] if ident else None
+    connection.send_result(msg["id"], {
+        "success": True,
+        "installation_id_prefix": prefix,
+    })
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "eeg_optimizer/telemetry_disable"}
+)
+@websocket_api.async_response
+async def ws_telemetry_disable(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Pausiert die Telemetrie — Identity bleibt erhalten (D-32)."""
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+    new_data = {**entry.data, CONF_TELEMETRY_ENABLED: False}
+    hass.config_entries.async_update_entry(entry, data=new_data)
+    connection.send_result(msg["id"], {"success": True})
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "eeg_optimizer/telemetry_forget"}
+)
+@websocket_api.async_response
+async def ws_telemetry_forget(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Vergisst die Installation — DELETE Backend + lokale Cleanup (D-31, D-33)."""
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+    reporter = data.get("telemetry_reporter") if data else None
+    backend_deleted = False
+    if reporter is not None:
+        try:
+            backend_deleted = bool(await reporter.forget())
+        except Exception:
+            _LOGGER.exception("Telemetry: forget call raised")
+            backend_deleted = False
+    new_data = {**entry.data, CONF_TELEMETRY_ENABLED: False}
+    hass.config_entries.async_update_entry(entry, data=new_data)
+    # Erfolg auch bei Backend-Fehler (lokale Cleanup ist passiert)
+    connection.send_result(msg["id"], {
+        "success": True,
+        "backend_deleted": backend_deleted,
+    })
