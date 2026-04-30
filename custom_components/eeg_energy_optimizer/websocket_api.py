@@ -1449,6 +1449,10 @@ async def ws_telemetry_enable(
                 hass, entry, identity_registered_at=ident.get("registered_at"),
             )
             await reporter.update_profile(profile)
+            if data is not None:
+                data["telemetry_last_profile_capacity_kwh"] = (
+                    profile.get("battery_capacity_kwh")
+                )
         except Exception:  # pragma: no cover
             _LOGGER.exception("Telemetry resume: update_profile failed")
         prefix = ident.get("installation_id", "")[:8] or None
@@ -1475,6 +1479,10 @@ async def ws_telemetry_enable(
 
     new_data = {**entry.data, CONF_TELEMETRY_ENABLED: True}
     hass.config_entries.async_update_entry(entry, data=new_data)
+    if data is not None:
+        data["telemetry_last_profile_capacity_kwh"] = (
+            profile.get("battery_capacity_kwh")
+        )
     ident = buffer.get_identity() or {}
     prefix = ident.get("installation_id", "")[:8] if ident else None
     connection.send_result(msg["id"], {

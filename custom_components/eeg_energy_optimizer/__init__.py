@@ -997,6 +997,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data["telemetry_forecast_none_streak"] = 0
         # sensor_role -> datetime|None (None = aktuell verfügbar)
         data["telemetry_sensor_unavail_since"] = {}
+        # Drift-Self-Heal: Wert der zuletzt erfolgreich gesendeten
+        # battery_capacity_kwh. Schlüssel fehlt, solange noch kein Profil
+        # gesendet wurde — dann findet auch keine Drift-Prüfung statt.
+        # Notwendig, weil Sensoren wie sensor.batterien_akkukapazitat beim
+        # Boot häufig noch unknown sind und der Resolver auf den manuellen
+        # Wizard-Default (z.B. 10 kWh) zurückfällt.
 
         # Reporter + data dict in FeedinStatistics einklinken (für Outcome-Hook)
         if hasattr(feedin_stats, "set_reporter"):
@@ -1271,6 +1277,46 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     except Exception:  # pragma: no cover
                         _LOGGER.exception("Telemetry: forecast watchdog failed")
 
+                # Profile-Drift-Self-Heal: Wenn der Kapazitäts-Sensor beim Boot
+                # noch unknown war, hat _boot_telemetry_send den manuellen
+                # Fallback gesendet (z.B. 10 kWh). Sobald der Sensor jetzt
+                # einen anderen Wert liefert, gleichen wir das Backend-Profil
+                # einmalig nach. Läuft nur, wenn überhaupt schon ein Profil
+                # gesendet wurde (Schlüssel im data-Dict vorhanden).
+                if (
+                    telemetry_active
+                    and "telemetry_last_profile_capacity_kwh" in data
+                ):
+                    try:
+                        live_cap = _resolve_battery_capacity_kwh(hass, config)
+                    except Exception:  # pragma: no cover — defensive
+                        live_cap = None
+                    if live_cap != data["telemetry_last_profile_capacity_kwh"]:
+                        # Sofort markieren, damit ein laufender Cycle nicht
+                        # mehrfach denselben Re-Send queued.
+                        data["telemetry_last_profile_capacity_kwh"] = live_cap
+
+                        async def _resend_profile_for_capacity_drift():
+                            try:
+                                ident = telemetry_buffer.get_identity() or {}
+                                profile = _build_telemetry_profile(
+                                    hass, entry,
+                                    identity_registered_at=ident.get("registered_at"),
+                                )
+                                await reporter.update_profile(profile)
+                                # Authoritative: was tatsächlich gesendet wurde.
+                                data["telemetry_last_profile_capacity_kwh"] = (
+                                    profile.get("battery_capacity_kwh")
+                                )
+                            except Exception:  # pragma: no cover
+                                _LOGGER.exception(
+                                    "Telemetry: capacity drift profile "
+                                    "re-send failed",
+                                )
+                        hass.async_create_task(
+                            _resend_profile_for_capacity_drift()
+                        )
+
                 # Skip first cycle — sensors may not have real data yet
                 if first_cycle[0]:
                     first_cycle[0] = False
@@ -1343,11 +1389,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 except Exception:  # pragma: no cover
                     _LOGGER.exception("Telemetry: failed to register flush timer")
 
-                # Boot-Send: Profile-Update + Buffer-Drain als Hintergrund-Task,
-                # damit nach Restart sofort Verbindung validiert wird, gepufferte
-                # Events drainen und die "Letzte Übertragung"-Anzeige aktuell ist.
+                # Boot-Send: Profile-Update + Buffer-Drain.
+                # WICHTIG — Delay von 180 s: Beim HA-Start sind Modbus-/
+                # Cloud-Sensoren (z.B. sensor.batterien_akkukapazitat,
+                # PV-Forecasts) häufig noch unknown/unavailable. Würden wir
+                # sofort senden, ginge der Profile-Resolver auf den manuellen
+                # Wizard-Default zurück (z.B. 10 kWh statt der echten 15 kWh
+                # vom Huawei-Sensor) und das Backend bekäme dauerhaft den
+                # falschen Wert. 3 min reichen für 1–2 Modbus-Polls.
+                # Defence-in-Depth: Falls der Sensor auch nach 180 s noch
+                # nicht da ist, fängt die Drift-Detection im Optimizer-Cycle
+                # die spätere Aktualisierung ab.
+                _BOOT_TELEMETRY_DELAY_S = 180
+
                 if telemetry_buffer.identity_known():
-                    async def _boot_telemetry_send():
+                    async def _boot_telemetry_send(_now=None):
                         try:
                             identity = telemetry_buffer.get_identity() or {}
                             profile = _build_telemetry_profile(
@@ -1355,10 +1411,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 identity_registered_at=identity.get("registered_at"),
                             )
                             await reporter.update_profile(profile)
+                            data["telemetry_last_profile_capacity_kwh"] = (
+                                profile.get("battery_capacity_kwh")
+                            )
                             await reporter.flush_buffer()
                         except Exception:  # pragma: no cover
                             _LOGGER.exception("Telemetry boot send failed")
-                    hass.async_create_task(_boot_telemetry_send())
+                    if async_call_later is not None:
+                        unsub_boot = async_call_later(
+                            hass, _BOOT_TELEMETRY_DELAY_S, _boot_telemetry_send,
+                        )
+                        entry.async_on_unload(unsub_boot)
+                    else:  # pragma: no cover — Fallback ohne HA-Helper
+                        hass.async_create_task(_boot_telemetry_send())
                 else:
                     # Default-on Opt-Out: neue Installationen werden mit
                     # cfg_enabled=True angelegt (config_flow.py). Damit das Flag
@@ -1366,15 +1431,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     # Bestehende Installationen mit explizit gewähltem False
                     # landen nicht in diesem Block, weil cfg_enabled bereits
                     # oben gefiltert hat.
-                    async def _auto_register():
+                    async def _auto_register(_now=None):
                         try:
                             profile = _build_telemetry_profile(
                                 hass, entry, identity_registered_at=None,
                             )
-                            await reporter.register(profile)
+                            ok = await reporter.register(profile)
+                            if ok:
+                                data["telemetry_last_profile_capacity_kwh"] = (
+                                    profile.get("battery_capacity_kwh")
+                                )
                         except Exception:  # pragma: no cover
                             _LOGGER.exception("Telemetry auto-register failed")
-                    hass.async_create_task(_auto_register())
+                    if async_call_later is not None:
+                        unsub_reg = async_call_later(
+                            hass, _BOOT_TELEMETRY_DELAY_S, _auto_register,
+                        )
+                        entry.async_on_unload(unsub_reg)
+                    else:  # pragma: no cover — Fallback ohne HA-Helper
+                        hass.async_create_task(_auto_register())
     else:
         missing = []
         if not coordinator:
@@ -1464,6 +1539,9 @@ async def _async_update_listener(
                         identity_registered_at=identity.get("registered_at"),
                     )
                     await reporter.update_profile(profile)
+                    data["telemetry_last_profile_capacity_kwh"] = (
+                        profile.get("battery_capacity_kwh")
+                    )
                 except Exception:  # pragma: no cover — defensive
                     _LOGGER.exception("Telemetry profile update failed")
 
