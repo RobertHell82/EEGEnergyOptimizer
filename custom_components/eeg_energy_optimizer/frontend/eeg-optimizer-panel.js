@@ -3401,6 +3401,9 @@ class EegOptimizerPanel extends HTMLElement {
     const notConfigured = !s.configured;
     const hasIdentity = !!(s.installation_id || s.installation_id_prefix);
     const fullId = s.installation_id || s.installation_id_prefix || "";
+    // GUID auf die ersten drei Abschnitte kürzen (z.B. "8fcb4c46-ab80-4b2b…").
+    const idParts = fullId.split("-");
+    const shortId = idParts.length >= 3 ? `${idParts.slice(0, 3).join("-")}…` : fullId;
 
     let statusText;
     if (notConfigured) {
@@ -3408,7 +3411,7 @@ class EegOptimizerPanel extends HTMLElement {
     } else if (registered && s.registered_at) {
       const d = new Date(s.registered_at);
       const dStr = isNaN(d.getTime()) ? s.registered_at : d.toLocaleDateString("de-DE");
-      statusText = `Registriert als anonyme Anlage <code>${fullId}</code> seit ${dStr}`;
+      statusText = `Registriert als anonyme Anlage <code title="${fullId}">${shortId}</code> seit ${dStr}`;
     } else if (hasIdentity && !enabled) {
       statusText = "Pausiert — Identität bleibt gespeichert";
     } else if (enabled && !registered) {
@@ -5905,6 +5908,7 @@ class EegOptimizerPanel extends HTMLElement {
     if (this._onVisibilityChange) {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
     }
+    this._stopTelemetryRefresh();
   }
 
   connectedCallback() {
@@ -5922,6 +5926,38 @@ class EegOptimizerPanel extends HTMLElement {
     }
     // Start watchdog
     this._startWatchdog();
+    this._startTelemetryRefresh();
+  }
+
+  _startTelemetryRefresh() {
+    this._stopTelemetryRefresh();
+    // Backend flusht alle 60 min — wir refreshen den Status alle 60 s,
+    // damit Dashboard ("EEG-Statistik: HH:MM:SS") nicht hängenbleibt.
+    this._telemetryRefreshInterval = setInterval(() => {
+      if (!this._hass || !this._initialized) return;
+      this._hass.callWS({ type: "eeg_optimizer/telemetry_get_status" })
+        .then(s => {
+          const old = this._telemetryStatus || {};
+          if (
+            old.last_send_at !== s.last_send_at ||
+            old.queue_size !== s.queue_size ||
+            old.registered !== s.registered
+          ) {
+            this._telemetryStatus = s;
+            this._render();
+          } else {
+            this._telemetryStatus = s;
+          }
+        })
+        .catch(() => { /* ignore — UI bleibt mit altem Status */ });
+    }, 60000);
+  }
+
+  _stopTelemetryRefresh() {
+    if (this._telemetryRefreshInterval) {
+      clearInterval(this._telemetryRefreshInterval);
+      this._telemetryRefreshInterval = null;
+    }
   }
 
   _startWatchdog() {
