@@ -17,6 +17,7 @@ from .const import (
     MODE_EIN,
     MODE_TEST,
     CONF_BATTERY_CAPACITY_KWH,
+    CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
     CONF_FORECAST_SOURCE,
     CONF_INVERTER_TYPE,
@@ -127,6 +128,33 @@ def _resolve_integration_started_at(entry, identity_registered_at):
     return identity_registered_at
 
 
+def _resolve_battery_capacity_kwh(hass, config) -> float | None:
+    """Spiegelt EEGOptimizer._resolve_capacity für den Profile-Builder.
+
+    Reihenfolge: Sensor (mit Wh→kWh-Normalisierung) → manueller Fix-Wert → None.
+    """
+    cap_id = config.get(CONF_BATTERY_CAPACITY_SENSOR, "")
+    if cap_id and hass is not None and hasattr(hass, "states"):
+        state = hass.states.get(cap_id)
+        if state is not None and state.state not in ("unknown", "unavailable", "", None):
+            try:
+                raw = float(state.state)
+            except (ValueError, TypeError):
+                raw = None
+            if raw is not None:
+                unit = ""
+                if hasattr(state, "attributes"):
+                    unit = state.attributes.get("unit_of_measurement", "") or ""
+                if unit.lower() in ("wh", "w·h") or (not unit and raw > 1000):
+                    return raw / 1000.0
+                return raw
+    manual = config.get(CONF_BATTERY_CAPACITY_KWH)
+    try:
+        return float(manual) if manual is not None else None
+    except (ValueError, TypeError):
+        return None
+
+
 def _build_telemetry_profile(hass, entry, identity_registered_at):
     """I-4 / W-3 — einziger Profil-Builder.
 
@@ -166,7 +194,7 @@ def _build_telemetry_profile(hass, entry, identity_registered_at):
         "app_version": app_version,
         "ha_version": HA_VERSION,
         "inverter_type": config.get(CONF_INVERTER_TYPE),
-        "battery_capacity_kwh": config.get(CONF_BATTERY_CAPACITY_KWH),
+        "battery_capacity_kwh": _resolve_battery_capacity_kwh(hass, config),
         "pv_peak_kwp": None,                # D-24
         "forecast_provider": config.get(CONF_FORECAST_SOURCE),
         "country_iso": getattr(hass.config, "country", None),
