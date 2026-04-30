@@ -646,6 +646,7 @@ class EegOptimizerPanel extends HTMLElement {
     // Persisted in localStorage so the user's last choice survives page reloads.
     this._profilChartVariant = this._loadPref("profil_chart_variant", "hourly", ["hourly", "daynight"]);
     this._statusViewVariant = this._loadPref("status_view_variant", "values", ["values", "flow"]);
+    this._settingsTab = this._loadPref("settings_tab", "morning", ["morning", "evening", "telemetry", "advanced"]);
     this._dischargeTile1Open = false;
     this._dischargeTile2Open = false;
     this._morningTile1Open = false;
@@ -1196,6 +1197,15 @@ class EegOptimizerPanel extends HTMLElement {
         if (variant && variant !== this._statusViewVariant) {
           this._statusViewVariant = variant;
           this._savePref("status_view_variant", variant);
+          this._render();
+        }
+        break;
+      }
+      case "set-settings-tab": {
+        const tab = dataset?.tab;
+        if (tab && tab !== this._settingsTab) {
+          this._settingsTab = tab;
+          this._savePref("settings_tab", tab);
           this._render();
         }
         break;
@@ -3249,105 +3259,135 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
       </div>` : "";
 
-    return `
-      <div style="max-width:600px;margin:0 auto">
-        <button class="btn-secondary" data-action="restart-wizard" style="width:100%;margin-bottom:24px;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px">
+    const activeTab = this._settingsTab || "morning";
+
+    const tabBar = `
+      <div class="settings-tabs" role="tablist">
+        <button class="settings-tab ${activeTab === "morning" ? "active" : ""}" data-action="set-settings-tab" data-tab="morning" role="tab">
+          <ha-icon icon="mdi:weather-sunset-up" style="--mdc-icon-size:18px"></ha-icon>
+          <span>Morgen-Einspeisung</span>
+        </button>
+        <button class="settings-tab ${activeTab === "evening" ? "active" : ""}" data-action="set-settings-tab" data-tab="evening" role="tab">
+          <ha-icon icon="mdi:battery-arrow-down-outline" style="--mdc-icon-size:18px"></ha-icon>
+          <span>Abend-Entladung</span>
+        </button>
+        <button class="settings-tab ${activeTab === "telemetry" ? "active" : ""}" data-action="set-settings-tab" data-tab="telemetry" role="tab">
+          <ha-icon icon="mdi:chart-line" style="--mdc-icon-size:18px"></ha-icon>
+          <span>EEG-Statistik</span>
+        </button>
+        <button class="settings-tab ${activeTab === "advanced" ? "active" : ""}" data-action="set-settings-tab" data-tab="advanced" role="tab">
+          <ha-icon icon="mdi:tune" style="--mdc-icon-size:18px"></ha-icon>
+          <span>Erweitert</span>
+        </button>
+      </div>`;
+
+    const morningTab = `
+      <div class="card" style="margin-bottom:16px">
+        <div class="feature-toggle">
+          <div class="feature-card ${mDelay ? "selected" : ""}" data-action="toggle-settings-feature" data-feature="enable_morning_delay" style="cursor:pointer">
+            <div class="feature-card-header">
+              <ha-icon icon="mdi:weather-sunset-up"></ha-icon>
+              <div class="feature-card-text">
+                <span class="feature-title">Morgen-Einspeisung</span>
+                <span class="feature-desc">Morgens wird die Batterie nicht sofort geladen, sondern die Energie direkt ins Netz eingespeist.</span>
+              </div>
+              <div class="feature-badge ${mDelay ? "on" : "off"}">${mDelay ? "Aktiv" : "Aus"}</div>
+            </div>
+          </div>
+          ${morningFields}
+        </div>
+      </div>`;
+
+    const eveningTab = `
+      <div class="card" style="margin-bottom:16px">
+        <div class="feature-toggle">
+          <div class="feature-card ${nDischarge ? "selected" : ""}" data-action="toggle-settings-feature" data-feature="enable_night_discharge" style="cursor:pointer">
+            <div class="feature-card-header">
+              <ha-icon icon="mdi:battery-arrow-down-outline"></ha-icon>
+              <div class="feature-card-text">
+                <span class="feature-title">Abend-Entladung</span>
+                <span class="feature-desc">Abends wird \u00fcbersch\u00fcssige Energie aus der Batterie ins Netz entladen.</span>
+              </div>
+              <div class="feature-badge ${nDischarge ? "on" : "off"}">${nDischarge ? "Aktiv" : "Aus"}</div>
+            </div>
+          </div>
+          ${dischargeFields}
+        </div>
+      </div>`;
+
+    const telemetryTab = this._renderTelemetrySection();
+
+    const advancedTab = `
+      <div class="card" style="margin-bottom:16px">
+        <label style="display:flex;align-items:center;gap:12px;cursor:pointer">
+          <input type="checkbox" data-field="settings_expert_mode" ${isExpert ? "checked" : ""}>
+          <div>
+            <div style="font-weight:500">Expertenmodus</div>
+            <div class="help-text" style="margin-top:4px">Zeigt zus\u00e4tzliche Optionen (Test &amp; Simulation)</div>
+          </div>
+        </label>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h3 style="margin:0 0 16px">Allgemeine Einstellungen</h3>
+        <div class="field-group">
+          <label>Sicherheitspuffer (%)</label>
+          <input type="number" data-field="settings_safety_buffer_pct"
+                 value="${d.safety_buffer_pct || 25}"
+                 min="0" max="100" step="5">
+          <div class="help-text">Aufschlag auf den berechneten Energiebedarf. Gilt f\u00fcr beide Optimierungen.</div>
+        </div>
+        <div class="field-group">
+          <label>Anzahl der Wochen f\u00fcr den Verbrauchsdurchschnitt</label>
+          <input type="number" data-field="settings_lookback_weeks"
+                 value="${d.lookback_weeks || 2}"
+                 min="1" max="52">
+        </div>
+        <div class="field-group">
+          <label>Schnelles Update-Intervall (Minuten)</label>
+          <input type="number" data-field="settings_update_interval_fast_min"
+                 value="${d.update_interval_fast_min || 1}"
+                 min="1" max="60">
+        </div>
+        <div class="field-group">
+          <label>Langsames Update-Intervall (Minuten)</label>
+          <input type="number" data-field="settings_update_interval_slow_min"
+                 value="${d.update_interval_slow_min || 15}"
+                 min="5" max="120">
+        </div>
+        ${isExpert ? `
+        <div style="margin-top:24px">
+          <h3 style="margin:0 0 12px;font-size:16px">Test- und Simulation</h3>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer">
+            <input type="checkbox" data-field="settings_enable_simulation" ${d.enable_simulation ? "checked" : ""}>
+            Simulation am Dashboard anzeigen
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" data-field="settings_enable_manual_control" ${d.enable_manual_control ? "checked" : ""}>
+            Manuelle Steuerung am Dashboard anzeigen
+          </label>
+        </div>` : ""}
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <button class="btn-secondary" data-action="restart-wizard" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px">
           <ha-icon icon="mdi:refresh" style="--mdc-icon-size:20px"></ha-icon> Wizard nochmal starten
         </button>
+      </div>`;
 
-        <!-- Card 1: Expertenmodus -->
-        <div class="card" style="margin-bottom:16px">
-          <label style="display:flex;align-items:center;gap:12px;cursor:pointer">
-            <input type="checkbox" data-field="settings_expert_mode" ${isExpert ? "checked" : ""}>
-            <div>
-              <div style="font-weight:500">Expertenmodus</div>
-              <div class="help-text" style="margin-top:4px">Zeigt erweiterte Einstellungen und zus\u00e4tzliche Optionen</div>
-            </div>
-          </label>
-        </div>
+    let tabContent;
+    switch (activeTab) {
+      case "evening":   tabContent = eveningTab; break;
+      case "telemetry": tabContent = telemetryTab; break;
+      case "advanced":  tabContent = advancedTab; break;
+      case "morning":
+      default:          tabContent = morningTab; break;
+    }
 
-        <!-- Card 2: Ladung & Einspeisung -->
-        <div class="card" style="margin-bottom:16px">
-          <h3 style="margin:0 0 16px">Ladung &amp; Einspeisung</h3>
-
-          <div class="feature-toggle">
-            <div class="feature-card ${mDelay ? "selected" : ""}" data-action="toggle-settings-feature" data-feature="enable_morning_delay" style="cursor:pointer">
-              <div class="feature-card-header">
-                <ha-icon icon="mdi:weather-sunset-up"></ha-icon>
-                <div class="feature-card-text">
-                  <span class="feature-title">Morgen-Einspeisung</span>
-                  <span class="feature-desc">Morgens wird die Batterie nicht sofort geladen, sondern die Energie direkt ins Netz eingespeist.</span>
-                </div>
-                <div class="feature-badge ${mDelay ? "on" : "off"}">${mDelay ? "Aktiv" : "Aus"}</div>
-              </div>
-            </div>
-            ${morningFields}
-          </div>
-
-          <div class="feature-toggle" style="margin-top:16px">
-            <div class="feature-card ${nDischarge ? "selected" : ""}" data-action="toggle-settings-feature" data-feature="enable_night_discharge" style="cursor:pointer">
-              <div class="feature-card-header">
-                <ha-icon icon="mdi:battery-arrow-down-outline"></ha-icon>
-                <div class="feature-card-text">
-                  <span class="feature-title">Abend-Entladung</span>
-                  <span class="feature-desc">Abends wird \u00fcbersch\u00fcssige Energie aus der Batterie ins Netz entladen.</span>
-                </div>
-                <div class="feature-badge ${nDischarge ? "on" : "off"}">${nDischarge ? "Aktiv" : "Aus"}</div>
-              </div>
-            </div>
-            ${dischargeFields}
-          </div>
-
-          <div style="margin-top:24px">
-            <h3 style="margin:0 0 12px;font-size:16px">Allgemeine Einstellungen</h3>
-            <div class="field-group">
-              <label>Sicherheitspuffer (%)</label>
-              <input type="number" data-field="settings_safety_buffer_pct"
-                     value="${d.safety_buffer_pct || 25}"
-                     min="0" max="100" step="5">
-              <div class="help-text">Aufschlag auf den berechneten Energiebedarf. Gilt f\u00fcr beide Optimierungen.</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Card: Community-Statistik (D-28, Phase 8 Telemetrie-Opt-In) -->
-        ${this._renderTelemetrySection()}
-
-        <!-- Card 3: Erweiterte Einstellungen -->
-        <div class="card" style="margin-bottom:16px">
-          <h3 style="margin:0 0 16px">Erweiterte Einstellungen</h3>
-          <div class="field-group">
-            <label>Anzahl der Wochen f\u00fcr den Verbrauchsdurchschnitt</label>
-            <input type="number" data-field="settings_lookback_weeks"
-                   value="${d.lookback_weeks || 2}"
-                   min="1" max="52">
-          </div>
-          <div class="field-group">
-            <label>Schnelles Update-Intervall (Minuten)</label>
-            <input type="number" data-field="settings_update_interval_fast_min"
-                   value="${d.update_interval_fast_min || 1}"
-                   min="1" max="60">
-          </div>
-          <div class="field-group">
-            <label>Langsames Update-Intervall (Minuten)</label>
-            <input type="number" data-field="settings_update_interval_slow_min"
-                   value="${d.update_interval_slow_min || 15}"
-                   min="5" max="120">
-          </div>
-          ${isExpert ? `
-          <div style="margin-top:24px">
-            <h3 style="margin:0 0 12px;font-size:16px">Test- und Simulation</h3>
-            <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer">
-              <input type="checkbox" data-field="settings_enable_simulation" ${d.enable_simulation ? "checked" : ""}>
-              Simulation am Dashboard anzeigen
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-              <input type="checkbox" data-field="settings_enable_manual_control" ${d.enable_manual_control ? "checked" : ""}>
-              Manuelle Steuerung am Dashboard anzeigen
-            </label>
-          </div>` : ""}
-        </div>
-
+    return `
+      <div style="max-width:600px;margin:0 auto">
+        ${tabBar}
+        ${tabContent}
         <button class="btn-primary" data-action="save-settings" style="width:100%;padding:12px">Speichern</button>
       </div>`;
   }
@@ -5621,6 +5661,28 @@ class EegOptimizerPanel extends HTMLElement {
         .view-pill { background: transparent; border: none; cursor: pointer; padding: 6px 12px; border-radius: 999px; color: var(--secondary-text-color, #666); display: inline-flex; align-items: center; justify-content: center; transition: background 0.15s, color 0.15s; }
         .view-pill:hover { color: var(--primary-text-color); }
         .view-pill.active { background: var(--card-background-color, #fff); color: var(--primary-color, #03a9f4); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .settings-tabs {
+          display: flex; gap: 4px; margin-bottom: 16px; padding: 4px;
+          background: var(--secondary-background-color, rgba(0,0,0,0.05));
+          border-radius: 12px; overflow-x: auto; scrollbar-width: thin;
+        }
+        .settings-tab {
+          flex: 1 1 0; min-width: max-content; background: transparent; border: none; cursor: pointer;
+          padding: 10px 12px; border-radius: 8px; color: var(--secondary-text-color, #666);
+          display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+          font-size: 13px; font-weight: 500; white-space: nowrap;
+          transition: background 0.15s, color 0.15s;
+        }
+        .settings-tab:hover { color: var(--primary-text-color); }
+        .settings-tab.active {
+          background: var(--card-background-color, #fff);
+          color: var(--primary-color, #03a9f4);
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        @media (max-width: 540px) {
+          .settings-tab span { display: none; }
+          .settings-tab { flex: 1 1 0; padding: 10px 8px; }
+        }
         .energy-flow-svg { width: 100%; height: auto; max-height: 360px; display: block; }
         .energy-flow-svg .flow-line { stroke-linecap: round; stroke-dasharray: 6 6; animation: flow-anim 1.2s linear infinite; }
         .energy-flow-svg .flow-line.reverse { animation-direction: reverse; }
