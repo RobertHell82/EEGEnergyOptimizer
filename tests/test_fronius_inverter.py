@@ -11,8 +11,10 @@ from custom_components.eeg_energy_optimizer.inverter.fronius import (
     _OFFSET_INWRTE,
     _OFFSET_MINRSVPCT,
     _OFFSET_OUTWRTE,
+    _OFFSET_RVRTTMS,
     _OFFSET_STORCTL_MOD,
     _OFFSET_WCHAMAX,
+    _OFFSET_WINTMS,
     _RATE_100_PERCENT,
     _SUNSPEC_END_MARKER,
     _SUNSPEC_ID_WORD0,
@@ -102,22 +104,27 @@ class TestAsyncSetChargeLimit:
     """Block / partial charge limit via InWRte (offset 13) + StorCtl_Mod (offset 3)."""
 
     async def test_block_charging_writes_inwrte_then_mode(self, inverter, mock_modbus_client):
-        """power_kw=0 → InWRte=0 BEFORE StorCtl_Mod=1.
+        """power_kw=0 → InWRte=0, WinTms=0, RvrtTms=0, then StorCtl_Mod=1.
 
         Order matters: if mode flips on with a stale 100% rate value, the
-        inverter would silently keep charging.
+        inverter would silently keep charging. Watchdog timers must be
+        cleared before activating the mode so the limit takes effect
+        immediately and is not auto-reverted after a few seconds.
         """
         result = await inverter.async_set_charge_limit(0)
         assert result is True
 
         calls = mock_modbus_client.write_register.call_args_list
-        assert len(calls) == 2
-        # First write: InWRte = 0
-        assert calls[0].kwargs["address"] == inverter._model124_base + _OFFSET_INWRTE
-        assert calls[0].kwargs["value"] == 0
-        # Second write: StorCtl_Mod = 1 (Charge Limit active)
-        assert calls[1].kwargs["address"] == inverter._model124_base + _OFFSET_STORCTL_MOD
-        assert calls[1].kwargs["value"] == 1
+        assert len(calls) == 4
+        base = inverter._model124_base
+        # 1. InWRte = 0
+        assert (calls[0].kwargs["address"], calls[0].kwargs["value"]) == (base + _OFFSET_INWRTE, 0)
+        # 2. WinTms = 0 (immediate effect)
+        assert (calls[1].kwargs["address"], calls[1].kwargs["value"]) == (base + _OFFSET_WINTMS, 0)
+        # 3. RvrtTms = 0 (no auto-revert)
+        assert (calls[2].kwargs["address"], calls[2].kwargs["value"]) == (base + _OFFSET_RVRTTMS, 0)
+        # 4. StorCtl_Mod = 1 (Charge Limit active)
+        assert (calls[3].kwargs["address"], calls[3].kwargs["value"]) == (base + _OFFSET_STORCTL_MOD, 1)
 
     async def test_partial_charge_uses_wchamax_percentage(
         self, inverter, mock_modbus_client
@@ -166,7 +173,12 @@ class TestAsyncSetDischarge:
     async def test_discharge_with_target_soc_writes_full_sequence(
         self, inverter, mock_modbus_client
     ):
-        """power_kw=2.5, target_soc=15 → InWRte=0, OutWRte=5000, MinRsvPct=1500, StorCtl_Mod=3."""
+        """power_kw=2.5, target_soc=15 → InWRte=-5000 (forced discharge),
+        OutWRte=+5000, MinRsvPct=1500, WinTms=0, RvrtTms=0, StorCtl_Mod=3.
+
+        InWRte is the negative of the discharge percent (in two's-complement
+        16-bit), per Fronius Modbus manual example 6 — see _set_discharge_locked.
+        """
         # Pre-discharge MinRsvPct read returns 500 (5%)
         mock_modbus_client.read_holding_registers = AsyncMock(
             return_value=_ok_response([500])
@@ -175,12 +187,15 @@ class TestAsyncSetDischarge:
         assert result is True
 
         calls = mock_modbus_client.write_register.call_args_list
-        assert len(calls) == 4
+        assert len(calls) == 6
         base = inverter._model124_base
-        assert (calls[0].kwargs["address"], calls[0].kwargs["value"]) == (base + _OFFSET_INWRTE, 0)
+        # -5000 as unsigned 16-bit = 60536
+        assert (calls[0].kwargs["address"], calls[0].kwargs["value"]) == (base + _OFFSET_INWRTE, (-5000) & 0xFFFF)
         assert (calls[1].kwargs["address"], calls[1].kwargs["value"]) == (base + _OFFSET_OUTWRTE, 5000)
         assert (calls[2].kwargs["address"], calls[2].kwargs["value"]) == (base + _OFFSET_MINRSVPCT, 1500)
-        assert (calls[3].kwargs["address"], calls[3].kwargs["value"]) == (base + _OFFSET_STORCTL_MOD, 3)
+        assert (calls[3].kwargs["address"], calls[3].kwargs["value"]) == (base + _OFFSET_WINTMS, 0)
+        assert (calls[4].kwargs["address"], calls[4].kwargs["value"]) == (base + _OFFSET_RVRTTMS, 0)
+        assert (calls[5].kwargs["address"], calls[5].kwargs["value"]) == (base + _OFFSET_STORCTL_MOD, 3)
         # Pre-discharge MinRsvPct cached for later restore
         assert inverter._minrsvpct_pre_discharge == 500
 
@@ -190,7 +205,7 @@ class TestAsyncSetDischarge:
         result = await inverter.async_set_discharge(2.5)
         assert result is True
         calls = mock_modbus_client.write_register.call_args_list
-        assert len(calls) == 3
+        assert len(calls) == 5
         base = inverter._model124_base
         offsets = [c.kwargs["address"] - base for c in calls]
         assert _OFFSET_MINRSVPCT not in offsets
@@ -328,7 +343,8 @@ class TestRegisterWriteCounter:
     async def test_counter_increments_per_write(self, inverter, mock_modbus_client):
         before = inverter.register_writes
         await inverter.async_set_charge_limit(0)
-        assert inverter.register_writes == before + 2
+        # set_charge_limit writes 4 registers: InWRte, WinTms, RvrtTms, StorCtl_Mod
+        assert inverter.register_writes == before + 4
 
     async def test_failed_write_does_not_increment(
         self, inverter, mock_modbus_client
@@ -530,7 +546,12 @@ class TestLockSerialization:
         )
 
         base = inverter._model124_base
-        cl_writes = [base + _OFFSET_INWRTE, base + _OFFSET_STORCTL_MOD]
+        cl_writes = [
+            base + _OFFSET_INWRTE,
+            base + _OFFSET_WINTMS,
+            base + _OFFSET_RVRTTMS,
+            base + _OFFSET_STORCTL_MOD,
+        ]
         sf_writes = [
             base + _OFFSET_STORCTL_MOD,
             base + _OFFSET_INWRTE,

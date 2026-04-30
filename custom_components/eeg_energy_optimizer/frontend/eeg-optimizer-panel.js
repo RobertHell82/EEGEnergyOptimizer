@@ -93,7 +93,7 @@ const WIZARD_DEFAULTS = {
   forecast_day5_entity: "",
   forecast_day6_entity: "",
   forecast_day7_entity: "",
-  lookback_weeks: 4,
+  lookback_weeks: 2,
   update_interval_fast_min: 1,
   update_interval_slow_min: 15,
   enable_morning_delay: true,
@@ -633,6 +633,7 @@ class EegOptimizerPanel extends HTMLElement {
     this._activityLoadingMore = false;
     this._activityShowAll = false;
     this._activityFilter = ""; // "" = alle, "Morgen-Einspeisung", "Abend-Entladung"
+    this._activityLogOpen = this._loadPref("activity_log_open", "0", ["0", "1"]) === "1";
     this._loadConfigPending = false;
     this._connectionLostSeen = false;
     this._manualControlOpen = false;
@@ -642,8 +643,10 @@ class EegOptimizerPanel extends HTMLElement {
     this._feedinStatsOpen = false;
     this._feedinStatsPeriod = "month";
     this._profilOpen = false;
-    this._profilChartVariant = "hourly";  // "hourly" or "daynight"
-    this._statusViewVariant = "values";   // "values" or "flow"
+    // Persisted in localStorage so the user's last choice survives page reloads.
+    this._profilChartVariant = this._loadPref("profil_chart_variant", "hourly", ["hourly", "daynight"]);
+    this._statusViewVariant = this._loadPref("status_view_variant", "values", ["values", "flow"]);
+    this._settingsTab = this._loadPref("settings_tab", "morning", ["morning", "evening", "telemetry", "advanced"]);
     this._dischargeTile1Open = false;
     this._dischargeTile2Open = false;
     this._morningTile1Open = false;
@@ -655,6 +658,10 @@ class EegOptimizerPanel extends HTMLElement {
     this._settingsData = {};
     this._peakshareCommunitiesCache = [];
     this._peakshareCommunitiesLoading = false;
+    // Community-Statistik (Phase 8: Telemetrie-Opt-In)
+    this._telemetryStatus = null;
+    this._telemetryError = null;
+    this._telemetryBusy = false;
     this._lastHassUpdate = Date.now();
 
     // Recover from network switches / long sleep when tab becomes visible
@@ -746,6 +753,15 @@ class EegOptimizerPanel extends HTMLElement {
       }
       const btn = e.target.closest("[data-action]") || e.target;
       const action = btn?.dataset?.action;
+      if (action === "toggle-telemetry") {
+        // Checkbox: nutze den (nach Klick aktualisierten) checked-Zustand
+        this._handleTelemetryToggle(!!btn.checked);
+        return;
+      }
+      if (action === "forget-telemetry") {
+        this._handleTelemetryForget();
+        return;
+      }
       if (action) {
         this._handleAction(action, btn.dataset);
       }
@@ -888,6 +904,22 @@ class EegOptimizerPanel extends HTMLElement {
         }
       }
     });
+  }
+
+  // localStorage-backed UI preferences (e.g. last-selected chart variants).
+  // Wrapped so SSR/test environments without window.localStorage don't crash.
+  _loadPref(key, fallback, allowed) {
+    try {
+      const raw = window.localStorage?.getItem(`eeg_optimizer_panel_${key}`);
+      if (raw && (!allowed || allowed.includes(raw))) return raw;
+    } catch (e) { /* ignore */ }
+    return fallback;
+  }
+
+  _savePref(key, value) {
+    try {
+      window.localStorage?.setItem(`eeg_optimizer_panel_${key}`, String(value));
+    } catch (e) { /* ignore */ }
   }
 
   _handleAction(action, dataset) {
@@ -1134,6 +1166,11 @@ class EegOptimizerPanel extends HTMLElement {
         this._manualControlOpen = !this._manualControlOpen;
         this._render();
         break;
+      case "toggle-activity-log":
+        this._activityLogOpen = !this._activityLogOpen;
+        this._savePref("activity_log_open", this._activityLogOpen ? "1" : "0");
+        this._render();
+        break;
       case "toggle-simulation":
         this._simulationOpen = !this._simulationOpen;
         this._render();
@@ -1150,6 +1187,7 @@ class EegOptimizerPanel extends HTMLElement {
         const variant = dataset?.variant;
         if (variant && variant !== this._profilChartVariant) {
           this._profilChartVariant = variant;
+          this._savePref("profil_chart_variant", variant);
           this._render();
         }
         break;
@@ -1158,6 +1196,16 @@ class EegOptimizerPanel extends HTMLElement {
         const variant = dataset?.variant;
         if (variant && variant !== this._statusViewVariant) {
           this._statusViewVariant = variant;
+          this._savePref("status_view_variant", variant);
+          this._render();
+        }
+        break;
+      }
+      case "set-settings-tab": {
+        const tab = dataset?.tab;
+        if (tab && tab !== this._settingsTab) {
+          this._settingsTab = tab;
+          this._savePref("settings_tab", tab);
           this._render();
         }
         break;
@@ -2195,6 +2243,16 @@ class EegOptimizerPanel extends HTMLElement {
           this._simActive = true;
         }
       } catch (_) { /* ignore */ }
+
+      // Telemetrie-Status laden (Community-Statistik). Fire-and-forget — Fehler dürfen
+      // den Settings-Load nicht blockieren.
+      this._hass.callWS({ type: "eeg_optimizer/telemetry_get_status" })
+        .then(s => { this._telemetryStatus = s; this._render(); })
+        .catch(err => {
+          console.warn("EEG Optimizer: telemetry status load failed", err);
+          this._telemetryStatus = { configured: false, enabled: false, registered: false };
+          this._render();
+        });
     }
 
     this._initialized = true;
@@ -3201,104 +3259,278 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
       </div>` : "";
 
-    return `
-      <div style="max-width:600px;margin:0 auto">
-        <button class="btn-secondary" data-action="restart-wizard" style="width:100%;margin-bottom:24px;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px">
+    const activeTab = this._settingsTab || "morning";
+
+    const tabBar = `
+      <div class="settings-tabs" role="tablist">
+        <button class="settings-tab ${activeTab === "morning" ? "active" : ""}" data-action="set-settings-tab" data-tab="morning" role="tab">
+          <ha-icon icon="mdi:weather-sunset-up" style="--mdc-icon-size:18px"></ha-icon>
+          <span>Morgen-Einspeisung</span>
+        </button>
+        <button class="settings-tab ${activeTab === "evening" ? "active" : ""}" data-action="set-settings-tab" data-tab="evening" role="tab">
+          <ha-icon icon="mdi:battery-arrow-down-outline" style="--mdc-icon-size:18px"></ha-icon>
+          <span>Abend-Entladung</span>
+        </button>
+        <button class="settings-tab ${activeTab === "telemetry" ? "active" : ""}" data-action="set-settings-tab" data-tab="telemetry" role="tab">
+          <ha-icon icon="mdi:chart-line" style="--mdc-icon-size:18px"></ha-icon>
+          <span>EEG-Statistik</span>
+        </button>
+        <button class="settings-tab ${activeTab === "advanced" ? "active" : ""}" data-action="set-settings-tab" data-tab="advanced" role="tab">
+          <ha-icon icon="mdi:tune" style="--mdc-icon-size:18px"></ha-icon>
+          <span>Erweitert</span>
+        </button>
+      </div>`;
+
+    const morningTab = `
+      <div class="card" style="margin-bottom:16px">
+        <div class="feature-toggle">
+          <div class="feature-card ${mDelay ? "selected" : ""}" data-action="toggle-settings-feature" data-feature="enable_morning_delay" style="cursor:pointer">
+            <div class="feature-card-header">
+              <ha-icon icon="mdi:weather-sunset-up"></ha-icon>
+              <div class="feature-card-text">
+                <span class="feature-title">Morgen-Einspeisung</span>
+                <span class="feature-desc">Morgens wird die Batterie nicht sofort geladen, sondern die Energie direkt ins Netz eingespeist.</span>
+              </div>
+              <div class="feature-badge ${mDelay ? "on" : "off"}">${mDelay ? "Aktiv" : "Aus"}</div>
+            </div>
+          </div>
+          ${morningFields}
+        </div>
+      </div>`;
+
+    const eveningTab = `
+      <div class="card" style="margin-bottom:16px">
+        <div class="feature-toggle">
+          <div class="feature-card ${nDischarge ? "selected" : ""}" data-action="toggle-settings-feature" data-feature="enable_night_discharge" style="cursor:pointer">
+            <div class="feature-card-header">
+              <ha-icon icon="mdi:battery-arrow-down-outline"></ha-icon>
+              <div class="feature-card-text">
+                <span class="feature-title">Abend-Entladung</span>
+                <span class="feature-desc">Abends wird \u00fcbersch\u00fcssige Energie aus der Batterie ins Netz entladen.</span>
+              </div>
+              <div class="feature-badge ${nDischarge ? "on" : "off"}">${nDischarge ? "Aktiv" : "Aus"}</div>
+            </div>
+          </div>
+          ${dischargeFields}
+        </div>
+      </div>`;
+
+    const telemetryTab = this._renderTelemetrySection();
+
+    const advancedTab = `
+      <div class="card" style="margin-bottom:16px">
+        <label style="display:flex;align-items:center;gap:12px;cursor:pointer">
+          <input type="checkbox" data-field="settings_expert_mode" ${isExpert ? "checked" : ""}>
+          <div>
+            <div style="font-weight:500">Expertenmodus</div>
+            <div class="help-text" style="margin-top:4px">Zeigt zus\u00e4tzliche Optionen (Test &amp; Simulation)</div>
+          </div>
+        </label>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h3 style="margin:0 0 16px">Allgemeine Einstellungen</h3>
+        <div class="field-group">
+          <label>Sicherheitspuffer (%)</label>
+          <input type="number" data-field="settings_safety_buffer_pct"
+                 value="${d.safety_buffer_pct || 25}"
+                 min="0" max="100" step="5">
+          <div class="help-text">Aufschlag auf den berechneten Energiebedarf. Gilt f\u00fcr beide Optimierungen.</div>
+        </div>
+        <div class="field-group">
+          <label>Anzahl der Wochen f\u00fcr den Verbrauchsdurchschnitt</label>
+          <input type="number" data-field="settings_lookback_weeks"
+                 value="${d.lookback_weeks || 2}"
+                 min="1" max="52">
+        </div>
+        <div class="field-group">
+          <label>Schnelles Update-Intervall (Minuten)</label>
+          <input type="number" data-field="settings_update_interval_fast_min"
+                 value="${d.update_interval_fast_min || 1}"
+                 min="1" max="60">
+        </div>
+        <div class="field-group">
+          <label>Langsames Update-Intervall (Minuten)</label>
+          <input type="number" data-field="settings_update_interval_slow_min"
+                 value="${d.update_interval_slow_min || 15}"
+                 min="5" max="120">
+        </div>
+        ${isExpert ? `
+        <div style="margin-top:24px">
+          <h3 style="margin:0 0 12px;font-size:16px">Test- und Simulation</h3>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer">
+            <input type="checkbox" data-field="settings_enable_simulation" ${d.enable_simulation ? "checked" : ""}>
+            Simulation am Dashboard anzeigen
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" data-field="settings_enable_manual_control" ${d.enable_manual_control ? "checked" : ""}>
+            Manuelle Steuerung am Dashboard anzeigen
+          </label>
+        </div>` : ""}
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <button class="btn-secondary" data-action="restart-wizard" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px">
           <ha-icon icon="mdi:refresh" style="--mdc-icon-size:20px"></ha-icon> Wizard nochmal starten
         </button>
+      </div>`;
 
-        <!-- Card 1: Expertenmodus -->
-        <div class="card" style="margin-bottom:16px">
-          <label style="display:flex;align-items:center;gap:12px;cursor:pointer">
-            <input type="checkbox" data-field="settings_expert_mode" ${isExpert ? "checked" : ""}>
-            <div>
-              <div style="font-weight:500">Expertenmodus</div>
-              <div class="help-text" style="margin-top:4px">Zeigt erweiterte Einstellungen und zus\u00e4tzliche Optionen</div>
-            </div>
-          </label>
-        </div>
+    let tabContent;
+    switch (activeTab) {
+      case "evening":   tabContent = eveningTab; break;
+      case "telemetry": tabContent = telemetryTab; break;
+      case "advanced":  tabContent = advancedTab; break;
+      case "morning":
+      default:          tabContent = morningTab; break;
+    }
 
-        <!-- Card 2: Ladung & Einspeisung -->
-        <div class="card" style="margin-bottom:16px">
-          <h3 style="margin:0 0 16px">Ladung &amp; Einspeisung</h3>
-
-          <div class="feature-toggle">
-            <div class="feature-card ${mDelay ? "selected" : ""}" data-action="toggle-settings-feature" data-feature="enable_morning_delay" style="cursor:pointer">
-              <div class="feature-card-header">
-                <ha-icon icon="mdi:weather-sunset-up"></ha-icon>
-                <div class="feature-card-text">
-                  <span class="feature-title">Morgen-Einspeisung</span>
-                  <span class="feature-desc">Morgens wird die Batterie nicht sofort geladen, sondern die Energie direkt ins Netz eingespeist.</span>
-                </div>
-                <div class="feature-badge ${mDelay ? "on" : "off"}">${mDelay ? "Aktiv" : "Aus"}</div>
-              </div>
-            </div>
-            ${morningFields}
-          </div>
-
-          <div class="feature-toggle" style="margin-top:16px">
-            <div class="feature-card ${nDischarge ? "selected" : ""}" data-action="toggle-settings-feature" data-feature="enable_night_discharge" style="cursor:pointer">
-              <div class="feature-card-header">
-                <ha-icon icon="mdi:battery-arrow-down-outline"></ha-icon>
-                <div class="feature-card-text">
-                  <span class="feature-title">Abend-Entladung</span>
-                  <span class="feature-desc">Abends wird \u00fcbersch\u00fcssige Energie aus der Batterie ins Netz entladen.</span>
-                </div>
-                <div class="feature-badge ${nDischarge ? "on" : "off"}">${nDischarge ? "Aktiv" : "Aus"}</div>
-              </div>
-            </div>
-            ${dischargeFields}
-          </div>
-
-          ${isExpert ? `<div style="margin-top:24px">
-            <h3 style="margin:0 0 12px;font-size:16px">Allgemeine Einstellungen</h3>
-            <div class="field-group">
-              <label>Sicherheitspuffer (%)</label>
-              <input type="number" data-field="settings_safety_buffer_pct"
-                     value="${d.safety_buffer_pct || 25}"
-                     min="0" max="100" step="5">
-              <div class="help-text">Aufschlag auf den berechneten Energiebedarf. Gilt f\u00fcr beide Optimierungen.</div>
-            </div>
-          </div>` : ""}
-        </div>
-
-        <!-- Card 3: Erweiterte Einstellungen -->
-        <div class="card" style="margin-bottom:16px">
-          <h3 style="margin:0 0 16px">Erweiterte Einstellungen</h3>
-          <div class="field-group">
-            <label>Anzahl der Wochen f\u00fcr den Verbrauchsdurchschnitt</label>
-            <input type="number" data-field="settings_lookback_weeks"
-                   value="${d.lookback_weeks || 4}"
-                   min="1" max="52">
-          </div>
-          <div class="field-group">
-            <label>Schnelles Update-Intervall (Minuten)</label>
-            <input type="number" data-field="settings_update_interval_fast_min"
-                   value="${d.update_interval_fast_min || 1}"
-                   min="1" max="60">
-          </div>
-          <div class="field-group">
-            <label>Langsames Update-Intervall (Minuten)</label>
-            <input type="number" data-field="settings_update_interval_slow_min"
-                   value="${d.update_interval_slow_min || 15}"
-                   min="5" max="120">
-          </div>
-          ${isExpert ? `
-          <div style="margin-top:24px">
-            <h3 style="margin:0 0 12px;font-size:16px">Test- und Simulation</h3>
-            <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer">
-              <input type="checkbox" data-field="settings_enable_simulation" ${d.enable_simulation ? "checked" : ""}>
-              Simulation am Dashboard anzeigen
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-              <input type="checkbox" data-field="settings_enable_manual_control" ${d.enable_manual_control ? "checked" : ""}>
-              Manuelle Steuerung am Dashboard anzeigen
-            </label>
-          </div>` : ""}
-        </div>
-
+    return `
+      <div style="max-width:600px;margin:0 auto">
+        ${tabBar}
+        ${tabContent}
         <button class="btn-primary" data-action="save-settings" style="width:100%;padding:12px">Speichern</button>
       </div>`;
+  }
+
+  /* ── EEG-Statistik (Telemetrie-Opt-In) ───── */
+
+  _renderTelemetrySection() {
+    const s = this._telemetryStatus || { configured: false, enabled: false, registered: false };
+    const enabled = !!s.enabled;
+    const registered = !!s.registered;
+    const notConfigured = !s.configured;
+    const hasIdentity = !!(s.installation_id || s.installation_id_prefix);
+    const fullId = s.installation_id || s.installation_id_prefix || "";
+    // GUID auf die ersten drei Abschnitte kürzen (z.B. "8fcb4c46-ab80-4b2b…").
+    const idParts = fullId.split("-");
+    const shortId = idParts.length >= 3 ? `${idParts.slice(0, 3).join("-")}…` : fullId;
+
+    let statusText;
+    if (notConfigured) {
+      statusText = "Backend-URL noch nicht eingerichtet (DEV-Build)";
+    } else if (registered && s.registered_at) {
+      const d = new Date(s.registered_at);
+      const dStr = isNaN(d.getTime()) ? s.registered_at : d.toLocaleDateString("de-DE");
+      statusText = `Registriert als anonyme Anlage <code title="${fullId}">${shortId}</code> seit ${dStr}`;
+    } else if (hasIdentity && !enabled) {
+      statusText = "Pausiert — Identität bleibt gespeichert";
+    } else if (enabled && !registered) {
+      statusText = "Registrierung läuft …";
+    } else {
+      statusText = "Nicht registriert";
+    }
+
+    const errorRow = this._telemetryError
+      ? `<div class="help-text" style="color:var(--error-color,#d33);margin-bottom:12px">${this._telemetryError}</div>`
+      : "";
+
+    const showDeleteBtn = registered || hasIdentity;
+    const deleteBtn = showDeleteBtn
+      ? `<button class="btn-secondary"
+                 data-action="forget-telemetry"
+                 ${this._telemetryBusy ? "disabled" : ""}
+                 style="background:var(--error-color,#d33);color:#fff;border:0;width:100%;padding:12px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+           <ha-icon icon="mdi:delete-forever"></ha-icon>Daten löschen
+         </button>`
+      : "";
+
+    return `
+      <div class="card" style="margin-bottom:16px">
+        <h3 style="margin:0 0 8px">EEG-Statistik</h3>
+        <div class="help-text" style="margin-bottom:12px">
+          Hilf Deiner EEG: deine Anlage sendet anonymisierte Diagnose- und
+          Wirksamkeits-Daten an die EEG. Keine personenbezogenen Daten, keine
+          IP-Adressen. Du kannst jederzeit aussteigen und die übermittelten
+          Daten auch löschen.
+        </div>
+        <label style="display:flex;align-items:center;gap:12px;cursor:pointer;margin-bottom:12px">
+          <input type="checkbox"
+                 data-action="toggle-telemetry"
+                 ${enabled ? "checked" : ""}
+                 ${notConfigured || this._telemetryBusy ? "disabled" : ""}>
+          <div>
+            <div style="font-weight:500">EEG-Statistik aktivieren</div>
+          </div>
+        </label>
+        <div class="help-text" style="margin-bottom:12px;word-break:break-all">${statusText}</div>
+        <details style="margin-bottom:12px">
+          <summary style="cursor:pointer;font-size:13px;color:var(--secondary-text-color);user-select:none">
+            Datenschutz-Details (was wird gesendet?)
+          </summary>
+          <div class="help-text" style="margin-top:10px;line-height:1.5">
+            <strong>Übermittelt:</strong>
+            <ul style="margin:6px 0 10px 18px;padding:0">
+              <li><strong>Profil</strong> (bei Setup, Restart, Settings-Change): App-/HA-Version, Wechselrichter-Typ, Batterie-Kapazität, PV-Peak, Prognose-Quelle, Land, ausgewählte EEG-Community (sofern PeakShare aktiv), Whitelist-Settings (numerische/kategorische Werte, keine Entity-IDs)</li>
+              <li><strong>Snapshot</strong> (alle 30 Min, gebündelt 1×/h): Zustand, Modus, SOC %, PV-/Verbrauchs-/Netz-/Batterie-Leistung, dynamischer Min-SOC, Hysterese</li>
+              <li><strong>State-Change</strong> (sofort): Übergang, Begründungs-Codes, Snapshot</li>
+              <li><strong>Outcome</strong> (Block-Ende): eingespeiste kWh, Dauer, SOC-Start/-Ende, predicted-vs-actual PV/Verbrauch</li>
+              <li><strong>Failure</strong> (bei Auftreten): Kategorie, Schweregrad, gehashte Fehlermeldung</li>
+            </ul>
+            <strong>Nicht übermittelt:</strong>
+            <ul style="margin:6px 0 10px 18px;padding:0">
+              <li>Keine Entity-IDs / Sensor-Namen</li>
+              <li>Keine IP-Adressen (serverseitig nicht persistiert)</li>
+              <li>Kein Anlagenname, keine Adresse, keine Geokoordinaten</li>
+              <li>Keine EEG-Mitgliedsdaten, keine personenbezogenen Daten</li>
+            </ul>
+            <strong>Identifikation:</strong> einmalig erzeugte UUIDv4 + API-Key, lokal gespeichert. Beim Löschen werden alle Daten serverseitig kaskadiert entfernt und die UUID lokal verworfen.
+          </div>
+        </details>
+        ${errorRow}
+        ${deleteBtn}
+      </div>
+    `;
+  }
+
+  async _handleTelemetryToggle(checked) {
+    if (this._telemetryBusy) return;
+    this._telemetryBusy = true;
+    this._telemetryError = null;
+    this._render();
+    try {
+      const cmd = checked ? "eeg_optimizer/telemetry_enable" : "eeg_optimizer/telemetry_disable";
+      const res = await this._hass.callWS({ type: cmd });
+      if (!res || res.success === false) {
+        const errKey = res && res.error ? `: ${res.error}` : "";
+        this._telemetryError = `Aktivieren fehlgeschlagen${errKey}`;
+      }
+    } catch (err) {
+      this._telemetryError = `Aktivieren fehlgeschlagen: ${err && err.message ? err.message : err}`;
+    } finally {
+      // Status nach jedem Toggle frisch holen — Quelle der Wahrheit ist das Backend.
+      try {
+        this._telemetryStatus = await this._hass.callWS({ type: "eeg_optimizer/telemetry_get_status" });
+      } catch (_) { /* ignore */ }
+      this._telemetryBusy = false;
+      this._render();
+    }
+  }
+
+  async _handleTelemetryForget() {
+    if (this._telemetryBusy) return;
+    const ok = window.confirm(
+      "Wirklich alle Daten löschen?\n\n" +
+      "Alle gesendeten Telemetriedaten werden vom Server entfernt und die lokale " +
+      "Anmeldung wird gelöscht. Diese Aktion kann nicht rückgängig gemacht werden."
+    );
+    if (!ok) return;
+    this._telemetryBusy = true;
+    this._telemetryError = null;
+    this._render();
+    try {
+      const res = await this._hass.callWS({ type: "eeg_optimizer/telemetry_forget" });
+      if (res && res.backend_deleted === false) {
+        this._telemetryError = "Backend-Aufruf fehlgeschlagen — lokale Daten wurden trotzdem gelöscht.";
+      }
+    } catch (err) {
+      this._telemetryError = "Backend-Aufruf fehlgeschlagen — lokale Daten wurden trotzdem gelöscht.";
+    } finally {
+      try {
+        this._telemetryStatus = await this._hass.callWS({ type: "eeg_optimizer/telemetry_get_status" });
+      } catch (_) { /* ignore */ }
+      this._telemetryBusy = false;
+      this._render();
+    }
   }
 
   /* ── Info modal overlay ─────────────────────────── */
@@ -3319,7 +3551,7 @@ class EegOptimizerPanel extends HTMLElement {
           <li>Sicherheitspuffer auf den Verbrauch (konfigurierbar, Standard: 25%)</li>
           <li>Fehlende Energie zum Vollladen der Batterie (basierend auf aktuellem SOC)</li>
         </ul>
-        <p>Der Stromverbrauch wird anhand des durchschnittlichen Verbrauchs desselben Wochentags der letzten Wochen berechnet (konfigurierbar, Standard: 4 Wochen).</p>
+        <p>Der Stromverbrauch wird anhand des durchschnittlichen Verbrauchs desselben Wochentags der letzten Wochen berechnet (konfigurierbar, Standard: 2 Wochen).</p>
         <p>Reicht die PV-Prognose nicht aus, um den Gesamtbedarf zu decken, wird die Batterie sofort geladen \u2014 damit der Haushalt bis zum Abend versorgt ist.</p>`
     } : {
       title: "Abend-Entladung",
@@ -3346,7 +3578,7 @@ class EegOptimizerPanel extends HTMLElement {
           <li>Sicherheitspuffer auf den Verbrauch (konfigurierbar, Standard: 25%)</li>
           <li>Ben\u00f6tigte Energie zum Laden der Batterie (von Mindest-SOC auf 100%)</li>
         </ul>
-        <p>Der Stromverbrauch wird jeweils anhand des durchschnittlichen Verbrauchs desselben Wochentags der letzten Wochen berechnet (konfigurierbar, Standard: 4 Wochen).</p>
+        <p>Der Stromverbrauch wird jeweils anhand des durchschnittlichen Verbrauchs desselben Wochentags der letzten Wochen berechnet (konfigurierbar, Standard: 2 Wochen).</p>
         <p>So wird sichergestellt, dass die Batterie am n\u00e4chsten Tag wieder vollst\u00e4ndig \u00fcber PV geladen werden kann und der Haushalt versorgt ist.</p>`
     };
     return `
@@ -3774,7 +4006,7 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="activity-dot" style="background:${color}">${icon}</div>
         <div class="activity-content">
           <div class="activity-header">${reason} ${changeBadge} ${testBadge}</div>
-          <div class="activity-details">SOC ${e.soc}%${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${fmtDe(e.min_soc, 0)}%` : ""} &middot; ${e.zustand === "Abend-Entladung" ? `PV morgen ${fmtDe(e.discharge_pv != null ? e.discharge_pv : e.pv_tomorrow, 1)} kWh &middot; Gesamtbedarf ${fmtDe(e.discharge_bedarf != null ? e.discharge_bedarf : e.bedarf, 1)} kWh` : `PV-Prognose (Rest) ${fmtDe(e.pv_today, 1)} kWh &middot; Gesamtbedarf ${fmtDe(e.bedarf, 1)} kWh`}</div>
+          <div class="activity-details">SOC ${e.soc != null ? e.soc + "%" : "—"}${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${fmtDe(e.min_soc, 0)}%` : ""} &middot; ${e.zustand === "Abend-Entladung" ? `PV morgen ${fmtDe(e.discharge_pv != null ? e.discharge_pv : e.pv_tomorrow, 1)} kWh &middot; Gesamtbedarf ${fmtDe(e.discharge_bedarf != null ? e.discharge_bedarf : e.bedarf, 1)} kWh` : `PV-Prognose (Rest) ${fmtDe(e.pv_today, 1)} kWh &middot; Gesamtbedarf ${fmtDe(e.bedarf, 1)} kWh`}</div>
         </div>
       </div>`;
     }).join("");
@@ -4724,6 +4956,10 @@ class EegOptimizerPanel extends HTMLElement {
     };
     const optimizerTs = fmtTime(decisionState?.attributes?.letzte_aktualisierung);
     const profilTs = fmtTime(profilState?.last_updated);
+    const telemetryEnabled = !!(this._telemetryStatus && this._telemetryStatus.enabled && this._telemetryStatus.registered);
+    const telemetryTs = telemetryEnabled
+      ? (this._telemetryStatus.last_send_at ? fmtTime(this._telemetryStatus.last_send_at) : "—")
+      : null;
 
     const simBanner = this._simActive ? `
       <div style="background:var(--warning-color, #ff9800);color:#fff;padding:12px 16px;border-radius:12px;
@@ -4776,6 +5012,7 @@ class EegOptimizerPanel extends HTMLElement {
           <div class="header-timestamps">
             <span>Optimizer: ${optimizerTs}</span>
             <span>Verbrauchsdaten: ${profilTs}</span>
+            ${telemetryTs ? `<span>EEG-Statistik: ${telemetryTs}</span>` : ""}
           </div>
         </div>
 
@@ -4801,7 +5038,7 @@ class EegOptimizerPanel extends HTMLElement {
               <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color);cursor:pointer"></ha-icon>
               <div class="info-popup">
                 <strong>Energieprognose</strong>
-                <p>Das Diagramm zeigt f\u00fcr die n\u00e4chsten 7 Tage den durchschnittlichen Energieverbrauch desselben Wochentags der letzten Wochen (konfigurierbar, Standard: 4 Wochen) sowie den von der Prognosesoftware gesch\u00e4tzten PV-Ertrag des jeweiligen Tages.</p>
+                <p>Das Diagramm zeigt f\u00fcr die n\u00e4chsten 7 Tage den durchschnittlichen Energieverbrauch desselben Wochentags der letzten Wochen (konfigurierbar, Standard: 2 Wochen) sowie den von der Prognosesoftware gesch\u00e4tzten PV-Ertrag des jeweiligen Tages.</p>
               </div>
             </span>
           </h3>
@@ -4866,28 +5103,31 @@ class EegOptimizerPanel extends HTMLElement {
         })() : ""}
         `}
 
-        <!-- Activity Timeline -->
+        <!-- Activity Timeline (collapsible) -->
         <div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div data-action="toggle-activity-log" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
             <h3 style="margin:0">
               <ha-icon icon="mdi:history" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
               Aktivit\u00e4tsprotokoll
             </h3>
-            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-              <select data-field="activity_filter" style="font-size:12px;padding:2px 4px;background:var(--card-background-color);color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:4px">
-                <option value="" ${this._activityFilter === "" ? "selected" : ""}>Alle Zust\u00e4nde</option>
-                <option value="Morgen-Einspeisung" ${this._activityFilter === "Morgen-Einspeisung" ? "selected" : ""}>Morgen-Einspeisung</option>
-                <option value="Abend-Entladung" ${this._activityFilter === "Abend-Entladung" ? "selected" : ""}>Abend-Entladung</option>
-              </select>
-              <label data-action="toggle-activity-show-all" style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--secondary-text-color);cursor:pointer;user-select:none">
-                <input type="checkbox" ${this._activityShowAll ? "checked" : ""} style="pointer-events:none;margin:0"> Alle Eintr\u00e4ge
-              </label>
-              <button class="btn-link" data-action="refresh-activity-log" style="font-size:12px">
-                <ha-icon icon="mdi:refresh" style="--mdc-icon-size:14px;vertical-align:middle"></ha-icon> Aktualisieren
-              </button>
-            </div>
+            <ha-icon icon="mdi:chevron-${this._activityLogOpen ? "up" : "down"}" style="--mdc-icon-size:24px;color:var(--secondary-text-color)"></ha-icon>
+          </div>
+          ${this._activityLogOpen ? `
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px">
+            <select data-field="activity_filter" style="font-size:12px;padding:2px 4px;background:var(--card-background-color);color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:4px">
+              <option value="" ${this._activityFilter === "" ? "selected" : ""}>Alle Zust\u00e4nde</option>
+              <option value="Morgen-Einspeisung" ${this._activityFilter === "Morgen-Einspeisung" ? "selected" : ""}>Morgen-Einspeisung</option>
+              <option value="Abend-Entladung" ${this._activityFilter === "Abend-Entladung" ? "selected" : ""}>Abend-Entladung</option>
+            </select>
+            <label data-action="toggle-activity-show-all" style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--secondary-text-color);cursor:pointer;user-select:none">
+              <input type="checkbox" ${this._activityShowAll ? "checked" : ""} style="pointer-events:none;margin:0"> Alle Eintr\u00e4ge
+            </label>
+            <button class="btn-link" data-action="refresh-activity-log" style="font-size:12px">
+              <ha-icon icon="mdi:refresh" style="--mdc-icon-size:14px;vertical-align:middle"></ha-icon> Aktualisieren
+            </button>
           </div>
           ${this._renderActivityTimeline()}
+          ` : ""}
         </div>
 
         ${this._config?.enable_manual_control ? `
@@ -5424,6 +5664,28 @@ class EegOptimizerPanel extends HTMLElement {
         .view-pill { background: transparent; border: none; cursor: pointer; padding: 6px 12px; border-radius: 999px; color: var(--secondary-text-color, #666); display: inline-flex; align-items: center; justify-content: center; transition: background 0.15s, color 0.15s; }
         .view-pill:hover { color: var(--primary-text-color); }
         .view-pill.active { background: var(--card-background-color, #fff); color: var(--primary-color, #03a9f4); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .settings-tabs {
+          display: flex; gap: 4px; margin-bottom: 16px; padding: 4px;
+          background: var(--secondary-background-color, rgba(0,0,0,0.05));
+          border-radius: 12px; overflow-x: auto; scrollbar-width: thin;
+        }
+        .settings-tab {
+          flex: 1 1 0; min-width: max-content; background: transparent; border: none; cursor: pointer;
+          padding: 10px 12px; border-radius: 8px; color: var(--secondary-text-color, #666);
+          display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+          font-size: 13px; font-weight: 500; white-space: nowrap;
+          transition: background 0.15s, color 0.15s;
+        }
+        .settings-tab:hover { color: var(--primary-text-color); }
+        .settings-tab.active {
+          background: var(--card-background-color, #fff);
+          color: var(--primary-color, #03a9f4);
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        @media (max-width: 540px) {
+          .settings-tab span { display: none; }
+          .settings-tab { flex: 1 1 0; padding: 10px 8px; }
+        }
         .energy-flow-svg { width: 100%; height: auto; max-height: 360px; display: block; }
         .energy-flow-svg .flow-line { stroke-linecap: round; stroke-dasharray: 6 6; animation: flow-anim 1.2s linear infinite; }
         .energy-flow-svg .flow-line.reverse { animation-direction: reverse; }
@@ -5646,6 +5908,7 @@ class EegOptimizerPanel extends HTMLElement {
     if (this._onVisibilityChange) {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
     }
+    this._stopTelemetryRefresh();
   }
 
   connectedCallback() {
@@ -5663,6 +5926,38 @@ class EegOptimizerPanel extends HTMLElement {
     }
     // Start watchdog
     this._startWatchdog();
+    this._startTelemetryRefresh();
+  }
+
+  _startTelemetryRefresh() {
+    this._stopTelemetryRefresh();
+    // Backend flusht alle 60 min — wir refreshen den Status alle 60 s,
+    // damit Dashboard ("EEG-Statistik: HH:MM:SS") nicht hängenbleibt.
+    this._telemetryRefreshInterval = setInterval(() => {
+      if (!this._hass || !this._initialized) return;
+      this._hass.callWS({ type: "eeg_optimizer/telemetry_get_status" })
+        .then(s => {
+          const old = this._telemetryStatus || {};
+          if (
+            old.last_send_at !== s.last_send_at ||
+            old.queue_size !== s.queue_size ||
+            old.registered !== s.registered
+          ) {
+            this._telemetryStatus = s;
+            this._render();
+          } else {
+            this._telemetryStatus = s;
+          }
+        })
+        .catch(() => { /* ignore — UI bleibt mit altem Status */ });
+    }, 60000);
+  }
+
+  _stopTelemetryRefresh() {
+    if (this._telemetryRefreshInterval) {
+      clearInterval(this._telemetryRefreshInterval);
+      this._telemetryRefreshInterval = null;
+    }
   }
 
   _startWatchdog() {

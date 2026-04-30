@@ -21,7 +21,10 @@ def _make_decision(**overrides):
         "nächste_aktion": "Normalbetrieb",
         "markdown": "## Status\nNormalbetrieb",
         "ausführung": True,
-        "block_reasons": [],
+        # New canonical telemetry fields (D-09): catalog keys + lean snapshot
+        "reasons": [],
+        "blocked_by": [],
+        "snapshot": {},
         # Morning delay status card
         "morning_status": "deaktiviert",
         "morning_reason": "",
@@ -125,3 +128,54 @@ class TestEntscheidungsSensor:
         attrs = sensor._attr_extra_state_attributes
         assert attrs["ladung_blockiert"] is True
         assert attrs["zustand"] == "Morgen-Einspeisung"
+
+    # -------------------------------------------------------------------
+    # D-09: reasons / blocked_by / snapshot exposure (Phase 8 Plan 01)
+    # -------------------------------------------------------------------
+
+    def test_update_exposes_reasons_and_blocked_by_and_snapshot(self):
+        """D-09: Sensor exposes the canonical telemetry fields as attributes."""
+        sensor = EntscheidungsSensor("test_entry")
+        snapshot_payload = {
+            "soc_pct": 50,
+            "pv_now_kw": 2.0,
+            "consumption_now_kw": 1.0,
+            "grid_now_kw": -0.5,
+            "battery_now_kw": 1.5,
+            "min_soc_dyn": 30,
+            "hysteresis": False,
+        }
+        decision = _make_decision(
+            zustand="Morgen-Einspeisung",
+            ladung_blockiert=True,
+            reasons=["pv_forecast_exceeds_demand", "in_morning_window"],
+            blocked_by=["soc_below_min"],
+            snapshot=snapshot_payload,
+            discharge_reasons=["SOC unter Min-SOC"],  # German status-card list (kept!)
+        )
+        sensor.update_from_decision(decision)
+        attrs = sensor._attr_extra_state_attributes
+
+        assert attrs["reasons"] == ["pv_forecast_exceeds_demand", "in_morning_window"]
+        assert attrs["blocked_by"] == ["soc_below_min"]
+        assert attrs["snapshot"] == snapshot_payload
+        # discharge_reasons (German free-text status-card list) is intentionally kept
+        assert attrs["discharge_reasons"] == ["SOC unter Min-SOC"]
+
+    def test_update_does_not_expose_legacy_block_reasons(self):
+        """D-10: block_reasons is gone — sensor must not expose this attribute."""
+        sensor = EntscheidungsSensor("test_entry")
+        decision = _make_decision()
+        sensor.update_from_decision(decision)
+        assert "block_reasons" not in sensor._attr_extra_state_attributes
+
+    def test_reasons_attribute_is_a_copy_not_reference(self):
+        """Sensor stores a copy of reasons/blocked_by — mutating decision later doesn't leak."""
+        sensor = EntscheidungsSensor("test_entry")
+        original_reasons = ["soc_above_min"]
+        decision = _make_decision(reasons=original_reasons)
+        sensor.update_from_decision(decision)
+        # Mutate after update
+        original_reasons.append("tomorrow_pv_sufficient")
+        # Sensor's stored attribute should NOT be affected
+        assert sensor._attr_extra_state_attributes["reasons"] == ["soc_above_min"]

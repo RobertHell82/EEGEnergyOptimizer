@@ -74,7 +74,7 @@ CONSUMPTION_SENSOR = "sensor.eeg_energy_optimizer_hausverbrauch"
 FORECAST_SOURCE_SOLCAST = "solcast_solar"
 FORECAST_SOURCE_FORECAST_SOLAR = "forecast_solar"
 
-DEFAULT_LOOKBACK_WEEKS = 4
+DEFAULT_LOOKBACK_WEEKS = 2
 DEFAULT_UPDATE_INTERVAL_FAST = 1   # minutes
 DEFAULT_UPDATE_INTERVAL_SLOW = 15  # minutes
 
@@ -133,3 +133,51 @@ CONF_SETUP_COMPLETE = "setup_complete"
 CONF_EXPERT_MODE = "expert_mode"
 CONF_ENABLE_SIMULATION = "enable_simulation"
 CONF_ENABLE_MANUAL_CONTROL = "enable_manual_control"
+
+# ------------------------------------------------------------------
+# Phase 8: Telemetry (v1.1)
+# ------------------------------------------------------------------
+# Backend-URL und Bootstrap-Token werden nur im RELEASE-Repo gefüllt.
+# Im DEV-Repo bleiben sie leer → TelemetryReporter ist ein No-Op.
+# Siehe .planning/milestones/v1.1-phases/08-ha-reporter-modul/08-CONTEXT.md, D-01.
+TELEMETRY_BACKEND_URL = "https://eeg-telemetry.robert-hell.workers.dev"
+# Siehe 08-CONTEXT.md D-01 — Bootstrap-Token gibt Anlagen das Recht, sich am Backend
+# einmalig zu registrieren. Pro Anlage wird ein eigener api_key generiert; der hardcoded
+# Bootstrap-Token dient nur als IP-Rate-Limit-Schutz, nicht als echte Authentifizierung.
+TELEMETRY_BOOTSTRAP_TOKEN = "4c604d119e5e4c08f0a020e3d2aab487bcd05ab62de3fcaf0dd9138185744fa6"
+
+# Storage-Keys (D-04, D-06). Identity und Buffer nutzen GETRENNTE Dateien,
+# damit ein korrupter Buffer die Identity nicht zerstören kann.
+STORAGE_TELEMETRY = f"{DOMAIN}.telemetry"
+STORAGE_TELEMETRY_BUFFER = f"{DOMAIN}.telemetry_buffer"
+
+# Config-Entry-Flag, default False (08-03 ergänzt es via async_migrate_entry v12→v13).
+CONF_TELEMETRY_ENABLED = "telemetry_enabled"
+
+# Buffer- und HTTP-Defaults
+TELEMETRY_BUFFER_MAX = 100        # D-06: Ringbuffer-Maximum
+TELEMETRY_HTTP_TIMEOUT = 10       # D-34: Per-Request-Timeout in Sekunden
+TELEMETRY_BACKOFF_MIN_S = 60      # D-36: 1 min initialer Backoff
+TELEMETRY_BACKOFF_MAX_S = 1800    # D-36: 30 min Maximum
+TELEMETRY_FLUSH_BATCH = 10        # D-35: maximal Events pro erfolgreichem Send-Drain
+
+# Settings-Whitelist für /v1/profile (D-18, D-19). NICHTS außerhalb dieses
+# Tupels wird gesendet — entity_ids, IPs, Gerätenamen etc. können nicht leaken.
+TELEMETRY_SETTINGS_KEYS = (
+    "enable_morning_delay",
+    "enable_night_discharge",
+    "enable_peakshare",
+    "morning_start_offset",
+    "morning_end_time",
+    "discharge_start_time",
+    "discharge_power_kw",
+    "min_soc",
+    "safety_buffer_pct",
+    "peakshare_community",
+    "forecast_source",
+)
+
+# Phase 8 — Runtime Watchdog-Schwellen (08-03, D-16)
+SENSOR_UNAVAIL_THRESHOLD_S = 600        # Sensor 10 min unverfügbar → Failure
+FORECAST_NONE_STREAK_THRESHOLD = 3      # 3 aufeinanderfolgende None-Forecasts → Failure
+FAILURE_DEDUP_WINDOW_S = 3600           # 1 h Dedup pro (category, message_hash)

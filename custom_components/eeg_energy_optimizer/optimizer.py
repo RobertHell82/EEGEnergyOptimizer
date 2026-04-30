@@ -11,11 +11,12 @@ import logging
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from .const import (
     CONF_BATTERY_CAPACITY_KWH,
     CONF_BATTERY_CAPACITY_SENSOR,
+    CONF_BATTERY_POWER_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
     CONF_DISCHARGE_POWER_KW,
     CONF_DISCHARGE_START_TIME,
@@ -28,7 +29,9 @@ from .const import (
     CONF_MORNING_END_TIME,
     CONF_MORNING_START_OFFSET,
     CONF_PEAKSHARE_COMMUNITY,
+    CONF_PV_POWER_SENSOR,
     CONF_SAFETY_BUFFER_PCT,
+    CONSUMPTION_SENSOR,
     DEFAULT_DISCHARGE_POWER_KW,
     DEFAULT_DISCHARGE_START_TIME,
     DEFAULT_ENABLE_PEAKSHARE,
@@ -55,6 +58,90 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Reasons-Katalog (D-12): geschlossener snake_case-Schlüsselsatz für Diagnose
+# ---------------------------------------------------------------------------
+# Diese Konstanten sind die einzige Quelle der Wahrheit für `Decision.reasons`
+# und `Decision.blocked_by`. Telemetrie-Backend (siehe types.ts) erwartet exakt
+# diese snake_case-Keys. UI-Texte für Endnutzer kommen aus REASON_LABELS_DE.
+
+# Morgen-Einspeisung
+REASON_PV_FORECAST_EXCEEDS_DEMAND = "pv_forecast_exceeds_demand"
+REASON_PV_FORECAST_BELOW_THRESHOLD = "pv_forecast_below_threshold"
+REASON_PV_FORECAST_NONE = "pv_forecast_none"
+REASON_IN_MORNING_WINDOW = "in_morning_window"
+REASON_OUTSIDE_MORNING_WINDOW = "outside_morning_window"
+REASON_MORNING_DELAY_DISABLED = "morning_delay_disabled"
+REASON_SUNRISE_UNKNOWN = "sunrise_unknown"
+REASON_HYSTERESIS_STRICT = "hysteresis_strict"
+
+# Abend-Entladung
+REASON_NIGHT_DISCHARGE_DISABLED = "night_discharge_disabled"
+REASON_OVERNIGHT_DEMAND_TOO_HIGH = "overnight_demand_too_high"
+REASON_BEFORE_DISCHARGE_START = "before_discharge_start"
+REASON_PEAKSHARE_BEFORE_WINDOW = "peakshare_before_window"
+REASON_PEAKSHARE_WINDOW_ACTIVE = "peakshare_window_active"
+REASON_PEAKSHARE_WINDOW_EXPIRED = "peakshare_window_expired"
+REASON_HARD_CUTOFF_AFTER_4AM = "hard_cutoff_after_4am"
+REASON_SOC_ABOVE_MIN = "soc_above_min"
+REASON_SOC_BELOW_MIN = "soc_below_min"
+REASON_TOMORROW_PV_SUFFICIENT = "tomorrow_pv_sufficient"
+REASON_TOMORROW_PV_INSUFFICIENT = "tomorrow_pv_insufficient"
+REASON_DISCHARGE_ABORTED_TODAY = "discharge_aborted_today"
+REASON_BATTERY_SOC_UNAVAILABLE = "battery_soc_unavailable"
+
+# Closed-Set-Garantie für Tests + Backend-Diagnose
+ALL_REASONS: frozenset[str] = frozenset({
+    REASON_PV_FORECAST_EXCEEDS_DEMAND,
+    REASON_PV_FORECAST_BELOW_THRESHOLD,
+    REASON_PV_FORECAST_NONE,
+    REASON_IN_MORNING_WINDOW,
+    REASON_OUTSIDE_MORNING_WINDOW,
+    REASON_MORNING_DELAY_DISABLED,
+    REASON_SUNRISE_UNKNOWN,
+    REASON_HYSTERESIS_STRICT,
+    REASON_NIGHT_DISCHARGE_DISABLED,
+    REASON_OVERNIGHT_DEMAND_TOO_HIGH,
+    REASON_BEFORE_DISCHARGE_START,
+    REASON_PEAKSHARE_BEFORE_WINDOW,
+    REASON_PEAKSHARE_WINDOW_ACTIVE,
+    REASON_PEAKSHARE_WINDOW_EXPIRED,
+    REASON_HARD_CUTOFF_AFTER_4AM,
+    REASON_SOC_ABOVE_MIN,
+    REASON_SOC_BELOW_MIN,
+    REASON_TOMORROW_PV_SUFFICIENT,
+    REASON_TOMORROW_PV_INSUFFICIENT,
+    REASON_DISCHARGE_ABORTED_TODAY,
+    REASON_BATTERY_SOC_UNAVAILABLE,
+})
+
+# Deutsche Texte für UI-Renderer (D-38). Telemetrie sendet nur Keys.
+REASON_LABELS_DE: dict[str, str] = {
+    REASON_PV_FORECAST_EXCEEDS_DEMAND: "PV-Prognose deckt Bedarf inkl. Puffer",
+    REASON_PV_FORECAST_BELOW_THRESHOLD: "PV-Prognose unter Bedarfsschwelle",
+    REASON_PV_FORECAST_NONE: "Keine PV-Prognose verfügbar",
+    REASON_IN_MORNING_WINDOW: "Im Morgen-Einspeisungs-Fenster",
+    REASON_OUTSIDE_MORNING_WINDOW: "Außerhalb des Morgen-Fensters",
+    REASON_MORNING_DELAY_DISABLED: "Morgen-Einspeisung deaktiviert",
+    REASON_SUNRISE_UNKNOWN: "Sonnenaufgang unbekannt",
+    REASON_HYSTERESIS_STRICT: "Hysterese aktiv (höhere Schwelle)",
+    REASON_NIGHT_DISCHARGE_DISABLED: "Abend-Entladung deaktiviert",
+    REASON_OVERNIGHT_DEMAND_TOO_HIGH: "Nachtverbrauch zu hoch (Min-SOC ≥ 100%)",
+    REASON_BEFORE_DISCHARGE_START: "Vor Entladestart-Zeit",
+    REASON_PEAKSHARE_BEFORE_WINDOW: "PeakShare-Fenster noch nicht erreicht",
+    REASON_PEAKSHARE_WINDOW_ACTIVE: "PeakShare-Fenster aktiv",
+    REASON_PEAKSHARE_WINDOW_EXPIRED: "PeakShare-Fenster abgelaufen",
+    REASON_HARD_CUTOFF_AFTER_4AM: "Harte Abschaltung 04:00",
+    REASON_SOC_ABOVE_MIN: "SOC über Min-SOC",
+    REASON_SOC_BELOW_MIN: "SOC unter Min-SOC",
+    REASON_TOMORROW_PV_SUFFICIENT: "PV-Prognose morgen ausreichend",
+    REASON_TOMORROW_PV_INSUFFICIENT: "PV-Prognose morgen zu gering",
+    REASON_DISCHARGE_ABORTED_TODAY: "Entladung heute wegen Netzbezug abgebrochen",
+    REASON_BATTERY_SOC_UNAVAILABLE: "Batterie-SOC-Sensor nicht verfügbar",
+}
+
+
 # Timezone utilities
 try:
     from homeassistant.util import dt as dt_util
@@ -79,12 +166,39 @@ def _read_float(hass: Any, entity_id: str) -> float | None:
         return None
 
 
+def _read_power_kw(hass: Any, entity_id: str) -> float | None:
+    """Read a power sensor and normalise to kW.
+
+    Mirrors the helper in sensor.py to avoid an import cycle. Returns None for
+    missing/unknown/unavailable/empty sensors (NOT 0.0 — backend analytics
+    distinguish "0 W exported" from "we couldn't read").
+
+    - Unit "W" → divide by 1000
+    - Unit "kW" or unset → return as-is
+    """
+    if not entity_id:
+        return None
+    state = hass.states.get(entity_id)
+    if state is None:
+        return None
+    if state.state in ("unknown", "unavailable", ""):
+        return None
+    try:
+        val = float(state.state)
+    except (ValueError, TypeError):
+        return None
+    unit = (state.attributes.get("unit_of_measurement") or "").strip()
+    if unit == "W":
+        return val / 1000.0
+    return val
+
+
 @dataclass
 class Snapshot:
     """Immutable snapshot of all inputs for one optimizer cycle."""
 
     now: datetime
-    battery_soc: float = 0.0
+    battery_soc: float | None = None
     battery_capacity_kwh: float = 0.0
     pv_remaining_today_kwh: float | None = None
     pv_tomorrow_kwh: float | None = None
@@ -99,6 +213,20 @@ class Snapshot:
     sunrise_today: datetime | None = None
     sunset_today: datetime | None = None
     sim_factor: float = 1.0
+
+    def to_telemetry_dict(self) -> dict:
+        """Schlanke Snapshot-Kopie für State-Change-Payload (D-09).
+
+        Liefert die deterministischen Felder, die das Backend in den Tabellen
+        `snapshots` und `state_changes.snapshot_json` erwartet. Live-Werte
+        (pv_now_kw, grid_now_kw etc.) werden vom Aufrufer (EEGOptimizer._evaluate)
+        ergänzt — Snapshot kennt keinen hass.states-Zugriff.
+        """
+        return {
+            "soc_pct": int(round(self.battery_soc))
+            if self.battery_soc is not None
+            else None,
+        }
 
 
 @dataclass
@@ -115,7 +243,13 @@ class Decision:
     nächste_aktion: str = ""
     markdown: str = ""
     ausführung: bool = False
-    block_reasons: list[str] = field(default_factory=list)
+
+    # Strukturierte Diagnose-Felder (D-09): kanonische snake_case-Keys aus
+    # ALL_REASONS. Wird vom Telemetrie-Reporter 1:1 an State-Change-Events
+    # gehängt. UI-Renderer übersetzen via REASON_LABELS_DE für Endnutzer.
+    reasons: list[str] = field(default_factory=list)
+    blocked_by: list[str] = field(default_factory=list)
+    snapshot: dict = field(default_factory=dict)
 
     # Morning delay status card fields
     morning_status: str = "deaktiviert"
@@ -160,6 +294,8 @@ class EEGOptimizer:
         coordinator: Any,
         provider: Any,
         peakshare: Any = None,
+        *,
+        failure_callback: Optional[Callable[[str, Exception, str], None]] = None,
     ) -> None:
         self._hass = hass
         self._entry_id = entry_id
@@ -168,6 +304,9 @@ class EEGOptimizer:
         self._coordinator = coordinator
         self._provider = provider
         self._peakshare = peakshare
+        # W-4 — Telemetrie-Failure-Hook. Wird von __init__.py auf reporter.send_failure
+        # geroutet; bleibt None für Tests / Setups ohne Telemetrie.
+        self._failure_callback = failure_callback
         self._enable_peakshare = config.get(CONF_ENABLE_PEAKSHARE, DEFAULT_ENABLE_PEAKSHARE)
         self._peakshare_community = config.get(CONF_PEAKSHARE_COMMUNITY, DEFAULT_PEAKSHARE_COMMUNITY)
 
@@ -242,11 +381,10 @@ class EEGOptimizer:
         """Read all inputs and build an immutable Snapshot."""
         now = _now()
 
-        # Battery SOC
+        # Battery SOC — None propagiert durch, statt mit 0.0 die Telemetrie zu
+        # fälschen und min_soc_dyn auf 100% zu treiben (FIX: ehemals 0.0-Fallback).
         soc_id = self._config.get(CONF_BATTERY_SOC_SENSOR, "")
-        battery_soc = _read_float(self._hass, soc_id) if soc_id else 0.0
-        if battery_soc is None:
-            battery_soc = 0.0
+        battery_soc = _read_float(self._hass, soc_id) if soc_id else None
 
         # Battery capacity (sensor or manual fallback)
         capacity_kwh = self._resolve_capacity()
@@ -388,6 +526,37 @@ class EEGOptimizer:
             )
 
         return snap
+
+    def _current_power_readings(self) -> dict:
+        """Read live power values for the snapshot payload (D-09).
+
+        Returns dict mit pv_now_kw / consumption_now_kw / grid_now_kw /
+        battery_now_kw — float|None pro Eintrag (None bei nicht
+        konfiguriertem oder nicht verfügbarem Sensor).
+
+        Sign-Konventionen folgen INVERTER_SIGN_CONVENTIONS:
+          positiv = Export (Grid) bzw. Laden (Battery).
+
+        Wichtig: Bei fehlenden Sensoren NICHT 0.0 zurückgeben — Backend-
+        Analytics unterscheiden "0 W exportiert" von "konnten nicht lesen".
+        """
+        cfg = self._config
+        inv_type = cfg.get(CONF_INVERTER_TYPE, "")
+        signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
+        battery_sign = signs.get("battery_sign", 1)
+        grid_sign = signs.get("grid_sign", 1)
+
+        pv_raw = _read_power_kw(self._hass, cfg.get(CONF_PV_POWER_SENSOR, ""))
+        grid_raw = _read_power_kw(self._hass, cfg.get(CONF_GRID_POWER_SENSOR, ""))
+        bat_raw = _read_power_kw(self._hass, cfg.get(CONF_BATTERY_POWER_SENSOR, ""))
+        cons_raw = _read_power_kw(self._hass, CONSUMPTION_SENSOR)
+
+        return {
+            "pv_now_kw": pv_raw,
+            "grid_now_kw": (grid_raw * grid_sign) if grid_raw is not None else None,
+            "battery_now_kw": (bat_raw * battery_sign) if bat_raw is not None else None,
+            "consumption_now_kw": cons_raw,
+        }
 
     def _resolve_capacity(self) -> float:
         """Resolve battery capacity: sensor -> manual fallback."""
@@ -535,12 +704,18 @@ class EEGOptimizer:
         return result
 
     def _discharge_detail_status(
-        self, snap: Snapshot, should_discharge: bool, min_soc: float, discharge_reasons: list[str]
+        self, snap: Snapshot, should_discharge: bool, min_soc: float,
+        discharge_blocked_by: list[str]
     ) -> dict:
         """Compute detailed discharge status for the status card.
 
-        Returns a dict with: status, reasons, soc, min_soc, pv_tomorrow_kwh,
-        demand_tomorrow_kwh, power_kw, start_time.
+        Args:
+            discharge_blocked_by: snake_case-Keys aus ALL_REASONS, die das
+                Discharge blockieren. Werden für die Status-Karte via
+                REASON_LABELS_DE in deutsche Texte übersetzt (D-38).
+
+        Returns a dict with: status, reasons (deutsche Freitext-Liste für Panel),
+        soc, min_soc, pv_tomorrow_kwh, demand_tomorrow_kwh, power_kw, start_time.
         """
         # Show PeakShare window times if a plan was computed today
         ps_plan = None
@@ -583,22 +758,25 @@ class EEGOptimizer:
             result["status"] = "aktiv"
             return result
 
-        # Not discharging: separate time-reason from condition-reasons.
-        # Both fixed-time ("Startzeit ... noch nicht erreicht") and PeakShare
-        # ("PeakShare-Fenster ab ... noch nicht erreicht") count as time-reasons
-        # so the card shows "Geplant" (blue) instead of "Nicht geplant" (red).
-        def _is_time_reason(r: str) -> bool:
-            return "noch nicht erreicht" in r
-        time_reasons = [r for r in discharge_reasons if _is_time_reason(r)]
-        condition_reasons = [r for r in discharge_reasons if not _is_time_reason(r)]
+        # Not discharging: separate time-reason from condition-reasons via Katalog-Keys.
+        # Both fixed-time (REASON_BEFORE_DISCHARGE_START) and PeakShare
+        # (REASON_PEAKSHARE_BEFORE_WINDOW) sind Time-Reasons → Karte zeigt
+        # "Geplant" (blau) statt "Nicht geplant" (rot).
+        time_reason_keys = {
+            REASON_BEFORE_DISCHARGE_START,
+            REASON_PEAKSHARE_BEFORE_WINDOW,
+        }
+        time_keys = [k for k in discharge_blocked_by if k in time_reason_keys]
+        condition_keys = [k for k in discharge_blocked_by if k not in time_reason_keys]
 
-        if not condition_reasons and time_reasons:
+        if not condition_keys and time_keys:
             # Only time is blocking -> planned
             result["status"] = "geplant"
         else:
-            # Condition failures -> not planned
+            # Condition failures -> not planned. Übersetze Keys in deutsche Texte
+            # für die Status-Karte (discharge_reasons-Feld bleibt UI-Freitext).
             result["status"] = "nicht_geplant"
-            result["reasons"] = condition_reasons
+            result["reasons"] = [REASON_LABELS_DE.get(k, k) for k in condition_keys]
 
         return result
 
@@ -619,22 +797,32 @@ class EEGOptimizer:
 
         return consumption_with_buffer + missing_battery
 
-    def _should_block_charging(self, snap: Snapshot) -> bool:
+    def _should_block_charging(
+        self, snap: Snapshot
+    ) -> tuple[bool, list[str], list[str]]:
         """Determine if morning charge blocking should be active.
 
-        Conditions (all must be true):
-        - Feature enabled in config
-        - Sunrise known
-        - Current time within window (sunrise - 1h to morning_end_time)
-        - PV forecast today > energy demand * (1 + safety_buffer)
+        Returns:
+            tuple ``(block, reasons, blocked_by)`` per D-11 mit
+            snake_case-Keys aus ALL_REASONS:
 
-        Energy demand = consumption to sunset + missing battery energy.
+            - ``block=True``  → reasons listet die Aktivierungsgründe,
+              ``blocked_by`` ist leer (gegenseitiger Ausschluss).
+            - ``block=False`` → reasons ist leer; ``blocked_by`` listet jeden
+              Guard, der das Blockieren verhindert hat (Reihenfolge:
+              `morning_delay_disabled` → `sunrise_unknown` →
+              `outside_morning_window` → `in_morning_window` plus
+              PV-/Hysterese-Detail).
         """
+        # Guard 1: Feature off
         if not self._enable_morning_delay:
-            return False
-        if snap.sunrise_today is None:
-            return False
+            return (False, [], [REASON_MORNING_DELAY_DISABLED])
 
+        # Guard 2: Sonnenaufgang heute unbekannt
+        if snap.sunrise_today is None:
+            return (False, [], [REASON_SUNRISE_UNKNOWN])
+
+        # Guard 3: Zeitfenster
         window_start = snap.sunrise_today - timedelta(hours=self._morning_start_offset_h)
         morning_end = snap.now.replace(
             hour=self._morning_end_hour,
@@ -643,11 +831,15 @@ class EEGOptimizer:
             microsecond=0,
         )
         if not (window_start <= snap.now <= morning_end):
-            return False
+            return (False, [], [REASON_OUTSIDE_MORNING_WINDOW])
+
+        # Ab hier: im Fenster
+        in_window_blocked: list[str] = [REASON_IN_MORNING_WINDOW]
 
         pv_today = snap.pv_remaining_today_kwh
         if pv_today is None or pv_today <= 0:
-            return False
+            in_window_blocked.append(REASON_PV_FORECAST_NONE)
+            return (False, [], in_window_blocked)
 
         bedarf = self._calc_energiebedarf(snap)
 
@@ -658,10 +850,16 @@ class EEGOptimizer:
             self._morning_activated_date == today_str
             and self._last_eval_zustand != STATE_MORGEN_EINSPEISUNG
         )
-        if is_reactivation:
-            return pv_today > bedarf * 1.1
 
-        return pv_today > bedarf
+        if is_reactivation:
+            in_window_active: list[str] = [REASON_IN_MORNING_WINDOW, REASON_HYSTERESIS_STRICT]
+            if pv_today > bedarf * 1.1:
+                return (True, in_window_active + [REASON_PV_FORECAST_EXCEEDS_DEMAND], [])
+            return (False, [], in_window_active + [REASON_PV_FORECAST_BELOW_THRESHOLD])
+
+        if pv_today > bedarf:
+            return (True, [REASON_IN_MORNING_WINDOW, REASON_PV_FORECAST_EXCEEDS_DEMAND], [])
+        return (False, [], [REASON_IN_MORNING_WINDOW, REASON_PV_FORECAST_BELOW_THRESHOLD])
 
     def _calc_min_soc(self, snap: Snapshot) -> float:
         """Calculate dynamic minimum SOC for discharge.
@@ -682,24 +880,36 @@ class EEGOptimizer:
 
     def _should_discharge(
         self, snap: Snapshot
-    ) -> tuple[bool, float, list[str], bool]:
+    ) -> tuple[bool, float, list[str], list[str], bool]:
         """Determine if evening discharge should be active.
 
-        Per D-05 to D-09:
-        - Feature must be enabled in config
-        - Time >= discharge_start
-        - SOC > calculated min_soc
-        - PV tomorrow >= tomorrow_demand (including battery charge needs)
-        """
-        if not self._enable_night_discharge:
-            return (False, float(self._min_soc), ["Abend-Entladung deaktiviert"], False)
-        min_soc = self._calc_min_soc(snap)
-        reasons: list[str] = []
+        Returns ``(should_discharge, min_soc, reasons, blocked_by, hysteresis_active)``
+        per D-11. Alle Einträge in ``reasons``/``blocked_by`` sind snake_case-Keys
+        aus ALL_REASONS (D-12).
 
-        # Special case: min_soc >= 100% means overnight consumption requires
-        # the entire battery — discharge is fundamentally impossible
+        Wenn ``should_discharge=True`` → ``reasons`` listet die Pass-Gründe,
+        ``blocked_by`` ist leer. Wenn ``should_discharge=False`` → ``reasons``
+        ist leer, ``blocked_by`` listet jeden Guard.
+        """
+        # Guard 1: Feature aus
+        if not self._enable_night_discharge:
+            return (False, float(self._min_soc), [], [REASON_NIGHT_DISCHARGE_DISABLED], False)
+
+        min_soc = self._calc_min_soc(snap)
+
+        # Guard 2: Nachtverbrauch verschlingt komplette Batterie
         if min_soc >= 100.0:
-            return (False, min_soc, ["Nachtverbrauch zu hoch"], False)
+            return (False, min_soc, [], [REASON_OVERNIGHT_DEMAND_TOO_HIGH], False)
+
+        blocked_by: list[str] = []
+        passing: list[str] = []
+
+        # Hysterese-Status früh bestimmen — wird auch in blocked_by-Liste reflektiert
+        today_str = snap.now.strftime("%Y-%m-%d")
+        is_reactivation = (
+            self._discharge_activated_date == today_str
+            and self._last_eval_zustand != STATE_ABEND_ENTLADUNG
+        )
 
         # Check time — PeakShare or fixed start time
         # Pre-init guards so neither branch can leave them unbound (past bug: UnboundLocalError)
@@ -719,19 +929,21 @@ class EEGOptimizer:
                 )
 
         if peakshare_plan is not None:
-            # PeakShare window check
             plan_start, plan_end = peakshare_plan
             if snap.now < plan_start:
-                reasons.append(f"PeakShare-Fenster ab {plan_start.strftime('%H:%M')} noch nicht erreicht")
+                blocked_by.append(REASON_PEAKSHARE_BEFORE_WINDOW)
             elif snap.now >= plan_end:
-                reasons.append(f"PeakShare-Fenster ({plan_start.strftime('%H:%M')}-{plan_end.strftime('%H:%M')}) abgelaufen")
-            # Hard cutoff at 04:00 still applies
+                blocked_by.append(REASON_PEAKSHARE_WINDOW_EXPIRED)
+            else:
+                # Fenster aktiv → Pass-Grund
+                passing.append(REASON_PEAKSHARE_WINDOW_ACTIVE)
+            # Hard cutoff at 04:00 still applies (Vormittag-Bereich)
             cutoff = snap.now.replace(hour=4, minute=0, second=0, microsecond=0)
             past_midnight = snap.now.hour < 12 and plan_start.hour >= 12
             if past_midnight and snap.now >= cutoff:
-                reasons.append("Entladung endet um 04:00")
+                blocked_by.append(REASON_HARD_CUTOFF_AFTER_4AM)
         else:
-            # Fixed start time check (fallback or PeakShare disabled)
+            # Fixed start time check (fallback oder PeakShare disabled)
             discharge_start = snap.now.replace(
                 hour=self._discharge_start_h,
                 minute=self._discharge_start_m,
@@ -749,35 +961,30 @@ class EEGOptimizer:
                 and (snap.sunrise - snap.now).total_seconds() < 12 * 3600
             )
             if snap.now < discharge_start and not past_midnight_in_window:
-                reasons.append(f"Startzeit {self._discharge_start_h:02d}:{self._discharge_start_m:02d} noch nicht erreicht")
+                blocked_by.append(REASON_BEFORE_DISCHARGE_START)
 
             # Hard cutoff: discharge ends at 04:00 at the latest
             cutoff = snap.now.replace(hour=4, minute=0, second=0, microsecond=0)
             if past_midnight_in_window and snap.now >= cutoff:
-                reasons.append("Entladung endet um 04:00")
+                blocked_by.append(REASON_HARD_CUTOFF_AFTER_4AM)
 
-        # Hard cutoff: discharge ends at 04:00 at the latest
-        cutoff = snap.now.replace(hour=4, minute=0, second=0, microsecond=0)
-        if past_midnight_in_window and snap.now >= cutoff:
-            reasons.append("Entladung endet um 04:00")
-
-        # Check SOC
-        # Hysteresis: if discharge was already active today and then deactivated,
-        # require SOC to be 5 percentage points above min_soc to reactivate
-        today_str = snap.now.strftime("%Y-%m-%d")
-        is_reactivation = (
-            self._discharge_activated_date == today_str
-            and self._last_eval_zustand != STATE_ABEND_ENTLADUNG
-        )
+        # Hysteresis: SOC-Schwelle anheben falls schon einmal aktiv und deaktiviert.
+        # REASON_HYSTERESIS_STRICT wird nur gemeinsam mit dem SOC-Resultat gesetzt
+        # (begleitende Modifier-Markierung — nicht eigenständig blockierend).
         effective_min_soc = min_soc + 5 if is_reactivation else min_soc
 
         if snap.battery_soc <= effective_min_soc:
-            reasons.append(f"SOC {snap.battery_soc:.0f}% <= Min-SOC {effective_min_soc:.0f}%")
+            if is_reactivation:
+                blocked_by.append(REASON_HYSTERESIS_STRICT)
+            blocked_by.append(REASON_SOC_BELOW_MIN)
+        else:
+            if is_reactivation:
+                passing.append(REASON_HYSTERESIS_STRICT)
+            passing.append(REASON_SOC_ABOVE_MIN)
 
-        # Check tomorrow surplus (D-09)
-        # Tomorrow demand = daylight consumption (with safety buffer) + battery charge needed
-        # Only daylight consumption competes with PV; evening consumption
-        # is covered by the fully charged battery (battery_charge_needed).
+        # Tomorrow surplus check (D-09)
+        # Tomorrow demand = daylight consumption (mit Safety-Buffer) + battery charge needed
+        # Nur Tageslicht-Verbrauch konkurriert mit PV; Abendverbrauch deckt die geladene Batterie.
         consumption_with_buffer = snap.consumption_tomorrow_daylight_kwh * (1 + self._safety_buffer_pct / 100)
         battery_charge_needed = (
             (100 - self._min_soc) / 100 * snap.battery_capacity_kwh * snap.sim_factor
@@ -786,23 +993,43 @@ class EEGOptimizer:
         pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
 
         if pv_tomorrow < tomorrow_demand:
-            reasons.append(
-                f"PV-Prognose morgen ({pv_tomorrow:.1f} kWh) < Bedarf ({tomorrow_demand:.1f} kWh)"
-            )
+            blocked_by.append(REASON_TOMORROW_PV_INSUFFICIENT)
+        else:
+            passing.append(REASON_TOMORROW_PV_SUFFICIENT)
 
-        # Grid import watchdog (SolarEdge only): if discharge was aborted today, block it
+        # Grid import watchdog (nur SolarEdge): falls Entladung heute abgebrochen wurde
         if self._is_solaredge:
-            today_str = snap.now.strftime("%Y-%m-%d")
             if self._discharge_aborted_date == today_str:
-                reasons.append("Entladung heute wegen Netzbezug abgebrochen")
+                blocked_by.append(REASON_DISCHARGE_ABORTED_TODAY)
 
-        return (len(reasons) == 0, min_soc, reasons, is_reactivation)
+        # Mutual-Exclusion-Invariante: bei Pass werden passing-Keys reasons,
+        # bei Block bleibt reasons leer und blocked_by führt die Liste.
+        if not blocked_by:
+            return (True, min_soc, passing, [], is_reactivation)
+        return (False, min_soc, [], blocked_by, is_reactivation)
 
     def _evaluate(self, snap: Snapshot, mode: str) -> Decision:
         """Evaluate snapshot and produce a Decision."""
+        # SOC-Sensor nicht verfügbar → Normalbetrieb erzwingen, statt mit
+        # Phantom-0%-Werten zu rechnen (würde min_soc_dyn auf 100% kippen
+        # und falsche soc_pct=0-Snapshots ans Backend senden).
+        if snap.battery_soc is None:
+            self._last_eval_zustand = STATE_NORMAL
+            return Decision(
+                timestamp=snap.now.isoformat(),
+                zustand=STATE_NORMAL,
+                nächste_aktion="Normalbetrieb (SOC-Sensor nicht verfügbar)",
+                ausführung=(mode == MODE_EIN),
+                reasons=[REASON_BATTERY_SOC_UNAVAILABLE],
+                blocked_by=[REASON_BATTERY_SOC_UNAVAILABLE],
+                snapshot=snap.to_telemetry_dict(),
+            )
+
         bedarf = self._calc_energiebedarf(snap)
-        block = self._should_block_charging(snap)
-        should_discharge, min_soc, discharge_reasons, hysteresis_active = self._should_discharge(snap)
+        block, block_reasons_keys, block_blocked_by_keys = self._should_block_charging(snap)
+        should_discharge, min_soc, dis_reasons_keys, dis_blocked_by_keys, hysteresis_active = (
+            self._should_discharge(snap)
+        )
 
         # Determine state
         if block:
@@ -855,7 +1082,7 @@ class EEGOptimizer:
         # Compute detailed status for both features
         morning_info = self._morning_delay_status(snap, bedarf)
         discharge_info = self._discharge_detail_status(
-            snap, should_discharge, min_soc, discharge_reasons
+            snap, should_discharge, min_soc, dis_blocked_by_keys
         )
 
         decision = Decision(
@@ -869,7 +1096,6 @@ class EEGOptimizer:
             nächste_aktion=nächste_aktion,
             # Explicit: ausführung=True only for MODE_EIN, False for MODE_TEST/MODE_AUS
             ausführung=(mode == MODE_EIN),
-            block_reasons=discharge_reasons if zustand != STATE_ABEND_ENTLADUNG else [],
             # Morning delay status card fields
             morning_status=morning_info["status"],
             morning_reason=morning_info["reason"],
@@ -905,6 +1131,31 @@ class EEGOptimizer:
                 decision.discharge_peakshare_active = True
                 decision.discharge_window_start = ps_plan[0].strftime("%H:%M")
                 decision.discharge_window_end = ps_plan[1].strftime("%H:%M")
+
+        # Strukturierte Diagnose (D-09): kanonische Katalog-Keys für Telemetrie.
+        # Mapping je nach gewähltem Zustand:
+        #   Morgen-Einspeisung → reasons = block-Pass-Keys, blocked_by = discharge-Guards
+        #   Abend-Entladung    → reasons = discharge-Pass-Keys, blocked_by = block-Guards
+        #   Normal             → reasons = [], blocked_by = beide Guard-Listen kombiniert
+        if zustand == STATE_MORGEN_EINSPEISUNG:
+            decision.reasons = list(block_reasons_keys)
+            decision.blocked_by = list(dis_blocked_by_keys)
+        elif zustand == STATE_ABEND_ENTLADUNG:
+            decision.reasons = list(dis_reasons_keys)
+            decision.blocked_by = list(block_blocked_by_keys)
+        else:
+            decision.reasons = []
+            decision.blocked_by = list(block_blocked_by_keys) + list(dis_blocked_by_keys)
+
+        # Lean Snapshot für State-Change-Payload (D-09).
+        # Field-Namen matchen 1:1 SnapshotPayload (EEGEnergyOptimzierBackend/src/types.ts).
+        readings = self._current_power_readings()
+        decision.snapshot = {
+            **snap.to_telemetry_dict(),
+            **readings,
+            "min_soc_dyn": int(round(min_soc)),
+            "hysteresis": bool(hysteresis_active),
+        }
 
         decision.markdown = self._build_markdown(snap, decision)
         return decision
@@ -956,7 +1207,21 @@ class EEGOptimizer:
         if not decision.ladung_blockiert and not decision.entladung_aktiv:
             lines.append("### Normalbetrieb")
             lines.append(f"- Energiebedarf: {decision.energiebedarf_kwh:.1f} kWh")
-            lines.append(f"- Batterie SOC: {snap.battery_soc:.0f}%")
+            soc_str = f"{snap.battery_soc:.0f}%" if snap.battery_soc is not None else "—"
+            lines.append(f"- Batterie SOC: {soc_str}")
+            lines.append("")
+
+        # Diagnose-Sektionen aus dem Reasons-Katalog (D-38): kanonische Keys
+        # werden via REASON_LABELS_DE in deutsche Texte übersetzt.
+        if decision.reasons:
+            lines.append("### Diagnose (Gründe)")
+            for key in decision.reasons:
+                lines.append(f"- {REASON_LABELS_DE.get(key, key)}")
+            lines.append("")
+        if decision.blocked_by:
+            lines.append("### Diagnose (blockiert durch)")
+            for key in decision.blocked_by:
+                lines.append(f"- {REASON_LABELS_DE.get(key, key)}")
             lines.append("")
 
         lines.append(f"**Modus:** {'Ausführung' if decision.ausführung else 'Berechnung'}")
@@ -1006,8 +1271,23 @@ class EEGOptimizer:
                 await self._inverter.async_stop_forcible()
 
             self._prev_zustand = decision.zustand
-        except Exception:
+        except Exception as exc:
             _LOGGER.exception("Inverter command failed for state %s", decision.zustand)
+            # W-4 — Telemetrie-Hook für Inverter-Schreibfehler (D-16). Action je
+            # nach Zielzustand: charge / discharge / stop. Callback ist defensiv
+            # gewrappt — eine Exception darin darf den Optimizer-Zyklus nicht
+            # zerlegen.
+            if self._failure_callback is not None:
+                if decision.zustand == STATE_MORGEN_EINSPEISUNG:
+                    action = "charge"
+                elif decision.zustand == STATE_ABEND_ENTLADUNG:
+                    action = "discharge"
+                else:
+                    action = "stop"
+                try:
+                    self._failure_callback("inverter_write", exc, action)
+                except Exception:  # pragma: no cover — defensive
+                    _LOGGER.exception("Inverter failure callback raised")
 
     def _check_grid_import_watchdog(self, decision: Decision, snap: Snapshot) -> Decision:
         """Check for sustained grid import during discharge and abort if needed.
@@ -1068,6 +1348,13 @@ class EEGOptimizer:
                 decision.discharge_reasons.append(
                     "Entladung heute wegen Netzbezug > 1 kW für > 5 Min abgebrochen"
                 )
+                # Katalog-Key in blocked_by spiegeln, damit der Activity-Log-Check
+                # in __init__.py (REASON_DISCHARGE_ABORTED_TODAY in decision.blocked_by)
+                # auch auf dem Watchdog-Zyklus selbst greift (D-09).
+                if REASON_DISCHARGE_ABORTED_TODAY not in decision.blocked_by:
+                    decision.blocked_by.append(REASON_DISCHARGE_ABORTED_TODAY)
+                # Da Zustand auf Normal gewechselt hat: passing-reasons löschen.
+                decision.reasons = []
         else:
             # Grid import below threshold — reset timer
             if self._grid_import_since is not None:

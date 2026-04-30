@@ -62,5 +62,23 @@
     "abort": {
       "already_configured": "EEG Energy Optimizer is already configured."
     }
+  },
+  "panel": {
+    "telemetry": {
+      "title": "Community Statistics",
+      "description": "Help the EEG community: your installation sends anonymized diagnostics and effectiveness data to a Cloudflare backend. No personally identifiable data, no sensor IDs, no IP addresses. You can disable this at any time or delete all data.",
+      "toggle_label": "Enable Community Statistics",
+      "status_registered": "Registered as anonymous installation {prefix} since {date}",
+      "status_not_registered": "Not registered",
+      "status_disabled": "Paused — identity remains stored",
+      "status_not_configured": "Backend URL not configured yet (DEV build)",
+      "delete_button": "Delete data",
+      "delete_confirm_title": "Really delete all data?",
+      "delete_confirm_body": "All transmitted telemetry data will be removed from the server and the local registration will be cleared. This action cannot be undone.",
+      "delete_confirm_ok": "Delete permanently",
+      "delete_confirm_cancel": "Cancel",
+      "enable_error": "Activation failed",
+      "forget_warning": "Backend call failed — local data was deleted anyway."
+    }
   }
 }

@@ -5,11 +5,13 @@ Sensors are read via the native HA Fronius Integration (Solar API).
 Only 2-3 registers written per operation: StorCtl_Mod, InWRte, OutWRte.
 
 SunSpec Model 124 register offsets (relative to discovered base address):
-  +0  WChaMax      uint16  R   Max battery power in W
-  +3  StorCtl_Mod  bitfield16 RW  Control mode (Bit 0=Charge, Bit 1=Discharge)
-  +5  MinRsvPct    uint16(SF-2) RW  Min reserve %
-  +12 OutWRte      int16(SF-2)  RW  Discharge rate % of WChaMax
-  +13 InWRte       int16(SF-2)  RW  Charge rate % of WChaMax
+  +0  WChaMax              uint16  R   Max battery power in W
+  +3  StorCtl_Mod          bitfield16 RW  Control mode (Bit 0=Charge, Bit 1=Discharge)
+  +5  MinRsvPct            uint16(SF-2) RW  Min reserve %
+  +10 OutWRte              int16(SF-2)  RW  Discharge rate % of WChaMax
+  +11 InWRte               int16(SF-2)  RW  Charge rate % of WChaMax
+  +12 InOutWRte_WinTms     uint16  RW  Window time before rate becomes effective (s)
+  +13 InOutWRte_RvrtTms    uint16  RW  Auto-revert period after rate is set (s, 0 = no revert)
 """
 
 from __future__ import annotations
@@ -50,8 +52,10 @@ def _slave_kw(client: Any, slave_id: int) -> dict:
 _OFFSET_WCHAMAX = 0
 _OFFSET_STORCTL_MOD = 3
 _OFFSET_MINRSVPCT = 5
-_OFFSET_OUTWRTE = 12
-_OFFSET_INWRTE = 13
+_OFFSET_OUTWRTE = 10
+_OFFSET_INWRTE = 11
+_OFFSET_WINTMS = 12
+_OFFSET_RVRTTMS = 13
 
 # SunSpec identification
 _SUNSPEC_ID_WORD0 = 0x5375  # "Su"
@@ -361,6 +365,19 @@ class FroniusInverter(InverterBase):
             if not await self._write_register(_OFFSET_INWRTE, inwrte_value):
                 return False
 
+            # Disable Fronius watchdog timers. If WinTms or RvrtTms hold a
+            # non-zero value (whether from factory defaults or — historically —
+            # from earlier versions of this integration that wrote to the
+            # wrong offsets), the inverter would either delay the limit
+            # taking effect or auto-revert StorCtl_Mod after a few seconds,
+            # making the block inconsistent or wholly ineffective. Force
+            # both timers to 0 so the limit becomes effective immediately
+            # and stays in place until we explicitly change it.
+            if not await self._write_register(_OFFSET_WINTMS, 0):
+                return False
+            if not await self._write_register(_OFFSET_RVRTTMS, 0):
+                return False
+
             # StorCtl_Mod = 1 (Charge Limit active) — activates InWRte set above
             if not await self._write_register(_OFFSET_STORCTL_MOD, 1):
                 return False
@@ -376,20 +393,19 @@ class FroniusInverter(InverterBase):
             self._close_client()
             return False
 
-    # TODO: KONZEPT open question 8.1 — StorCtl_Mod=3 may force grid discharge
-    # even when house consumption could absorb battery output. Needs validation
-    # on real Fronius Gen24 hardware. If confirmed, consider using StorCtl_Mod=2
-    # (discharge-only) combined with separate charge blocking via a follow-up
-    # StorCtl_Mod=1 write, or test if the inverter self-consumption logic still
-    # applies under StorCtl_Mod=3.
     async def async_set_discharge(
         self, power_kw: float, target_soc: float | None = None
     ) -> bool:
-        """Force battery discharge at given power.
+        """Force battery discharge into the grid at the given power.
 
-        Sets StorCtl_Mod=3 (Charge + Discharge Limit active),
-        OutWRte to discharge percent, InWRte=0 to block charging.
-        Optionally sets MinRsvPct for SOC floor.
+        Sets InWRte=-percent (lower bound), OutWRte=+percent (upper bound),
+        and StorCtl_Mod=3 (both limits active). Per Fronius Modbus manual
+        example 6, this collapses the [InWRte, OutWRte] power window onto a
+        single point, enforcing discharge at the requested rate independent
+        of house consumption — what the EEG evening feed-in needs.
+
+        Optionally sets MinRsvPct as a SOC floor; the previous MinRsvPct is
+        snapshotted on first call so async_stop_forcible() can restore it.
         """
         async with self._lock:
             return await self._set_discharge_locked(power_kw, target_soc)
@@ -413,11 +429,24 @@ class FroniusInverter(InverterBase):
             # discharge mode active but stale rate values from a previous
             # operation. See ME-03 in REVIEW.md / set_charge_limit comment.
 
-            # InWRte = 0 (block charging during discharge)
-            if not await self._write_register(_OFFSET_INWRTE, 0):
+            # Force-discharge into the grid (independent of house consumption):
+            # per Fronius Modbus manual example 6, "Discharging with 50% of
+            # nominal power" requires OutWRte=+50%, InWRte=-50%, StorCtl_Mod=3,
+            # which yields the window [-WChaMax/2, -WChaMax/2] — i.e. an
+            # exactly enforced discharge. With InWRte=0 the inverter would
+            # only discharge what the house actually consumes, defeating the
+            # EEG evening feed-in purpose.
+            #
+            # Modbus holding registers are unsigned 16-bit; encode the signed
+            # int16 value as two's-complement before writing.
+            inwrte_signed = -percent
+            inwrte_value = inwrte_signed & 0xFFFF
+            if not await self._write_register(_OFFSET_INWRTE, inwrte_value):
                 return False
 
-            # OutWRte = discharge percent
+            # OutWRte = +percent (upper discharge bound, mirrors InWRte's
+            # absolute value so the [InWRte, OutWRte] window collapses onto
+            # the desired forced discharge point)
             if not await self._write_register(_OFFSET_OUTWRTE, percent):
                 return False
 
@@ -448,6 +477,15 @@ class FroniusInverter(InverterBase):
                 min_rsv = int(target_soc * 100)
                 if not await self._write_register(_OFFSET_MINRSVPCT, min_rsv):
                     _LOGGER.warning("Fronius: failed to set MinRsvPct (non-critical)")
+
+            # Disable Fronius watchdog timers — see _set_charge_limit_locked
+            # for the rationale. Without this, discharge would auto-revert
+            # after RvrtTms seconds (or never become effective if WinTms is
+            # high), making the discharge unreliable.
+            if not await self._write_register(_OFFSET_WINTMS, 0):
+                return False
+            if not await self._write_register(_OFFSET_RVRTTMS, 0):
+                return False
 
             # StorCtl_Mod = 3 (Bits 0+1: Charge + Discharge Limit active) —
             # written LAST so that all rate/reserve registers are already in
