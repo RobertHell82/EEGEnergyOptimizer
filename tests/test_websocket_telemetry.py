@@ -214,15 +214,20 @@ async def test_enable_calls_register_and_updates_config():
 
 
 # ---------------------------------------------------------------------------
-# g2) telemetry_enable uses shared profile helper (I-4)
+# g2) telemetry_enable bei vorhandener Identity = Pause→Resume (D-33):
+#     KEIN erneutes Register, stattdessen update_profile mit dem
+#     gemeinsamen Profile-Builder (I-4). Verhindert verwaiste Datensätze
+#     am Backend bei jedem Disable→Enable-Toggle.
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_enable_uses_shared_profile_helper():
+async def test_enable_after_disable_resumes_without_register():
     from custom_components.eeg_energy_optimizer import websocket_api as ws_mod
     from custom_components.eeg_energy_optimizer.websocket_api import (
         ws_telemetry_enable,
     )
 
+    # Pause-State: Flag aus, Identity bleibt erhalten (so verhält sich
+    # ws_telemetry_disable seit Phase 4).
     entry = _make_entry(telemetry_enabled=False)
     buffer = _make_buffer(identity={
         "installation_id": "abcdef01-1111-2222-3333-444455556666",
@@ -243,18 +248,67 @@ async def test_enable_uses_shared_profile_helper():
     with patch.object(ws_mod, "_build_telemetry_profile", return_value=fake_profile) as patched:
         await _call(ws_telemetry_enable, hass, conn, _msg("telemetry_enable"))
 
-    # The shared helper was called exactly once with (hass, entry, identity_registered_at)
+    # Kein zweiter Backend-Datensatz: register darf NICHT aufgerufen werden.
+    assert reporter.register.await_count == 0
+    # Stattdessen update_profile mit dem korrekt gebauten Profil.
+    assert reporter.update_profile.await_count == 1
+    assert reporter.update_profile.await_args.args[0] == fake_profile
+
+    # Profile-Builder wurde mit identity_registered_at der vorhandenen
+    # Identity aufgerufen — I-4-Vertrag bleibt gewahrt.
     assert patched.call_count == 1
     call_args = patched.call_args
     assert call_args.args[0] is hass
     assert call_args.args[1] is entry
-    # identity_registered_at as kwarg or positional
     rid = call_args.kwargs.get("identity_registered_at")
     if rid is None and len(call_args.args) >= 3:
         rid = call_args.args[2]
     assert rid == "2026-01-01T00:00:00+00:00"
-    # The patched profile MUST be the one passed to register (no second build path)
-    assert reporter.register.await_args.args[0] == fake_profile
+
+    # Flag wurde wieder aktiviert.
+    assert hass.config_entries.async_update_entry.called
+    update_args, update_kwargs = hass.config_entries.async_update_entry.call_args
+    new_data = update_kwargs.get("data") or (update_args[1] if len(update_args) > 1 else None)
+    assert new_data and new_data[CONF_TELEMETRY_ENABLED] is True
+
+    # send_result success + already_active=False (Resume aus Pause)
+    payload = conn.send_result.call_args.args[1]
+    assert payload["success"] is True
+    assert payload["already_active"] is False
+    assert payload["installation_id_prefix"] == "abcdef01"
+
+
+# ---------------------------------------------------------------------------
+# g3) telemetry_enable bei bereits aktiver Telemetrie = Idempotenz:
+#     identity_known + Flag=True → kein register, already_active=True
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_enable_when_already_active_is_idempotent():
+    from custom_components.eeg_energy_optimizer.websocket_api import (
+        ws_telemetry_enable,
+    )
+
+    entry = _make_entry(telemetry_enabled=True)
+    buffer = _make_buffer(identity={
+        "installation_id": "abcdef01-aaaa-bbbb-cccc-dddddddddddd",
+        "api_key": "k",
+        "registered_at": "2026-01-01T00:00:00+00:00",
+    })
+    reporter = _make_reporter(configured=True)
+    data = {
+        "telemetry_buffer": buffer,
+        "telemetry_reporter": reporter,
+        "snapshot_queue": [],
+    }
+    hass = _make_hass(entry, data)
+    conn = _make_connection()
+
+    await _call(ws_telemetry_enable, hass, conn, _msg("telemetry_enable"))
+
+    assert reporter.register.await_count == 0
+    payload = conn.send_result.call_args.args[1]
+    assert payload["success"] is True
+    assert payload["already_active"] is True
 
 
 # ---------------------------------------------------------------------------

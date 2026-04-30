@@ -1426,17 +1426,6 @@ async def ws_telemetry_enable(
             "success": False, "error": "backend_not_configured",
         })
         return
-    # Idempotent: schon aktiv → kein erneutes Register
-    if buffer.identity_known() and entry.data.get(CONF_TELEMETRY_ENABLED):
-        ident = buffer.get_identity() or {}
-        prefix = ident.get("installation_id", "")[:8] or None
-        connection.send_result(msg["id"], {
-            "success": True,
-            "already_active": True,
-            "installation_id_prefix": prefix,
-        })
-        return
-
     # I-4 / W-3 — der gemeinsame Profile-Builder. Modulvariable wird beim
     # ersten Aufruf gefüllt (kein Zirkular-Import zur Laufzeit, weil
     # __init__.py jetzt vollständig geladen ist). Tests können die
@@ -1444,9 +1433,34 @@ async def ws_telemetry_enable(
     global _build_telemetry_profile
     if _build_telemetry_profile is None:
         _build_telemetry_profile = _get_build_telemetry_profile()
-    identity = buffer.get_identity() or {}
+
+    # Pause→Resume (D-33): Wenn die Identity lokal bekannt ist, KEIN erneutes
+    # Register. Ein zweites Register würde am Backend einen neuen Datensatz
+    # anlegen und die alten Daten verwaisen lassen. Stattdessen nur das Flag
+    # wieder aktivieren und das Profil aktualisieren.
+    if buffer.identity_known():
+        already_active = bool(entry.data.get(CONF_TELEMETRY_ENABLED))
+        if not already_active:
+            new_data = {**entry.data, CONF_TELEMETRY_ENABLED: True}
+            hass.config_entries.async_update_entry(entry, data=new_data)
+        ident = buffer.get_identity() or {}
+        try:
+            profile = _build_telemetry_profile(
+                hass, entry, identity_registered_at=ident.get("registered_at"),
+            )
+            await reporter.update_profile(profile)
+        except Exception:  # pragma: no cover
+            _LOGGER.exception("Telemetry resume: update_profile failed")
+        prefix = ident.get("installation_id", "")[:8] or None
+        connection.send_result(msg["id"], {
+            "success": True,
+            "already_active": already_active,
+            "installation_id_prefix": prefix,
+        })
+        return
+
     profile = _build_telemetry_profile(
-        hass, entry, identity_registered_at=identity.get("registered_at"),
+        hass, entry, identity_registered_at=None,
     )
     try:
         ok = await reporter.register(profile)
