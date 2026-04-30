@@ -374,13 +374,13 @@ async def ws_get_config(
     config = {**entry.data, **entry.options}
     config["entry_id"] = entry.entry_id
     config["setup_complete"] = entry.data.get("setup_complete", False)
-    # Inject version from manifest
+    # Inject version from manifest. Use the shared module-level cache from
+    # __init__.py so the WS handler does NOT do blocking disk IO on every
+    # panel open — HA 2026 flags read_text inside the event loop and slow
+    # storage made this measurably stall the entire HA process.
     try:
-        import json, pathlib
-        manifest = json.loads(
-            (pathlib.Path(__file__).parent / "manifest.json").read_text()
-        )
-        config["version"] = manifest.get("version", "")
+        from . import _load_app_version
+        config["version"] = await _load_app_version(hass)
     except Exception:
         config["version"] = ""
     connection.send_result(msg["id"], config)

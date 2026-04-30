@@ -155,6 +155,53 @@ def _resolve_battery_capacity_kwh(hass, config) -> float | None:
         return None
 
 
+_APP_VERSION_CACHE: str | None = None
+
+
+def _read_manifest_version_sync() -> str:
+    """Synchroner Manifest-Read — NUR aus einem Executor-Thread aufrufen.
+
+    Wird von _load_app_version via async_add_executor_job verwendet, damit
+    das Lesen der manifest.json niemals den HA-Event-Loop blockiert.
+    """
+    try:
+        import json as _json
+        import pathlib as _pathlib
+        manifest = _json.loads(
+            (_pathlib.Path(__file__).parent / "manifest.json").read_text()
+        )
+        return manifest.get("version", "") or ""
+    except Exception:  # pragma: no cover
+        return ""
+
+
+async def _load_app_version(hass) -> str:
+    """Lädt die Integrations-Version einmalig in den Modul-Cache.
+
+    Idempotent: bei wiederholtem Aufruf wird der Cache zurückgegeben, ohne
+    erneuten Disk-IO. Ein Cache-Miss läuft im Executor (kein Event-Loop-Block).
+    """
+    global _APP_VERSION_CACHE
+    if _APP_VERSION_CACHE is None:
+        try:
+            _APP_VERSION_CACHE = await hass.async_add_executor_job(
+                _read_manifest_version_sync
+            )
+        except Exception:  # pragma: no cover — defensive
+            _APP_VERSION_CACHE = ""
+    return _APP_VERSION_CACHE or ""
+
+
+def _cached_app_version() -> str:
+    """Gibt die gecachte Version zurück. Leerstring solange nicht geladen.
+
+    Sync-Caller (z.B. _build_telemetry_profile) müssen ein Pre-Load über
+    _load_app_version sicherstellen — der Boot-Pfad in async_setup_entry
+    erledigt das vor dem ersten Telemetrie-Send.
+    """
+    return _APP_VERSION_CACHE or ""
+
+
 def _build_telemetry_profile(hass, entry, identity_registered_at):
     """I-4 / W-3 — einziger Profil-Builder.
 
@@ -165,9 +212,6 @@ def _build_telemetry_profile(hass, entry, identity_registered_at):
     Reporter._shape_profile wendet die Whitelist defensiv erneut an, aber die
     Wahrheit lebt hier.
     """
-    import json as _json
-    import pathlib as _pathlib
-
     try:
         from homeassistant.const import __version__ as HA_VERSION
     except ImportError:  # pragma: no cover — Test-Umgebung ohne HA
@@ -177,13 +221,7 @@ def _build_telemetry_profile(hass, entry, identity_registered_at):
     _data = getattr(entry, "data", {}) or {}
     _options = getattr(entry, "options", {}) or {}
     config = {**_data, **_options}
-    try:
-        manifest = _json.loads(
-            (_pathlib.Path(__file__).parent / "manifest.json").read_text()
-        )
-        app_version = manifest.get("version")
-    except Exception:  # pragma: no cover
-        app_version = None
+    app_version = _cached_app_version() or None
 
     settings = {k: config.get(k) for k in TELEMETRY_SETTINGS_KEYS if k in config}
 
@@ -300,6 +338,13 @@ async def async_backfill_hausverbrauch_stats(
             StatisticMetaData,
             StatisticData,
         )
+        # StatisticMeanType ist neueres HA — vor 2026.x lebt mean_type als
+        # kwarg von async_import_statistics. Wir versuchen den modernen Pfad
+        # und fallen sonst auf das Legacy-Verhalten zurück.
+        try:
+            from homeassistant.components.recorder.models import StatisticMeanType
+        except ImportError:  # pragma: no cover — alte HA-Versionen
+            StatisticMeanType = None  # type: ignore[assignment]
 
         now = datetime.now(tz=timezone.utc)
         recorder_instance = get_instance(hass)
@@ -627,18 +672,31 @@ async def async_backfill_hausverbrauch_stats(
         def _import(stat_id: str, name: str, data: list[StatisticData]) -> None:
             if not data:
                 return
-            meta = StatisticMetaData(
-                has_mean=True,
-                has_sum=False,
-                name=name,
-                source="recorder",
-                statistic_id=stat_id,
-                unit_of_measurement="kW",
-            )
+            # Neuere HA-Versionen (2026.x+) erwarten mean_type als Feld in
+            # StatisticMetaData. Auf älteren Versionen lebt es als kwarg.
+            meta_kwargs = {
+                "has_mean": True,
+                "has_sum": False,
+                "name": name,
+                "source": "recorder",
+                "statistic_id": stat_id,
+                "unit_of_measurement": "kW",
+            }
+            if StatisticMeanType is not None:
+                meta_kwargs["mean_type"] = StatisticMeanType.ARITHMETIC
             try:
-                async_import_statistics(hass, meta, data, mean_type="arithmetic")
+                meta = StatisticMetaData(**meta_kwargs)
             except TypeError:
+                # Sehr alte HA: kein mean_type-Feld in StatisticMetaData
+                meta_kwargs.pop("mean_type", None)
+                meta = StatisticMetaData(**meta_kwargs)
+            try:
                 async_import_statistics(hass, meta, data)
+            except TypeError:
+                # Theoretisch unerreichbar — wenn StatisticMetaData den
+                # mean_type aufgenommen hat, akzeptiert async_import_statistics
+                # ihn nicht mehr als kwarg. Defensiver Fallback auf Legacy-API.
+                async_import_statistics(hass, meta, data, mean_type="arithmetic")
 
         _import(
             CONSUMPTION_SENSOR,
@@ -800,10 +858,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception:
             hass.data[f"{DOMAIN}_static_registered"] = True  # Already registered
 
-    # Read version from manifest for cache-busting query parameter
-    manifest_path = Path(__file__).parent / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    panel_version = manifest.get("version", "0")
+    # Read version from manifest for cache-busting query parameter.
+    # Cached in module state to avoid blocking disk IO on every panel load
+    # (HA 2026.x detects this as a blocking_call_inside_event_loop offense
+    # and the warmer-than-expected manifest.json access measurably stalls
+    # the loop on slow storage).
+    panel_version = await _load_app_version(hass) or "0"
 
     # Always re-register panel to update cache-busting version in js_url
     if PANEL_URL_PATH in hass.data.get("frontend_panels", {}):
