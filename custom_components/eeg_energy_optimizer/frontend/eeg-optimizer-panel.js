@@ -4003,7 +4003,7 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="activity-dot" style="background:${color}">${icon}</div>
         <div class="activity-content">
           <div class="activity-header">${reason} ${changeBadge} ${testBadge}</div>
-          <div class="activity-details">SOC ${e.soc}%${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${fmtDe(e.min_soc, 0)}%` : ""} &middot; ${e.zustand === "Abend-Entladung" ? `PV morgen ${fmtDe(e.discharge_pv != null ? e.discharge_pv : e.pv_tomorrow, 1)} kWh &middot; Gesamtbedarf ${fmtDe(e.discharge_bedarf != null ? e.discharge_bedarf : e.bedarf, 1)} kWh` : `PV-Prognose (Rest) ${fmtDe(e.pv_today, 1)} kWh &middot; Gesamtbedarf ${fmtDe(e.bedarf, 1)} kWh`}</div>
+          <div class="activity-details">SOC ${e.soc != null ? e.soc + "%" : "—"}${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${fmtDe(e.min_soc, 0)}%` : ""} &middot; ${e.zustand === "Abend-Entladung" ? `PV morgen ${fmtDe(e.discharge_pv != null ? e.discharge_pv : e.pv_tomorrow, 1)} kWh &middot; Gesamtbedarf ${fmtDe(e.discharge_bedarf != null ? e.discharge_bedarf : e.bedarf, 1)} kWh` : `PV-Prognose (Rest) ${fmtDe(e.pv_today, 1)} kWh &middot; Gesamtbedarf ${fmtDe(e.bedarf, 1)} kWh`}</div>
         </div>
       </div>`;
     }).join("");

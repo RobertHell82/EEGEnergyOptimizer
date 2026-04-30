@@ -1205,11 +1205,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         def _log_activity(decision, reason):
             """Append an activity entry and fire a HA event."""
+            # SOC aus dem Telemetrie-Snapshot (kann None sein, wenn Sensor unavailable).
+            snap_dict = decision.snapshot if isinstance(decision.snapshot, dict) else {}
+            soc_val = snap_dict.get("soc_pct")
             entry_data = {
                 "timestamp": decision.timestamp,
                 "zustand": decision.zustand,
                 "reason": reason,
-                "soc": round(decision.discharge_soc, 0),
+                "soc": soc_val,
                 "min_soc": round(decision.min_soc_berechnet, 1),
                 "pv_today": round(decision.morning_pv_today_kwh, 1),
                 "pv_tomorrow": round(decision.discharge_pv_tomorrow_kwh, 1),

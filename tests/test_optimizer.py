@@ -939,6 +939,8 @@ _EXPECTED_REASON_KEYS: frozenset[str] = frozenset({
     "tomorrow_pv_sufficient",
     "tomorrow_pv_insufficient",
     "discharge_aborted_today",
+    # Sensor availability
+    "battery_soc_unavailable",
 })
 
 

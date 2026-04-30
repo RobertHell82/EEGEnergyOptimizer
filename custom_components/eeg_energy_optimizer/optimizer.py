@@ -89,6 +89,7 @@ REASON_SOC_BELOW_MIN = "soc_below_min"
 REASON_TOMORROW_PV_SUFFICIENT = "tomorrow_pv_sufficient"
 REASON_TOMORROW_PV_INSUFFICIENT = "tomorrow_pv_insufficient"
 REASON_DISCHARGE_ABORTED_TODAY = "discharge_aborted_today"
+REASON_BATTERY_SOC_UNAVAILABLE = "battery_soc_unavailable"
 
 # Closed-Set-Garantie für Tests + Backend-Diagnose
 ALL_REASONS: frozenset[str] = frozenset({
@@ -112,6 +113,7 @@ ALL_REASONS: frozenset[str] = frozenset({
     REASON_TOMORROW_PV_SUFFICIENT,
     REASON_TOMORROW_PV_INSUFFICIENT,
     REASON_DISCHARGE_ABORTED_TODAY,
+    REASON_BATTERY_SOC_UNAVAILABLE,
 })
 
 # Deutsche Texte für UI-Renderer (D-38). Telemetrie sendet nur Keys.
@@ -136,6 +138,7 @@ REASON_LABELS_DE: dict[str, str] = {
     REASON_TOMORROW_PV_SUFFICIENT: "PV-Prognose morgen ausreichend",
     REASON_TOMORROW_PV_INSUFFICIENT: "PV-Prognose morgen zu gering",
     REASON_DISCHARGE_ABORTED_TODAY: "Entladung heute wegen Netzbezug abgebrochen",
+    REASON_BATTERY_SOC_UNAVAILABLE: "Batterie-SOC-Sensor nicht verfügbar",
 }
 
 
@@ -195,7 +198,7 @@ class Snapshot:
     """Immutable snapshot of all inputs for one optimizer cycle."""
 
     now: datetime
-    battery_soc: float = 0.0
+    battery_soc: float | None = None
     battery_capacity_kwh: float = 0.0
     pv_remaining_today_kwh: float | None = None
     pv_tomorrow_kwh: float | None = None
@@ -219,7 +222,11 @@ class Snapshot:
         (pv_now_kw, grid_now_kw etc.) werden vom Aufrufer (EEGOptimizer._evaluate)
         ergänzt — Snapshot kennt keinen hass.states-Zugriff.
         """
-        return {"soc_pct": int(round(self.battery_soc))}
+        return {
+            "soc_pct": int(round(self.battery_soc))
+            if self.battery_soc is not None
+            else None,
+        }
 
 
 @dataclass
@@ -374,11 +381,10 @@ class EEGOptimizer:
         """Read all inputs and build an immutable Snapshot."""
         now = _now()
 
-        # Battery SOC
+        # Battery SOC — None propagiert durch, statt mit 0.0 die Telemetrie zu
+        # fälschen und min_soc_dyn auf 100% zu treiben (FIX: ehemals 0.0-Fallback).
         soc_id = self._config.get(CONF_BATTERY_SOC_SENSOR, "")
-        battery_soc = _read_float(self._hass, soc_id) if soc_id else 0.0
-        if battery_soc is None:
-            battery_soc = 0.0
+        battery_soc = _read_float(self._hass, soc_id) if soc_id else None
 
         # Battery capacity (sensor or manual fallback)
         capacity_kwh = self._resolve_capacity()
@@ -1004,6 +1010,21 @@ class EEGOptimizer:
 
     def _evaluate(self, snap: Snapshot, mode: str) -> Decision:
         """Evaluate snapshot and produce a Decision."""
+        # SOC-Sensor nicht verfügbar → Normalbetrieb erzwingen, statt mit
+        # Phantom-0%-Werten zu rechnen (würde min_soc_dyn auf 100% kippen
+        # und falsche soc_pct=0-Snapshots ans Backend senden).
+        if snap.battery_soc is None:
+            self._last_eval_zustand = STATE_NORMAL
+            return Decision(
+                timestamp=snap.now.isoformat(),
+                zustand=STATE_NORMAL,
+                nächste_aktion="Normalbetrieb (SOC-Sensor nicht verfügbar)",
+                ausführung=(mode == MODE_EIN),
+                reasons=[REASON_BATTERY_SOC_UNAVAILABLE],
+                blocked_by=[REASON_BATTERY_SOC_UNAVAILABLE],
+                snapshot=snap.to_telemetry_dict(),
+            )
+
         bedarf = self._calc_energiebedarf(snap)
         block, block_reasons_keys, block_blocked_by_keys = self._should_block_charging(snap)
         should_discharge, min_soc, dis_reasons_keys, dis_blocked_by_keys, hysteresis_active = (
@@ -1186,7 +1207,8 @@ class EEGOptimizer:
         if not decision.ladung_blockiert and not decision.entladung_aktiv:
             lines.append("### Normalbetrieb")
             lines.append(f"- Energiebedarf: {decision.energiebedarf_kwh:.1f} kWh")
-            lines.append(f"- Batterie SOC: {snap.battery_soc:.0f}%")
+            soc_str = f"{snap.battery_soc:.0f}%" if snap.battery_soc is not None else "—"
+            lines.append(f"- Batterie SOC: {soc_str}")
             lines.append("")
 
         # Diagnose-Sektionen aus dem Reasons-Katalog (D-38): kanonische Keys
