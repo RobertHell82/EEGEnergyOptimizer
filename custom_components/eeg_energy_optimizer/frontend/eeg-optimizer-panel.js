@@ -3298,7 +3298,7 @@ class EegOptimizerPanel extends HTMLElement {
             ${dischargeFields}
           </div>
 
-          ${isExpert ? `<div style="margin-top:24px">
+          <div style="margin-top:24px">
             <h3 style="margin:0 0 12px;font-size:16px">Allgemeine Einstellungen</h3>
             <div class="field-group">
               <label>Sicherheitspuffer (%)</label>
@@ -3307,7 +3307,7 @@ class EegOptimizerPanel extends HTMLElement {
                      min="0" max="100" step="5">
               <div class="help-text">Aufschlag auf den berechneten Energiebedarf. Gilt f\u00fcr beide Optimierungen.</div>
             </div>
-          </div>` : ""}
+          </div>
         </div>
 
         <!-- Card: Community-Statistik (D-28, Phase 8 Telemetrie-Opt-In) -->
@@ -3352,14 +3352,15 @@ class EegOptimizerPanel extends HTMLElement {
       </div>`;
   }
 
-  /* ── Community-Statistik (Telemetrie-Opt-In) ───── */
+  /* ── EEG-Statistik (Telemetrie-Opt-In) ───── */
 
   _renderTelemetrySection() {
     const s = this._telemetryStatus || { configured: false, enabled: false, registered: false };
     const enabled = !!s.enabled;
     const registered = !!s.registered;
     const notConfigured = !s.configured;
-    const hasIdentity = !!s.installation_id_prefix;
+    const hasIdentity = !!(s.installation_id || s.installation_id_prefix);
+    const fullId = s.installation_id || s.installation_id_prefix || "";
 
     let statusText;
     if (notConfigured) {
@@ -3367,7 +3368,7 @@ class EegOptimizerPanel extends HTMLElement {
     } else if (registered && s.registered_at) {
       const d = new Date(s.registered_at);
       const dStr = isNaN(d.getTime()) ? s.registered_at : d.toLocaleDateString("de-DE");
-      statusText = `Registriert als anonyme Anlage <code>${s.installation_id_prefix || ""}</code> seit ${dStr}`;
+      statusText = `Registriert als anonyme Anlage <code>${fullId}</code> seit ${dStr}`;
     } else if (hasIdentity && !enabled) {
       statusText = "Pausiert — Identität bleibt gespeichert";
     } else if (enabled && !registered) {
@@ -3375,22 +3376,6 @@ class EegOptimizerPanel extends HTMLElement {
     } else {
       statusText = "Nicht registriert";
     }
-
-    let lastSendText = "";
-    if (registered && enabled) {
-      if (s.last_send_at) {
-        const ds = new Date(s.last_send_at);
-        const dsStr = isNaN(ds.getTime())
-          ? s.last_send_at
-          : ds.toLocaleString("de-DE");
-        lastSendText = `Letzte Übertragung: ${dsStr}`;
-      } else {
-        lastSendText = "Letzte Übertragung: noch keine seit Start (nächster Flush spätestens nach 60 Min)";
-      }
-    }
-    const lastSendRow = lastSendText
-      ? `<div class="help-text" style="margin-bottom:12px">${lastSendText}</div>`
-      : "";
 
     const errorRow = this._telemetryError
       ? `<div class="help-text" style="color:var(--error-color,#d33);margin-bottom:12px">${this._telemetryError}</div>`
@@ -3408,12 +3393,12 @@ class EegOptimizerPanel extends HTMLElement {
 
     return `
       <div class="card" style="margin-bottom:16px">
-        <h3 style="margin:0 0 8px">Community-Statistik</h3>
+        <h3 style="margin:0 0 8px">EEG-Statistik</h3>
         <div class="help-text" style="margin-bottom:12px">
-          Hilf der EEG-Community: deine Anlage sendet anonymisierte Diagnose- und
-          Wirksamkeits-Daten an einen Cloudflare-Backend. Keine personenbezogenen Daten,
-          keine Sensor-IDs, keine IP-Adressen. Du kannst das jederzeit wieder ausschalten
-          oder alle Daten löschen.
+          Hilf Deiner EEG: deine Anlage sendet anonymisierte Diagnose- und
+          Wirksamkeits-Daten an die EEG. Keine personenbezogenen Daten, keine
+          IP-Adressen. Du kannst jederzeit aussteigen und die übermittelten
+          Daten auch löschen.
         </div>
         <label style="display:flex;align-items:center;gap:12px;cursor:pointer;margin-bottom:12px">
           <input type="checkbox"
@@ -3421,11 +3406,10 @@ class EegOptimizerPanel extends HTMLElement {
                  ${enabled ? "checked" : ""}
                  ${notConfigured || this._telemetryBusy ? "disabled" : ""}>
           <div>
-            <div style="font-weight:500">Community-Statistik aktivieren</div>
+            <div style="font-weight:500">EEG-Statistik aktivieren</div>
           </div>
         </label>
-        <div class="help-text" style="margin-bottom:12px">${statusText}</div>
-        ${lastSendRow}
+        <div class="help-text" style="margin-bottom:12px;word-break:break-all">${statusText}</div>
         <details style="margin-bottom:12px">
           <summary style="cursor:pointer;font-size:13px;color:var(--secondary-text-color);user-select:none">
             Datenschutz-Details (was wird gesendet?)
@@ -3433,7 +3417,7 @@ class EegOptimizerPanel extends HTMLElement {
           <div class="help-text" style="margin-top:10px;line-height:1.5">
             <strong>Übermittelt:</strong>
             <ul style="margin:6px 0 10px 18px;padding:0">
-              <li><strong>Profil</strong> (bei Setup, Restart, Settings-Change): App-/HA-Version, Wechselrichter-Typ, Batterie-Kapazität, PV-Peak, Prognose-Quelle, Land, Whitelist-Settings (numerische/kategorische Werte, keine Entity-IDs)</li>
+              <li><strong>Profil</strong> (bei Setup, Restart, Settings-Change): App-/HA-Version, Wechselrichter-Typ, Batterie-Kapazität, PV-Peak, Prognose-Quelle, Land, ausgewählte EEG-Community (sofern PeakShare aktiv), Whitelist-Settings (numerische/kategorische Werte, keine Entity-IDs)</li>
               <li><strong>Snapshot</strong> (alle 30 Min, gebündelt 1×/h): Zustand, Modus, SOC %, PV-/Verbrauchs-/Netz-/Batterie-Leistung, dynamischer Min-SOC, Hysterese</li>
               <li><strong>State-Change</strong> (sofort): Übergang, Begründungs-Codes, Snapshot</li>
               <li><strong>Outcome</strong> (Block-Ende): eingespeiste kWh, Dauer, SOC-Start/-Ende, predicted-vs-actual PV/Verbrauch</li>
@@ -4929,6 +4913,10 @@ class EegOptimizerPanel extends HTMLElement {
     };
     const optimizerTs = fmtTime(decisionState?.attributes?.letzte_aktualisierung);
     const profilTs = fmtTime(profilState?.last_updated);
+    const telemetryEnabled = !!(this._telemetryStatus && this._telemetryStatus.enabled && this._telemetryStatus.registered);
+    const telemetryTs = telemetryEnabled
+      ? (this._telemetryStatus.last_send_at ? fmtTime(this._telemetryStatus.last_send_at) : "—")
+      : null;
 
     const simBanner = this._simActive ? `
       <div style="background:var(--warning-color, #ff9800);color:#fff;padding:12px 16px;border-radius:12px;
@@ -4981,6 +4969,7 @@ class EegOptimizerPanel extends HTMLElement {
           <div class="header-timestamps">
             <span>Optimizer: ${optimizerTs}</span>
             <span>Verbrauchsdaten: ${profilTs}</span>
+            ${telemetryTs ? `<span>EEG-Statistik: ${telemetryTs}</span>` : ""}
           </div>
         </div>
 

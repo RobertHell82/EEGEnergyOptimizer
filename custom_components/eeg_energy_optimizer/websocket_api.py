@@ -1381,7 +1381,8 @@ async def ws_telemetry_get_status(
     buffer = data.get("telemetry_buffer") if data else None
     config = {**entry.data, **entry.options}
     identity = buffer.get_identity() if buffer is not None else None
-    prefix = identity["installation_id"][:8] if identity else None
+    full_id = identity["installation_id"] if identity else None
+    prefix = full_id[:8] if full_id else None
     snap_q = data.get("snapshot_queue") if data else None
     snap_q = snap_q if snap_q is not None else []
     buf_size = buffer.size() if buffer is not None else 0
@@ -1389,6 +1390,7 @@ async def ws_telemetry_get_status(
         "configured": bool(reporter and getattr(reporter, "is_configured", False)),
         "enabled": bool(config.get(CONF_TELEMETRY_ENABLED, False)),
         "registered": bool(identity),
+        "installation_id": full_id,
         "installation_id_prefix": prefix,
         "registered_at": identity.get("registered_at") if identity else None,
         "queue_size": len(snap_q) + buf_size,
