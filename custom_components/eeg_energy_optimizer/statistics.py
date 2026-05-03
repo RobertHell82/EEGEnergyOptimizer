@@ -91,20 +91,9 @@ def _empty_day() -> dict:
 
 
 def _read_power_kw(hass: Any, entity_id: str) -> float | None:
-    """Read a power sensor value and normalize to kW."""
-    state = hass.states.get(entity_id)
-    if state is None:
-        return None
-    if state.state in ("unknown", "unavailable", ""):
-        return None
-    try:
-        val = float(state.state)
-    except (ValueError, TypeError):
-        return None
-    unit = (state.attributes.get("unit_of_measurement") or "").strip()
-    if unit == "W":
-        return val / 1000.0
-    return val
+    """Read a power sensor value and normalize to kW (delegate)."""
+    from .power_readings import read_power_kw
+    return read_power_kw(hass, entity_id)
 
 
 class FeedinStatistics:
@@ -378,8 +367,14 @@ class FeedinStatistics:
 
         Aufgerufen aus _close_session am Block-Ende. Liest:
           - data["block_predictions"][event_type] für predicted_* + soc_start
-          - data["snapshot_queue"] für peak_power_kw + actual_pv/consumption
+          - data["block_samples"][event_type] für peak_power_kw + actual_pv/cons
+            (hochauflösender 30s-Sampler — entkoppelt vom 60-min Snapshot-Flush).
+            Fallback: data["snapshot_queue"] (Legacy-Pfad / Tests).
           - data["optimizer"].last_decision.snapshot["soc_pct"] für soc_end
+
+        NULL-Felder werden vor dem Versand entfernt — das Backend behandelt
+        fehlende Werte korrekt; eine 0 würde die Forecast-MAE-Statistik
+        verfälschen.
         """
         if self._reporter is None or not getattr(self._reporter, "is_configured", False):
             return
@@ -433,10 +428,18 @@ class FeedinStatistics:
             except (ValueError, TypeError):
                 started_at_dt = None
 
-        if started_at_dt is not None:
-            queue = data.get("snapshot_queue") or []
+        # Quelle für Power-Samples: bevorzugt der dedizierte block_samples-Buffer
+        # (30s-Auflösung, nur während aktiver Blöcke befüllt). Nur wenn der
+        # explizit nicht existiert (Legacy-Tests), Fallback auf snapshot_queue.
+        block_samples = data.get("block_samples")
+        if isinstance(block_samples, dict) and event_type in block_samples:
+            sample_source = block_samples.get(event_type) or []
+        else:
+            sample_source = data.get("snapshot_queue") or []
+
+        if started_at_dt is not None and sample_source:
             window: list[tuple[datetime, dict]] = []
-            for snap in queue:
+            for snap in sample_source:
                 ts_raw = snap.get("ts") if isinstance(snap, dict) else None
                 if not ts_raw:
                     continue
@@ -467,7 +470,7 @@ class FeedinStatistics:
             if len(cons_samples) >= 2:
                 actual_consumption_kwh = round(_trapezoid_kwh(cons_samples), 3)
 
-        payload = {
+        payload: dict = {
             "event_type": event_type,
             "started_at": started_at_str if started_at_str else session.get("start_utc", ""),
             "ended_at": ended_at_dt.isoformat(),
@@ -483,11 +486,20 @@ class FeedinStatistics:
             "terminated_by": "block_end",
         }
 
-        # Predictions poppen, damit eine Folge-Session denselben Typs keine
-        # veralteten predicted_*-Werte bekommt.
+        # NULL-tolerant: Felder mit None-Wert komplett aus dem Payload entfernen.
+        # event_type / started_at / ended_at / duration_minutes / grid_export_kwh
+        # / terminated_by sind Pflicht und nie None — der Filter trifft nur
+        # optionale Metriken.
+        payload = {k: v for k, v in payload.items() if v is not None}
+
+        # Predictions + Block-Samples poppen, damit eine Folge-Session
+        # desselben Typs keine veralteten Werte bekommt.
         bp = data.get("block_predictions")
         if isinstance(bp, dict):
             bp.pop(event_type, None)
+        bs = data.get("block_samples")
+        if isinstance(bs, dict):
+            bs.pop(event_type, None)
 
         # Fire-and-forget — Reporter handled Buffer/Retry bei Fehler.
         try:

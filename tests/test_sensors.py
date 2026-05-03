@@ -285,7 +285,10 @@ class TestVerbrauchsprofilSensor:
         """Verify sensor exposes mo_watts, di_watts, etc. as attributes."""
         entry = MagicMock()
         entry.entry_id = "test_entry"
-        entry.data = {}  # real dict so .get() returns defaults, not MagicMock
+        # Test pinnt das Verhalten gegen den historischen Default discharge_start=20:00.
+        # Aktueller Default ist 01:00 (Migration v14) — der hier explizite Wert
+        # macht den Test unabhängig vom Default und prüft Nacht = 20:00 → sunrise+1h.
+        entry.data = {"discharge_start_time": "20:00"}
         hourly_avg = {
             day: {h: 400.0 + h * 10.0 for h in range(24)}
             for day in WEEKDAY_KEYS
@@ -326,7 +329,8 @@ class TestVerbrauchsprofilSensor:
 
         entry = MagicMock()
         entry.entry_id = "test_entry"
-        entry.data = {}  # real dict so .get() returns defaults
+        # Test pinnt das Verhalten gegen den historischen Default discharge_start=20:00.
+        entry.data = {"discharge_start_time": "20:00"}
         # Constant 1000 W per hour → 1 kWh per hour, 24 kWh per day
         hourly_avg = {day: {h: 1000.0 for h in range(24)} for day in WEEKDAY_KEYS}
         coord = _make_coordinator(hourly_avg=hourly_avg, stats_count=200)

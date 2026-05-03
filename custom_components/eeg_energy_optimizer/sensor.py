@@ -157,23 +157,11 @@ def _read_float(hass: Any, entity_id: str) -> float | None:
 def _read_power_kw(hass: Any, entity_id: str) -> float | None:
     """Read a power sensor value and normalize to kW.
 
-    Checks the sensor's unit_of_measurement attribute:
-    - W → divide by 1000
-    - kW or missing → return as-is
+    Thin wrapper über power_readings.read_power_kw — eine Quelle der Wahrheit
+    für Unit-Erkennung (W/kW/MW + Aliase, case-insensitive).
     """
-    state = hass.states.get(entity_id)
-    if state is None:
-        return None
-    if state.state in ("unknown", "unavailable", ""):
-        return None
-    try:
-        val = float(state.state)
-    except (ValueError, TypeError):
-        return None
-    unit = (state.attributes.get("unit_of_measurement") or "").strip()
-    if unit == "W":
-        return val / 1000.0
-    return val
+    from .power_readings import read_power_kw
+    return read_power_kw(hass, entity_id)
 
 
 def _device_info(entry_id: str) -> DeviceInfo:
@@ -684,44 +672,19 @@ class PVLeistungSensor(SensorEntity):
 
     def __init__(self, hass: Any, entry: Any, config: dict) -> None:
         self.hass = hass
-        self._pv_sensor_id = config.get(CONF_PV_POWER_SENSOR, "")
-        self._pv_sensor_2_id = config.get(CONF_PV_POWER_SENSOR_2, "")
-        self._battery_power_sensor_id = config.get(CONF_BATTERY_POWER_SENSOR, "")
-        inv_type = config.get(CONF_INVERTER_TYPE, "")
-        signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
-        self._pv_includes_battery = signs.get("pv_includes_battery", False)
-        # For multi-inverter SolarEdge: derive second battery from second PV prefix
-        # e.g. sensor.solaredge_i2_ac_power → sensor.solaredge_i2_b1_dc_power
-        self._battery_2_sensor_id = ""
-        if self._pv_includes_battery and self._pv_sensor_2_id:
-            self._battery_2_sensor_id = self._pv_sensor_2_id.replace(
-                "ac_power", "b1_dc_power"
-            )
+        # Config-Snapshot für compute_pv_now_kw — derselbe Helper rechnet
+        # auch im Telemetrie-Pfad (optimizer._current_power_readings).
+        self._config = config
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_pv_leistung"
         self._attr_device_info = _device_info(entry.entry_id)
         self._attr_native_value: float | None = None
 
     async def async_update(self) -> None:
-        pv = _read_power_kw(self.hass, self._pv_sensor_id)
-        if pv is None:
-            pv = 0.0
-
-        if self._pv_sensor_2_id:
-            pv2 = _read_power_kw(self.hass, self._pv_sensor_2_id)
-            if pv2 is not None:
-                pv += pv2
-
-        # pv_includes_battery: correct each inverter's ac_power by its battery
-        if self._pv_includes_battery:
-            bat = _read_power_kw(self.hass, self._battery_power_sensor_id)
-            if bat is not None:
-                pv += bat
-            if self._battery_2_sensor_id:
-                bat2 = _read_power_kw(self.hass, self._battery_2_sensor_id)
-                if bat2 is not None:
-                    pv += bat2
-
-        self._attr_native_value = round(max(pv, 0.0), 3)
+        from .power_readings import compute_pv_now_kw
+        pv = compute_pv_now_kw(self.hass, self._config)
+        # Bei kompletter Sensor-Unverfügbarkeit zeigt der Sensor 0 (statt
+        # "unavailable") — historisches Verhalten der Integration.
+        self._attr_native_value = round(pv if pv is not None else 0.0, 3)
 
 
 # ---------------------------------------------------------------------------

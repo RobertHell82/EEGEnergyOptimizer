@@ -167,30 +167,45 @@ def _read_float(hass: Any, entity_id: str) -> float | None:
 
 
 def _read_power_kw(hass: Any, entity_id: str) -> float | None:
-    """Read a power sensor and normalise to kW.
+    """Read a power sensor and normalise to kW (delegate to power_readings)."""
+    from .power_readings import read_power_kw
+    return read_power_kw(hass, entity_id)
 
-    Mirrors the helper in sensor.py to avoid an import cycle. Returns None for
-    missing/unknown/unavailable/empty sensors (NOT 0.0 — backend analytics
-    distinguish "0 W exported" from "we couldn't read").
 
-    - Unit "W" → divide by 1000
-    - Unit "kW" or unset → return as-is
+def compute_hard_cutoff(now: datetime, next_sunrise: datetime | None) -> datetime:
+    """Berechne den dynamischen Hard-Cutoff für die Abend-Entladung.
+
+    Die Entladung muss spätestens enden, bevor:
+      a) das Morgen-Einspeisungs-Fenster startet (Sonnenaufgang minus 1 h), und
+      b) die Batterie für die morgendliche PV-Aufnahme leer ist.
+
+    Frühere Logik nutzte ein fixes 04:00 unabhängig von der Saison — im
+    Sommer (Sonnenaufgang ~04:30) immer noch konservativ, im Winter
+    (Sonnenaufgang ~07:30) unnötig restriktiv und schneidet 2-3 h
+    Einspeise-Korridor weg.
+
+    Cutoff wird am Datum des nächsten Sonnenaufgangs verankert — egal ob wir
+    pre- oder post-midnight aufgerufen werden:
+
+      cutoff = min(04:00 am next-sunrise-Tag, next_sunrise − 1 h)
+
+    Beispiele:
+      - Aufruf 22:00, sunrise morgen 06:30 → min(04:00 morgen, 05:30) = 04:00 morgen
+      - Aufruf 02:00, sunrise heute 06:30 → min(04:00 heute, 05:30) = 04:00 heute
+      - Aufruf 02:00, sunrise heute 07:30 (Winter) → min(04:00 heute, 06:30)
+        = 06:30 heute → 2.5 h zusätzlicher Korridor
+
+    Falls Sonnenaufgang unbekannt: konservativer 04:00-Fallback (heute, wenn
+    now in den frühen Morgenstunden liegt; sonst morgen).
     """
-    if not entity_id:
-        return None
-    state = hass.states.get(entity_id)
-    if state is None:
-        return None
-    if state.state in ("unknown", "unavailable", ""):
-        return None
-    try:
-        val = float(state.state)
-    except (ValueError, TypeError):
-        return None
-    unit = (state.attributes.get("unit_of_measurement") or "").strip()
-    if unit == "W":
-        return val / 1000.0
-    return val
+    if next_sunrise is None:
+        anchor = now if now.hour < 12 else now + timedelta(days=1)
+        return anchor.replace(hour=4, minute=0, second=0, microsecond=0)
+    fixed_at_sunrise_day = next_sunrise.replace(
+        hour=4, minute=0, second=0, microsecond=0
+    )
+    pre_sunrise = next_sunrise - timedelta(hours=1)
+    return min(fixed_at_sunrise_day, pre_sunrise)
 
 
 @dataclass
@@ -537,22 +552,30 @@ class EEGOptimizer:
         Sign-Konventionen folgen INVERTER_SIGN_CONVENTIONS:
           positiv = Export (Grid) bzw. Laden (Battery).
 
+        ``pv_now_kw`` wird über den gemeinsamen ``compute_pv_now_kw``-Helper
+        berechnet — dadurch ist der ans Backend gemeldete Wert IDENTISCH
+        zum Sensor ``sensor.eeg_energy_optimizer_pv_leistung`` (HA-Dashboard).
+        Insbesondere bei SolarEdge greift hier die ``pv_includes_battery``-
+        Korrektur (ac_power enthält Batterie-Entladung) und das ≥0-Clipping.
+
         Wichtig: Bei fehlenden Sensoren NICHT 0.0 zurückgeben — Backend-
         Analytics unterscheiden "0 W exportiert" von "konnten nicht lesen".
         """
+        from .power_readings import compute_pv_now_kw
+
         cfg = self._config
         inv_type = cfg.get(CONF_INVERTER_TYPE, "")
         signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
         battery_sign = signs.get("battery_sign", 1)
         grid_sign = signs.get("grid_sign", 1)
 
-        pv_raw = _read_power_kw(self._hass, cfg.get(CONF_PV_POWER_SENSOR, ""))
+        pv_now_kw = compute_pv_now_kw(self._hass, cfg)
         grid_raw = _read_power_kw(self._hass, cfg.get(CONF_GRID_POWER_SENSOR, ""))
         bat_raw = _read_power_kw(self._hass, cfg.get(CONF_BATTERY_POWER_SENSOR, ""))
         cons_raw = _read_power_kw(self._hass, CONSUMPTION_SENSOR)
 
         return {
-            "pv_now_kw": pv_raw,
+            "pv_now_kw": pv_now_kw,
             "grid_now_kw": (grid_raw * grid_sign) if grid_raw is not None else None,
             "battery_now_kw": (bat_raw * battery_sign) if bat_raw is not None else None,
             "consumption_now_kw": cons_raw,
@@ -844,10 +867,11 @@ class EEGOptimizer:
         bedarf = self._calc_energiebedarf(snap)
 
         # Hysteresis: if morning feed-in was already active today and then
-        # deactivated, require PV to exceed demand by 10% to reactivate
-        today_str = snap.now.strftime("%Y-%m-%d")
+        # deactivated, require PV to exceed demand by 10% to reactivate.
+        # Veraltete Aktivierungsdaten werden in _evaluate zentral zurückgesetzt,
+        # daher reicht hier die „Datum gesetzt"-Prüfung.
         is_reactivation = (
-            self._morning_activated_date == today_str
+            self._morning_activated_date is not None
             and self._last_eval_zustand != STATE_MORGEN_EINSPEISUNG
         )
 
@@ -904,10 +928,14 @@ class EEGOptimizer:
         blocked_by: list[str] = []
         passing: list[str] = []
 
-        # Hysterese-Status früh bestimmen — wird auch in blocked_by-Liste reflektiert
         today_str = snap.now.strftime("%Y-%m-%d")
+        # Hysterese-Status früh bestimmen — wird auch in blocked_by-Liste reflektiert.
+        # Eine Sitzung gilt so lange als „läuft noch", wie das Aktivierungsdatum
+        # gesetzt ist (Reset erfolgt zentral in _evaluate nach dem Sonnenaufgang
+        # des Folgetags). Damit bleibt Hysterese auch bei Oszillation über
+        # Mitternacht innerhalb derselben Abend-Sitzung wirksam.
         is_reactivation = (
-            self._discharge_activated_date == today_str
+            self._discharge_activated_date is not None
             and self._last_eval_zustand != STATE_ABEND_ENTLADUNG
         )
 
@@ -916,6 +944,23 @@ class EEGOptimizer:
         past_midnight_in_window = False
         past_midnight = False
         peakshare_plan = None
+        # Konfigurierte Mindeststart-Uhrzeit als Datetime auflösen — gilt in
+        # beiden Modi als Untergrenze für den Start.
+        # Sonderfall: Wenn die Startzeit in den frühen Morgenstunden liegt
+        # (< 12:00) und wir aktuell nachmittags sind, zeigt sie auf MORGEN —
+        # die Sitzung beginnt also erst nach Mitternacht (z.B. discharge
+        # ab 01:00 → bei now 18:00 ist gemeint: morgen 01:00).
+        discharge_start_today = snap.now.replace(
+            hour=self._discharge_start_h,
+            minute=self._discharge_start_m,
+            second=0,
+            microsecond=0,
+        )
+        if self._discharge_start_h < 12 and snap.now.hour >= 12:
+            discharge_start_resolved = discharge_start_today + timedelta(days=1)
+        else:
+            discharge_start_resolved = discharge_start_today
+
         if self._enable_peakshare and self._peakshare is not None:
             # PeakShare mode: compute discharge window based on community demand
             available_kwh = (snap.battery_soc - min_soc) / 100 * snap.battery_capacity_kwh
@@ -926,6 +971,8 @@ class EEGOptimizer:
                     self._discharge_power_kw,
                     snap.sunset_today,
                     snap.now,
+                    discharge_start_lower_bound=discharge_start_resolved,
+                    next_sunrise=snap.sunrise,
                 )
 
         if peakshare_plan is not None:
@@ -937,25 +984,24 @@ class EEGOptimizer:
             else:
                 # Fenster aktiv → Pass-Grund
                 passing.append(REASON_PEAKSHARE_WINDOW_ACTIVE)
-            # Hard cutoff at 04:00 still applies (Vormittag-Bereich)
-            cutoff = snap.now.replace(hour=4, minute=0, second=0, microsecond=0)
+            # Hard-Cutoff dynamisch: min(04:00, sunrise − 1h).
+            cutoff = compute_hard_cutoff(snap.now, snap.sunrise)
             past_midnight = snap.now.hour < 12 and plan_start.hour >= 12
             if past_midnight and snap.now >= cutoff:
                 blocked_by.append(REASON_HARD_CUTOFF_AFTER_4AM)
         else:
             # Fixed start time check (fallback oder PeakShare disabled)
-            discharge_start = snap.now.replace(
-                hour=self._discharge_start_h,
-                minute=self._discharge_start_m,
-                second=0,
-                microsecond=0,
-            )
-            # Past midnight: discharge_start points to tonight (future), but we're
-            # already in the discharge window that began yesterday evening.
-            # Guard: sunrise must be < 12h away — otherwise we're in the afternoon
-            # and next_rising points to tomorrow (false positive).
+            discharge_start = discharge_start_resolved
+            # Past midnight: discharge_start points to a future moment, but we
+            # are already in the discharge window that started the prior evening.
+            # Beispiel: start=21:00, now=03:00 (gleicher Kalendertag) — `now <
+            # start` und sunrise ist nah. Bei einem Morgen-Start (z.B. 01:00,
+            # via discharge_start_resolved auf morgen verschoben) trifft `now
+            # < start` aber AUCH um 18:00 abends zu — daher zusätzlich auf
+            # echte Morgen-Stunden klemmen (now.hour < 12).
             past_midnight_in_window = (
                 snap.now < discharge_start
+                and snap.now.hour < 12
                 and snap.sunrise is not None
                 and snap.now < snap.sunrise
                 and (snap.sunrise - snap.now).total_seconds() < 12 * 3600
@@ -963,8 +1009,8 @@ class EEGOptimizer:
             if snap.now < discharge_start and not past_midnight_in_window:
                 blocked_by.append(REASON_BEFORE_DISCHARGE_START)
 
-            # Hard cutoff: discharge ends at 04:00 at the latest
-            cutoff = snap.now.replace(hour=4, minute=0, second=0, microsecond=0)
+            # Hard-Cutoff dynamisch — siehe compute_hard_cutoff.
+            cutoff = compute_hard_cutoff(snap.now, snap.sunrise)
             if past_midnight_in_window and snap.now >= cutoff:
                 blocked_by.append(REASON_HARD_CUTOFF_AFTER_4AM)
 
@@ -1025,6 +1071,27 @@ class EEGOptimizer:
                 snapshot=snap.to_telemetry_dict(),
             )
 
+        # Hysterese-Reset: veraltete Aktivierungsdaten verwerfen, bevor
+        # _should_block_charging / _should_discharge sie auswerten.
+        # - Morgen-Einspeisung läuft nur am Vormittag (kein Mitternachtsübergang),
+        #   ein Datum aus einem Vortag ist daher immer veraltet.
+        # - Abend-Entladung kann über Mitternacht laufen; das gespeicherte
+        #   Startdatum bleibt deshalb gültig, bis der nächste Sonnenaufgang
+        #   überschritten ist (= Ende der Sitzung).
+        today_str = snap.now.strftime("%Y-%m-%d")
+        if (
+            self._morning_activated_date is not None
+            and self._morning_activated_date < today_str
+        ):
+            self._morning_activated_date = None
+        if (
+            self._discharge_activated_date is not None
+            and self._discharge_activated_date < today_str
+            and snap.sunrise_today is not None
+            and snap.now >= snap.sunrise_today
+        ):
+            self._discharge_activated_date = None
+
         bedarf = self._calc_energiebedarf(snap)
         block, block_reasons_keys, block_blocked_by_keys = self._should_block_charging(snap)
         should_discharge, min_soc, dis_reasons_keys, dis_blocked_by_keys, hysteresis_active = (
@@ -1039,13 +1106,15 @@ class EEGOptimizer:
         else:
             zustand = STATE_NORMAL
 
-        # Track activation dates for hysteresis
-        today_str = snap.now.strftime("%Y-%m-%d")
+        # Aktivierungsdatum nur beim erstmaligen Aktivieren setzen — bei
+        # durchgehender Sitzung (z.B. Abend-Entladung über Mitternacht)
+        # bleibt das ursprüngliche Startdatum erhalten, damit der Reset
+        # oben zum Sonnenaufgang sauber greift.
         if zustand == STATE_MORGEN_EINSPEISUNG:
-            if self._morning_activated_date != today_str:
+            if self._morning_activated_date is None:
                 self._morning_activated_date = today_str
         elif zustand == STATE_ABEND_ENTLADUNG:
-            if self._discharge_activated_date != today_str:
+            if self._discharge_activated_date is None:
                 self._discharge_activated_date = today_str
         self._last_eval_zustand = zustand
 
