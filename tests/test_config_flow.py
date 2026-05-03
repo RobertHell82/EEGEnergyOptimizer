@@ -88,11 +88,11 @@ class TestConfigFlowMetadata:
     def test_version_in_sync_with_migration(self):
         """VERSION must match the highest migration target in __init__.py.
 
-        The latest migration is v13 (pair-sensor schema bump for Fronius).
+        Latest migration: v14 (discharge_start_time hard-set auf 01:00).
         New entries must be created at the current schema version so
         async_migrate_entry never runs on a fresh install.
         """
-        assert EegEnergyOptimizerConfigFlow.VERSION == 13
+        assert EegEnergyOptimizerConfigFlow.VERSION == 14
 
 
 class TestStepUser:

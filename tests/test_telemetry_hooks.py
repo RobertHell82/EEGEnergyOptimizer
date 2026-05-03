@@ -295,9 +295,55 @@ async def test_v12_to_v13_migration_adds_telemetry_enabled():
     entry = SimpleNamespace(version=12, data={"some": "value"})
     ok = await async_migrate_entry(hass, entry)
     assert ok is True
-    # Final state after all migration steps should be v13 with telemetry_enabled=False
-    assert entry.version == 13
+    # v13 invariant: telemetry_enabled muss False als sicherer Default gesetzt sein.
+    # Migration läuft kontinuierlich bis zur aktuellen Schemaversion durch — die
+    # End-Version wird in TestConfigFlowMetadata.test_version_in_sync_with_migration
+    # gepinnt, dieser Test fokussiert nur auf den telemetry_enabled-Default.
     assert entry.data.get(CONF_TELEMETRY_ENABLED) is False
+    assert entry.version >= 13
+
+
+@pytest.mark.asyncio
+async def test_v13_to_v14_migration_hard_sets_discharge_start_to_01_00():
+    from custom_components.eeg_energy_optimizer import async_migrate_entry
+
+    hass = MagicMock()
+
+    def _update(entry, *, data=None, version=None):
+        entry.data = data
+        entry.version = version
+
+    hass.config_entries.async_update_entry = MagicMock(side_effect=_update)
+
+    # Bestandsuser mit Custom-Wert (z.B. 21:30) → wird hart auf 01:00 gesetzt
+    entry = SimpleNamespace(
+        version=13,
+        data={"some": "value", "discharge_start_time": "21:30", "telemetry_enabled": True},
+    )
+    ok = await async_migrate_entry(hass, entry)
+    assert ok is True
+    assert entry.version == 14
+    assert entry.data["discharge_start_time"] == "01:00"
+    # andere Felder bleiben unverändert
+    assert entry.data["some"] == "value"
+    assert entry.data["telemetry_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_v13_to_v14_migration_overrides_old_default_too():
+    """Auch User mit altem Default 20:00 werden auf 01:00 gehoben."""
+    from custom_components.eeg_energy_optimizer import async_migrate_entry
+
+    hass = MagicMock()
+    hass.config_entries.async_update_entry = MagicMock(
+        side_effect=lambda entry, **kw: (setattr(entry, "data", kw["data"]),
+                                         setattr(entry, "version", kw["version"]))
+    )
+
+    entry = SimpleNamespace(version=13, data={"discharge_start_time": "20:00"})
+    await async_migrate_entry(hass, entry)
+    assert entry.data["discharge_start_time"] == "01:00"
+    assert entry.version == 14
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +399,7 @@ def _make_outcome_stats(hass=None, identity_known=True, configured=True):
     data: dict = {
         "snapshot_queue": [],
         "block_predictions": {},
+        "block_samples": {},
         "optimizer": None,
     }
     stats.set_reporter(reporter, data)
@@ -488,7 +535,8 @@ def test_outcome_peak_power_falls_back_to_none_when_no_grid_samples():
     _open_morning_session(stats, start_iso=started.isoformat())
     stats._close_session(ended)
     payload = reporter.send_outcome.call_args.args[0]
-    assert payload["peak_power_kw"] is None
+    # NULL-tolerant: peak_power_kw fehlt komplett im Payload, statt mit None gesendet zu werden
+    assert "peak_power_kw" not in payload
 
 
 # ---------------------------------------------------------------------------
@@ -512,8 +560,9 @@ def test_outcome_actuals_fall_back_to_none_with_lt_2_samples():
     _open_morning_session(stats, start_iso=started.isoformat())
     stats._close_session(ended)
     payload = reporter.send_outcome.call_args.args[0]
-    assert payload["actual_pv_kwh"] is None
-    assert payload["actual_consumption_kwh"] is None
+    # NULL-tolerant: actual_*-Felder fehlen im Payload, nicht mit None gesendet
+    assert "actual_pv_kwh" not in payload
+    assert "actual_consumption_kwh" not in payload
     # peak still works with single sample
     assert payload["peak_power_kw"] == pytest.approx(1.0)
 
@@ -565,16 +614,93 @@ def test_outcome_silent_when_no_predictions():
     assert reporter.send_outcome.call_count == 1
     payload = reporter.send_outcome.call_args.args[0]
     assert payload["event_type"] == "morgen_einspeisung"
-    assert payload["predicted_pv_kwh"] is None
-    assert payload["predicted_consumption_kwh"] is None
-    assert payload["actual_pv_kwh"] is None
-    assert payload["actual_consumption_kwh"] is None
-    assert payload["peak_power_kw"] is None
+    # NULL-tolerant: alle nicht-bestimmbaren Metriken fehlen im Payload
+    assert "predicted_pv_kwh" not in payload
+    assert "predicted_consumption_kwh" not in payload
+    assert "actual_pv_kwh" not in payload
+    assert "actual_consumption_kwh" not in payload
+    assert "peak_power_kw" not in payload
+    # Pflichtfelder sind weiterhin gesetzt
+    assert payload["started_at"]
+    assert payload["ended_at"]
+    assert payload["terminated_by"] == "block_end"
 
 
 # ---------------------------------------------------------------------------
 # c) Silent when reporter not configured
 # ---------------------------------------------------------------------------
+def test_outcome_uses_block_samples_buffer_over_drained_snapshot_queue():
+    """Bug-Reproduktion: Der 60-min snapshot_queue-Flush leerte die Queue,
+    bevor das Outcome gebaut wurde — Folge: actual_pv_kwh/actual_consumption_kwh
+    immer NULL. Fix: dedizierter block_samples-Buffer (30s-Auflösung) wird
+    primär ausgewertet; snapshot_queue dient nur noch als Legacy-Fallback.
+    """
+    stats, reporter, data = _make_outcome_stats()
+    started = datetime(2026, 4, 15, 5, 30, tzinfo=timezone.utc)
+    ended = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": started.isoformat(),
+        "soc_start_pct": 80,
+        "predicted_pv_kwh": 5.0,
+        "predicted_consumption_kwh": 1.0,
+    }
+
+    # Reale Welt: snapshot_queue wurde durch den 60-min Flush geleert.
+    data["snapshot_queue"] = []
+
+    # block_samples-Buffer wurde dagegen kontinuierlich vom 30s-Optimizer-Cycle
+    # während des aktiven Blocks befüllt — er bleibt vom Flush unberührt.
+    data["block_samples"]["morgen_einspeisung"] = [
+        {"ts": "2026-04-15T05:30:00+00:00", "pv_now_kw": 1.0, "consumption_now_kw": 0.5, "grid_now_kw": 0.5},
+        {"ts": "2026-04-15T06:00:00+00:00", "pv_now_kw": 3.0, "consumption_now_kw": 0.4, "grid_now_kw": 1.5},
+        {"ts": "2026-04-15T06:30:00+00:00", "pv_now_kw": 4.0, "consumption_now_kw": 0.3, "grid_now_kw": 2.0},
+        {"ts": "2026-04-15T07:00:00+00:00", "pv_now_kw": 2.0, "consumption_now_kw": 0.2, "grid_now_kw": 1.0},
+    ]
+
+    _open_morning_session(stats, kwh=4.5, start_iso=started.isoformat())
+    stats._close_session(ended)
+
+    assert reporter.send_outcome.call_count == 1
+    payload = reporter.send_outcome.call_args.args[0]
+    # Trapez aus block_samples: (1+3)/2*0.5 + (3+4)/2*0.5 + (4+2)/2*0.5 = 4.25
+    assert payload["actual_pv_kwh"] == pytest.approx(4.25, rel=1e-9)
+    # Trapez Consumption: (0.5+0.4)/2*0.5 + (0.4+0.3)/2*0.5 + (0.3+0.2)/2*0.5 = 0.525
+    assert payload["actual_consumption_kwh"] == pytest.approx(0.525, rel=1e-9)
+    assert payload["peak_power_kw"] == pytest.approx(2.0)
+    # Buffer wurde nach Auswertung geleert (verhindert Stale-Daten in Folge-Sitzungen)
+    assert "morgen_einspeisung" not in data["block_samples"]
+
+
+def test_outcome_block_samples_takes_precedence_over_snapshot_queue():
+    """Wenn beide Quellen Daten enthalten, gewinnt block_samples — die
+    Aggregation darf NICHT versehentlich die alte 30-min-Queue mit-aggregieren.
+    """
+    stats, reporter, data = _make_outcome_stats()
+    started = datetime(2026, 4, 15, 5, 30, tzinfo=timezone.utc)
+    ended = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": started.isoformat(),
+        "soc_start_pct": 80,
+        "predicted_pv_kwh": 5.0,
+        "predicted_consumption_kwh": 1.0,
+    }
+    # block_samples hat saubere Daten
+    data["block_samples"]["morgen_einspeisung"] = [
+        {"ts": "2026-04-15T06:00:00+00:00", "pv_now_kw": 2.0, "consumption_now_kw": 0.4, "grid_now_kw": 1.0},
+        {"ts": "2026-04-15T07:00:00+00:00", "pv_now_kw": 3.0, "consumption_now_kw": 0.2, "grid_now_kw": 1.5},
+    ]
+    # snapshot_queue hätte verfälschte Werte — darf NICHT in die Berechnung gehen
+    data["snapshot_queue"] = [
+        {"ts": "2026-04-15T06:30:00+00:00", "pv_now_kw": 999.0, "consumption_now_kw": 999.0, "grid_now_kw": 999.0},
+    ]
+    _open_morning_session(stats, start_iso=started.isoformat())
+    stats._close_session(ended)
+    payload = reporter.send_outcome.call_args.args[0]
+    # PV: (2+3)/2 * 1h = 2.5 — NICHT 999
+    assert payload["actual_pv_kwh"] == pytest.approx(2.5, rel=1e-9)
+    assert payload["peak_power_kw"] == pytest.approx(1.5)
+
+
 def test_outcome_silent_when_reporter_not_configured():
     stats, reporter, data = _make_outcome_stats(configured=False)
     _open_morning_session(stats)

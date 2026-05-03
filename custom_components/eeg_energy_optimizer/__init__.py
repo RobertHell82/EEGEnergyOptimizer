@@ -828,6 +828,21 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data.setdefault(CONF_TELEMETRY_ENABLED, False)
         hass.config_entries.async_update_entry(entry, data=new_data, version=13)
 
+    if entry.version < 14:
+        # v14 — Abend-Entladestart auf 01:00 vereinheitlichen.
+        # Hard-Migration: ALLE bestehenden Entries werden auf "01:00" gesetzt,
+        # unabhängig vom bisherigen Wert. Begründung:
+        #   - In beiden Modi (Fixed + PeakShare) ist discharge_start_time jetzt
+        #     der frühestmögliche Entladestart (PeakShare nutzt ihn als Sliding-
+        #     Window-Untergrenze). Späterer Start = präzisere Verbrauchsprognose
+        #     für den Restbedarf der Nacht = höhere realisierte Einspeisung.
+        #   - Der zuvor empfohlene Default 20:00 produzierte zu konservative
+        #     min_soc_dyn-Werte und damit kürzere Fenster.
+        # User kann den Wert jederzeit im Wizard wieder ändern.
+        new_data = {**entry.data}
+        new_data["discharge_start_time"] = "01:00"
+        hass.config_entries.async_update_entry(entry, data=new_data, version=14)
+
     return True
 
 
@@ -986,12 +1001,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         reporter = TelemetryReporter(hass, telemetry_buffer)
         data["telemetry_buffer"] = telemetry_buffer
         data["telemetry_reporter"] = reporter
-        # W-1: snapshot_queue wird sowohl vom 60-min Flush gedrained als
-        # auch vom Outcome-Hook (statistics._maybe_send_outcome) gelesen.
+        # W-1: snapshot_queue wird vom 60-min Flush gedrained.
         data["snapshot_queue"] = []
         # event_type (snake_case) -> {predicted_pv_kwh, predicted_consumption_kwh,
         #                             started_at, soc_start_pct}
         data["block_predictions"] = {}
+        # Hochauflösendes Power-Sampling während eines aktiven Blocks (30s-Cycle).
+        # Quelle für outcome.actual_pv_kwh / actual_consumption_kwh — entkoppelt
+        # vom 30-/60-min Snapshot-Telemetrie-Pfad, damit der 60-min Flush die
+        # Block-Aggregation nicht löscht und kürzere Blocks (< 30 min) trotzdem
+        # genug Stützstellen für die Trapezregel haben.
+        # event_type (snake_case) -> list[{ts, pv_now_kw, consumption_now_kw, grid_now_kw}]
+        data["block_samples"] = {}
         # (category, message_hash) -> last-emit datetime (UTC)
         data["telemetry_failure_dedup"] = {}
         data["telemetry_forecast_none_streak"] = 0
@@ -1108,10 +1129,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.exception("Telemetry: failed to schedule send_state_change")
 
         def _capture_block_predictions(decision):
-            """W-2 — speichert Predictions beim Block-Start für späteren Outcome."""
+            """W-2 — speichert Predictions beim Block-Start für späteren Outcome.
+
+            Initialisiert außerdem den hochauflösenden Block-Samples-Buffer für
+            diesen event_type (vorherige stale Samples werden verworfen).
+            """
             event_type = _normalize_state(decision.zustand)
             if event_type:
                 data["block_predictions"][event_type] = _build_block_predictions(decision)
+                # Frische Sitzung: alten Buffer für diesen Block-Typ wegwerfen.
+                data["block_samples"][event_type] = []
+
+        def _record_block_sample(decision):
+            """Erfasst einen Power-Sample während eines aktiven Blocks.
+
+            Wird im 30s-Optimizer-Cycle aufgerufen. Liest die Live-Werte aus
+            decision.snapshot (pv_now_kw, consumption_now_kw, grid_now_kw) und
+            hängt sie an den Buffer für den aktuellen event_type. None-Werte
+            für einzelne Felder bleiben erhalten — die Trapez-Aggregation am
+            Block-Ende filtert None korrekt heraus.
+            """
+            event_type = _normalize_state(decision.zustand)
+            if event_type not in ("morgen_einspeisung", "abend_entladung"):
+                return
+            snap = decision.snapshot or {}
+            sample = {
+                "ts": decision.timestamp,
+                "pv_now_kw": snap.get("pv_now_kw"),
+                "consumption_now_kw": snap.get("consumption_now_kw"),
+                "grid_now_kw": snap.get("grid_now_kw"),
+            }
+            buf = data["block_samples"].setdefault(event_type, [])
+            buf.append(sample)
 
         def _on_snapshot_tick(now):
             """D-14 — alle 30 min (xx:00, xx:30) ein Snapshot in den Queue schreiben."""
@@ -1266,6 +1315,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )
                     ):
                         _capture_block_predictions(decision)
+
+                # Hochauflösendes Power-Sampling während aktiver Blocks (W-1).
+                # Läuft jeden 30s-Cycle, unabhängig von State-Changes — speist
+                # actual_pv_kwh / actual_consumption_kwh im Outcome.
+                if (
+                    telemetry_active
+                    and not first_cycle[0]
+                    and mode != MODE_AUS
+                    and decision.zustand in (
+                        STATE_MORGEN_EINSPEISUNG,
+                        STATE_ABEND_ENTLADUNG,
+                    )
+                ):
+                    try:
+                        _record_block_sample(decision)
+                    except Exception:  # pragma: no cover — defensive
+                        _LOGGER.exception("Telemetry: block sample recording failed")
 
                 if telemetry_active and not first_cycle[0] and mode != MODE_AUS:
                     # Watchdogs (D-16) — Sensor-Unavailability + Forecast-Streak

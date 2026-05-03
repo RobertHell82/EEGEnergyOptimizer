@@ -102,7 +102,7 @@ const WIZARD_DEFAULTS = {
   enable_night_discharge: true,
   enable_peakshare: true,
   peakshare_community: "BEG",
-  discharge_start_time: "20:00",
+  discharge_start_time: "01:00",
   discharge_power_kw: 5.0,
   min_soc: 10,
   safety_buffer_pct: 25,
@@ -3001,13 +3001,15 @@ class EegOptimizerPanel extends HTMLElement {
             <div class="help-text" style="margin-top:2px">Entladezeitpunkt wird automatisch nach dem Bedarf der Energiegemeinschaft optimiert.</div>
           </div>
         </label>
-        ${peakshare ? peakshareCommunitiesHtml : `
+        ${peakshare ? peakshareCommunitiesHtml : ""}
         <div class="field-group">
-          <label>Startzeit der Entladung</label>
+          <label>Frühester Entladestart</label>
           <input type="text" data-field="discharge_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${this._wizardData.discharge_start_time}" style="width:80px">
-          <div class="help-text">Ab wann abends die Batterie ins Netz entladen wird.</div>
-        </div>`}
+          <div class="help-text">${peakshare
+            ? "Untergrenze für das automatisch berechnete Fenster — PeakShare darf später starten, aber nie früher. Empfehlung 01:00: je später der Start, desto präziser die Verbrauchsprognose und desto mehr wird eingespeist."
+            : "Genauer Startzeitpunkt der Entladung. Empfehlung 01:00: je später der Start, desto präziser die Verbrauchsprognose und desto mehr wird eingespeist."}</div>
+        </div>
         <div class="field-group">
           <label>Entladeleistung (kW)</label>
           <input type="number" data-field="discharge_power_kw"
@@ -3236,13 +3238,15 @@ class EegOptimizerPanel extends HTMLElement {
             <div class="help-text" style="margin-top:2px">Entladezeitpunkt wird automatisch nach dem Bedarf der Energiegemeinschaft optimiert.</div>
           </div>
         </label>
-        ${settingsPeakshare ? settingsPeakshareCommunitiesHtml : `
+        ${settingsPeakshare ? settingsPeakshareCommunitiesHtml : ""}
         <div class="field-group">
-          <label>Startzeit der Entladung</label>
+          <label>Frühester Entladestart</label>
           <input type="text" data-field="settings_discharge_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
-                 value="${d.discharge_start_time || "20:00"}" style="width:80px">
-          <div class="help-text">Ab wann abends die Batterie ins Netz entladen wird.</div>
-        </div>`}
+                 value="${d.discharge_start_time || "01:00"}" style="width:80px">
+          <div class="help-text">${settingsPeakshare
+            ? "Untergrenze für das automatisch berechnete Fenster — PeakShare darf später starten, aber nie früher. Empfehlung 01:00: je später der Start, desto präziser die Verbrauchsprognose und desto mehr wird eingespeist."
+            : "Genauer Startzeitpunkt der Entladung. Empfehlung 01:00: je später der Start, desto präziser die Verbrauchsprognose und desto mehr wird eingespeist."}</div>
+        </div>
         <div class="field-group">
           <label>Entladeleistung (kW)</label>
           <input type="number" data-field="settings_discharge_power_kw"

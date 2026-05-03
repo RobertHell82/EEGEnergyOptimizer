@@ -299,12 +299,23 @@ class PeakShareProvider:
         discharge_power_kw: float,
         sunset_time: datetime | None,
         now: datetime,
+        discharge_start_lower_bound: datetime | None = None,
+        next_sunrise: datetime | None = None,
     ) -> tuple[datetime, datetime] | None:
         """Compute discharge window, recalculating when fresh API data arrives.
 
         The plan is date-locked: once computed for today, it is cached until
         new API data invalidates it (see ``async_fetch``). Returns
         ``(start_time, end_time)`` or None.
+
+        Args:
+            discharge_start_lower_bound: Earliest allowed start (today's
+                ``discharge_start_time`` resolved to a datetime). PeakShare
+                may pick any later start, but never earlier. None = no extra
+                bound, fall back to sunset.
+            next_sunrise: Next sunrise as known by the snapshot — drives the
+                dynamic hard cutoff (``min(04:00, sunrise − 1h)``). None =
+                fixed 04:00 cutoff (legacy behaviour).
         """
         today_str = now.strftime("%Y-%m-%d")
 
@@ -335,12 +346,36 @@ class PeakShareProvider:
         if not api_hours:
             return None
 
-        # Window: sunset to 04:00 next day
+        # Window: max(sunset, discharge_start_time) bis dynamischer Hard-Cutoff.
+        # Untergrenze sorgt dafür, dass PeakShare nicht vor der konfigurierten
+        # Mindeststart-Uhrzeit startet — auch wenn das beste Bedarfsfenster
+        # früher liegen würde. Späterer Start = präzisere Verbrauchsprognose.
         window_start = sunset_time
+        if discharge_start_lower_bound is not None:
+            window_start = max(window_start, discharge_start_lower_bound)
+
+        # Dynamischer Hard-Cutoff: min(04:00 am Sunrise-Tag, sunrise − 1h).
+        # Im Winter (Sonnenaufgang ~07:30) gewinnt das bis zu 2.5 h zusätzlichen
+        # Korridor; im Sommer bleibt es bei ~03:30 (sunrise − 1h).
+        from .optimizer import compute_hard_cutoff
         next_day = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(
             days=1
         )
-        window_end = next_day.replace(hour=4, minute=0)
+        # Anker für den 04:00-Fixwert ist der Folgetag; für die sunrise-1h-
+        # Variante zählt der mitgegebene next_sunrise des Snapshots.
+        window_end = compute_hard_cutoff(next_day, next_sunrise)
+
+        # Edge-Case: Wenn die Untergrenze bereits nach Cutoff liegt (z.B. User
+        # setzt discharge_start_time auf 05:00) → kein Fenster konstruierbar.
+        if window_start >= window_end:
+            _LOGGER.info(
+                "PeakShare: Untergrenze %s liegt nach Hard-Cutoff %s — kein Fenster",
+                window_start.strftime("%H:%M"),
+                window_end.strftime("%H:%M"),
+            )
+            self._discharge_plan = None
+            self._discharge_plan_date = today_str
+            return None
 
         jitter = self.get_jitter_today()
 

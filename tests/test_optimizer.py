@@ -61,11 +61,18 @@ from custom_components.eeg_energy_optimizer.optimizer import (
 # ---------------------------------------------------------------------------
 
 def _make_config(**overrides):
-    """Create a minimal optimizer config dict."""
+    """Create a minimal optimizer config dict.
+
+    Test-Default: discharge_start_time="20:00" — die meisten Bestands-Tests
+    wurden gegen diesen alten Wert geschrieben und prüfen Pre-Midnight-
+    Verhalten (z.B. now=21:00 → Fenster offen). Tests, die das neue 01:00-
+    Verhalten verifizieren, überschreiben den Wert explizit.
+    """
     base = {
         CONF_BATTERY_SOC_SENSOR: "sensor.battery_soc",
         CONF_BATTERY_CAPACITY_SENSOR: "",
         CONF_BATTERY_CAPACITY_KWH: 10.0,
+        CONF_DISCHARGE_START_TIME: "20:00",
     }
     base.update(overrides)
     return base
@@ -830,11 +837,18 @@ class TestHysteresis:
     def test_hysteresis_does_not_apply_on_different_day(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
-        """Activated date from yesterday should not trigger hysteresis today."""
-        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
-        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        """Activated date from yesterday should not trigger hysteresis today.
 
-        opt._discharge_activated_date = "2026-06-14"  # yesterday
+        _evaluate setzt das veraltete Datum auf None zurück, sobald der
+        Sonnenaufgang des aktuellen Tages überschritten ist. Anschließend
+        gilt die normale (nicht-strenge) Schwelle.
+        """
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+
+        # Vortag aktiviert, _last_eval_zustand wurde inzwischen auf NORMAL gesetzt
+        opt._discharge_activated_date = "2026-06-14"
         opt._last_eval_zustand = STATE_NORMAL
 
         # min_soc = 48%, SOC 49% — only 1% above, but no hysteresis (different day)
@@ -846,9 +860,111 @@ class TestHysteresis:
             pv_tomorrow_kwh=40.0,
             consumption_tomorrow_daylight_kwh=9.0,
             sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc),
         )
-        should, min_soc, reasons, blocked_by, _ = opt._should_discharge(snap)
-        assert should is True
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
+            decision = opt._evaluate(snap, MODE_TEST)
+        # Reset hat _discharge_activated_date geleert → keine Hysterese →
+        # SOC 49 % > min_soc 48 % reicht für Aktivierung.
+        assert opt._discharge_activated_date == "2026-06-15"  # neu auf heute gesetzt
+        assert decision.zustand == STATE_ABEND_ENTLADUNG
+
+    def test_overnight_session_does_not_overwrite_activation_date(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Während einer Sitzung über Mitternacht bleibt das Startdatum erhalten."""
+        # Sitzung gestartet am 02.06., aktueller Cycle am 03.06. 00:30
+        # (vor Sonnenaufgang) → Reset darf NICHT greifen, Datum bleibt 02.06.
+        now = datetime(2026, 6, 3, 0, 30, tzinfo=timezone.utc)
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+
+        opt._discharge_activated_date = "2026-06-02"
+        opt._last_eval_zustand = STATE_ABEND_ENTLADUNG
+
+        # 03:30 Uhr (vor Hard-Cutoff): Bedingungen weiterhin erfüllt, Sonnenaufgang erst um 05:30
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=70.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=1.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 3, 5, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 6, 3, 5, 30, tzinfo=timezone.utc),
+        )
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
+            decision = opt._evaluate(snap, MODE_TEST)
+
+        # Datum darf weder zurückgesetzt noch auf today überschrieben werden
+        assert opt._discharge_activated_date == "2026-06-02"
+        assert decision.zustand == STATE_ABEND_ENTLADUNG
+
+    def test_no_phantom_hysteresis_after_overnight_session(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Bug-Reproduktion: Entladung 02.05. 22:00 → 03.05. 01:00 darf am
+        03.05. 20:35 NICHT mit +5 % Hysterese auflaufen."""
+        # Vorbedingung: Entladung lief in der Vornacht; das Datum aus der
+        # gestrigen Aktivierung ist noch im Optimizer gespeichert.
+        now_evening = datetime(2026, 5, 3, 20, 35, tzinfo=timezone.utc)
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now_evening):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+
+        opt._discharge_activated_date = "2026-05-02"
+        opt._last_eval_zustand = STATE_NORMAL  # Entladung vor Stunden beendet
+
+        # min_soc = 48 %, SOC 49 % — würde mit Hysterese (53 % nötig) blockiert,
+        # ohne Hysterese (48 % nötig) aktivieren.
+        snap = _make_snapshot(
+            now=now_evening,
+            battery_soc=49.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 5, 4, 5, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 5, 3, 5, 30, tzinfo=timezone.utc),
+        )
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now_evening):
+            decision = opt._evaluate(snap, MODE_TEST)
+
+        # Reset hat das Vortagesdatum geleert → keine Hysterese
+        assert decision.zustand == STATE_ABEND_ENTLADUNG
+        assert decision.discharge_hysteresis_active is False
+        # Datum wurde durch erstmalige Aktivierung heute neu gesetzt
+        assert opt._discharge_activated_date == "2026-05-03"
+
+    def test_hysteresis_persists_for_oscillation_across_midnight(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Innerhalb derselben Sitzung über Mitternacht muss Hysterese greifen,
+        wenn die Entladung kurz aussetzt und wieder anlaufen will."""
+        # Sitzung startete am 02.06. 22:00; Aussetzer um 03.06. 00:30; Reaktivierung um 02:00.
+        now = datetime(2026, 6, 3, 2, 0, tzinfo=timezone.utc)
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+
+        opt._discharge_activated_date = "2026-06-02"  # Sitzungsstart Vortag
+        opt._last_eval_zustand = STATE_NORMAL  # gerade ausgesetzt
+
+        # SOC nur 4 % über min_soc → mit Hysterese geblockt, ohne Hysterese aktiv
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=52.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 3, 5, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 6, 3, 5, 30, tzinfo=timezone.utc),
+        )
+        should, min_soc, reasons, blocked_by, hyst = opt._should_discharge(snap)
+        # Vor Sonnenaufgang darf das Sitzungsdatum NICHT zurückgesetzt sein →
+        # Hysterese ist aktiv → 4 % Margin reicht nicht (≤ min_soc + 5)
+        assert hyst is True
+        assert should is False
+        assert REASON_SOC_BELOW_MIN in blocked_by
 
     def test_evaluate_tracks_activation_dates(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
@@ -1309,6 +1425,8 @@ class TestShouldDischargeBranches:
         assert should is False
         assert REASON_HARD_CUTOFF_AFTER_4AM in blocked_by
 
+
+
     def test_soc_below_min(self, mock_hass, mock_inverter, mock_coordinator, mock_provider):
         opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
         snap = _make_snapshot(
@@ -1695,3 +1813,79 @@ class TestDecisionSnapshotFullShape:
 
         for k in ("pv_now_kw", "consumption_now_kw", "grid_now_kw", "battery_now_kw"):
             assert decision.snapshot[k] is None, f"{k} should be None when sensors missing"
+
+
+# ---------------------------------------------------------------------------
+# compute_hard_cutoff helper + discharge_start_time resolution
+# ---------------------------------------------------------------------------
+
+
+class TestComputeHardCutoff:
+    """Pin der dynamischen Hard-Cutoff-Berechnung für die Abend-Entladung."""
+
+    def test_summer_sunrise_before_4am_uses_pre_sunrise(self):
+        from custom_components.eeg_energy_optimizer.optimizer import compute_hard_cutoff
+        now = datetime(2026, 6, 16, 2, 0, tzinfo=timezone.utc)
+        sunrise = datetime(2026, 6, 16, 4, 30, tzinfo=timezone.utc)
+        assert compute_hard_cutoff(now, sunrise) == datetime(2026, 6, 16, 3, 30, tzinfo=timezone.utc)
+
+    def test_winter_late_sunrise_capped_at_4am(self):
+        from custom_components.eeg_energy_optimizer.optimizer import compute_hard_cutoff
+        now = datetime(2026, 12, 16, 2, 0, tzinfo=timezone.utc)
+        sunrise = datetime(2026, 12, 16, 7, 30, tzinfo=timezone.utc)
+        assert compute_hard_cutoff(now, sunrise) == datetime(2026, 12, 16, 4, 0, tzinfo=timezone.utc)
+
+    def test_pre_midnight_call_resolves_to_next_morning(self):
+        from custom_components.eeg_energy_optimizer.optimizer import compute_hard_cutoff
+        now = datetime(2026, 4, 15, 22, 0, tzinfo=timezone.utc)
+        sunrise_tomorrow = datetime(2026, 4, 16, 6, 30, tzinfo=timezone.utc)
+        assert compute_hard_cutoff(now, sunrise_tomorrow) == datetime(2026, 4, 16, 4, 0, tzinfo=timezone.utc)
+
+    def test_unknown_sunrise_post_midnight_falls_back_to_4am_today(self):
+        from custom_components.eeg_energy_optimizer.optimizer import compute_hard_cutoff
+        now = datetime(2026, 4, 16, 2, 0, tzinfo=timezone.utc)
+        assert compute_hard_cutoff(now, None) == datetime(2026, 4, 16, 4, 0, tzinfo=timezone.utc)
+
+    def test_unknown_sunrise_pre_midnight_falls_back_to_4am_tomorrow(self):
+        from custom_components.eeg_energy_optimizer.optimizer import compute_hard_cutoff
+        now = datetime(2026, 4, 15, 22, 0, tzinfo=timezone.utc)
+        assert compute_hard_cutoff(now, None) == datetime(2026, 4, 16, 4, 0, tzinfo=timezone.utc)
+
+
+class TestDischargeStartTimeResolution:
+    """discharge_start_time wirkt in beiden Modi und projiziert sauber auf Folgetag."""
+
+    def test_pre_midnight_with_morning_start_blocks_until_next_day(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        cfg = _make_config(discharge_start_time="01:00")
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider, cfg)
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 18, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_overnight_kwh=3.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        should, _, _, blocked_by, _ = opt._should_discharge(snap)
+        assert should is False
+        assert REASON_BEFORE_DISCHARGE_START in blocked_by
+
+    def test_post_midnight_with_morning_start_runs_when_inside_window(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        cfg = _make_config(discharge_start_time="01:00")
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider, cfg)
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 16, 2, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=1.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        should, _, _, blocked_by, _ = opt._should_discharge(snap)
+        assert should is True
+        assert REASON_BEFORE_DISCHARGE_START not in blocked_by
