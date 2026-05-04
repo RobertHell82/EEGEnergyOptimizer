@@ -1092,14 +1092,22 @@ class EEGOptimizer:
         Slot A endet 5 Minuten vor Slot-B-Start (wenn B aktiv) → Mindestpause
         zwischen Inverter-Kommandos (SPEC §9, Phase 11 Constraint).
         """
-        # Slot-A-Window: ab a_start
-        a_start = snap.now.replace(
+        # Slot-A-Window: ab a_start (typisch 20:00). Slot A läuft über
+        # Mitternacht weiter bis kurz vor Slot-B-Start (wenn B aktiv) oder
+        # bis SOC-Reserve erreicht wird.
+        a_start_today = snap.now.replace(
             hour=self._discharge_a_start_h,
             minute=self._discharge_a_start_m,
             second=0,
             microsecond=0,
         )
-        if snap.now < a_start:
+        # Past-Midnight-Phase: now in den frühen Morgenstunden + a_start
+        # liegt am Vorabend (a_start_h >= 12). In dieser Phase läuft A
+        # noch von gestern weiter — wir sind innerhalb des Fensters.
+        is_past_midnight_phase = (
+            snap.now.hour < 12 and self._discharge_a_start_h >= 12
+        )
+        if not is_past_midnight_phase and snap.now < a_start_today:
             return (False, [], [REASON_BEFORE_SLOT_A], False)
 
         # 5min-Pause vor Slot B (wenn B aktiv): Slot A endet automatisch
