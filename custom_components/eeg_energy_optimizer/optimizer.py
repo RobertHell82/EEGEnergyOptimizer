@@ -91,6 +91,16 @@ REASON_TOMORROW_PV_INSUFFICIENT = "tomorrow_pv_insufficient"
 REASON_DISCHARGE_ABORTED_TODAY = "discharge_aborted_today"
 REASON_BATTERY_SOC_UNAVAILABLE = "battery_soc_unavailable"
 
+# Phase 11: Dual-Window-Entladung — Slot-aware Reasons (D-09 additiv)
+REASON_BEFORE_SLOT_A = "before_slot_a"
+REASON_SLOT_A_ACTIVE = "slot_a_active"
+REASON_SLOT_A_RESERVE_REACHED = "slot_a_reserve_reached"
+REASON_BETWEEN_SLOTS = "between_slots"
+REASON_BEFORE_SLOT_B = "before_slot_b"
+REASON_SLOT_B_ACTIVE = "slot_b_active"
+REASON_SLOT_B_WINDOW_EXPIRED = "slot_b_window_expired"
+REASON_SLOT_B_PRE_SUNRISE_CUTOFF = "slot_b_pre_sunrise_cutoff"
+
 # Closed-Set-Garantie für Tests + Backend-Diagnose
 ALL_REASONS: frozenset[str] = frozenset({
     REASON_PV_FORECAST_EXCEEDS_DEMAND,
@@ -114,6 +124,15 @@ ALL_REASONS: frozenset[str] = frozenset({
     REASON_TOMORROW_PV_INSUFFICIENT,
     REASON_DISCHARGE_ABORTED_TODAY,
     REASON_BATTERY_SOC_UNAVAILABLE,
+    # Phase 11: Dual-Window
+    REASON_BEFORE_SLOT_A,
+    REASON_SLOT_A_ACTIVE,
+    REASON_SLOT_A_RESERVE_REACHED,
+    REASON_BETWEEN_SLOTS,
+    REASON_BEFORE_SLOT_B,
+    REASON_SLOT_B_ACTIVE,
+    REASON_SLOT_B_WINDOW_EXPIRED,
+    REASON_SLOT_B_PRE_SUNRISE_CUTOFF,
 })
 
 # Deutsche Texte für UI-Renderer (D-38). Telemetrie sendet nur Keys.
@@ -139,6 +158,15 @@ REASON_LABELS_DE: dict[str, str] = {
     REASON_TOMORROW_PV_INSUFFICIENT: "PV-Prognose morgen zu gering",
     REASON_DISCHARGE_ABORTED_TODAY: "Entladung heute wegen Netzbezug abgebrochen",
     REASON_BATTERY_SOC_UNAVAILABLE: "Batterie-SOC-Sensor nicht verfügbar",
+    # Phase 11: Dual-Window
+    REASON_BEFORE_SLOT_A: "Vor Slot-A-Start (Abend)",
+    REASON_SLOT_A_ACTIVE: "Slot A aktiv (Abend-Entladung)",
+    REASON_SLOT_A_RESERVE_REACHED: "Slot-A-Reserve erreicht",
+    REASON_BETWEEN_SLOTS: "Pause zwischen Slot A und Slot B",
+    REASON_BEFORE_SLOT_B: "Vor Slot-B-Start (Morgen)",
+    REASON_SLOT_B_ACTIVE: "Slot B aktiv (Morgen-Entladung)",
+    REASON_SLOT_B_WINDOW_EXPIRED: "Slot-B-Fenster abgelaufen",
+    REASON_SLOT_B_PRE_SUNRISE_CUTOFF: "Slot B beendet vor Sonnenaufgang",
 }
 
 
@@ -206,6 +234,46 @@ def compute_hard_cutoff(now: datetime, next_sunrise: datetime | None) -> datetim
     )
     pre_sunrise = next_sunrise - timedelta(hours=1)
     return min(fixed_at_sunrise_day, pre_sunrise)
+
+
+def compute_b_window_end(
+    now: datetime,
+    sunrise: datetime | None,
+    b_end_cap: str,
+    morning_offset_h: float,
+) -> datetime | None:
+    """Berechne das effektive Slot-B-Ende (Phase 11).
+
+    Slot B (Morgen-Entladung) endet zum striktesten Minimum aus:
+      - ``b_end_cap`` an Sunrise-Tag verankert (z.B. "07:00")
+      - ``sunrise − morning_offset_h − 5min`` (Pause vor Morgen-Einspeisung)
+      - ``sunrise − 5min`` (Pause vor Sunrise selbst)
+
+    Garantiert ≥5 Minuten Pause vor Beginn der Morgen-Einspeisung
+    (``sunrise − morning_offset_h``) — Slot B und Morgen-Einspeisung
+    laufen niemals parallel (SPEC §5).
+
+    Wenn ``sunrise`` unbekannt: ``None`` — Slot B kann ohne Sonnenaufgangs-
+    Information nicht laufen.
+
+    Beispiele:
+      - Sommer SA 04:52, cap 07:00, offset 0 → 04:47 (sunrise−5min dominiert)
+      - Winter SA 07:30, cap 07:00, offset 0 → 07:00 (cap dominiert)
+      - Übergang SA 06:00, cap 07:00, offset 0 → 05:55 (sunrise−5min dominiert)
+      - Tiefer Winter SA 08:30, cap 07:00, offset 0 → 07:00 (cap dominiert)
+      - Winter SA 07:30, cap 07:00, offset 1 → 06:25 (pre-morning dominiert)
+    """
+    if sunrise is None:
+        return None
+    cap_h, cap_m = (int(p) for p in b_end_cap.split(":"))
+    cap_at_sunrise_day = sunrise.replace(
+        hour=cap_h, minute=cap_m, second=0, microsecond=0
+    )
+    pre_morning_einspeisung = sunrise - timedelta(
+        hours=morning_offset_h, minutes=5
+    )
+    pre_sunrise = sunrise - timedelta(minutes=5)
+    return min(cap_at_sunrise_day, pre_morning_einspeisung, pre_sunrise)
 
 
 @dataclass
@@ -295,6 +363,9 @@ class Decision:
     discharge_window_start: str = ""
     discharge_window_end: str = ""
     discharge_hysteresis_active: bool = False
+
+    # Phase 11: aktiver Slot ("A" | "B" | None für Legacy/Pause)
+    discharge_active_slot: str | None = None
 
 
 class EEGOptimizer:

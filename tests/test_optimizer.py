@@ -1057,6 +1057,15 @@ _EXPECTED_REASON_KEYS: frozenset[str] = frozenset({
     "discharge_aborted_today",
     # Sensor availability
     "battery_soc_unavailable",
+    # Phase 11: Dual-Window-Entladung (D-09 additiv)
+    "before_slot_a",
+    "slot_a_active",
+    "slot_a_reserve_reached",
+    "between_slots",
+    "before_slot_b",
+    "slot_b_active",
+    "slot_b_window_expired",
+    "slot_b_pre_sunrise_cutoff",
 })
 
 

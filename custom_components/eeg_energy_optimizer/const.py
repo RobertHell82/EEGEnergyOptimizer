@@ -104,6 +104,29 @@ DEFAULT_DISCHARGE_POWER_KW = 5.0
 DEFAULT_MIN_SOC = 10
 DEFAULT_SAFETY_BUFFER_PCT = 25
 
+# Phase 11: Dual-Window-Entladung
+# Zwei unabhängig aktivierbare Entlade-Slots: Slot A (Abend), Slot B (Morgen).
+# Slot A startet ab discharge_a_start_time und endet, sobald die Batterie auf
+# (min_soc_dyn + discharge_a_reserve_pct) gefallen ist (Reserve für Slot B).
+# Slot B startet ab discharge_b_start_time und endet adaptiv vor Sonnenaufgang
+# via compute_b_window_end (siehe optimizer.py).
+# Bestehende Keys CONF_DISCHARGE_START_TIME / DEFAULT_DISCHARGE_START_TIME
+# bleiben Legacy-Anker für enable_dual_discharge=False (D-05).
+CONF_ENABLE_DUAL_DISCHARGE = "enable_dual_discharge"
+CONF_ENABLE_SLOT_A = "enable_slot_a"
+CONF_ENABLE_SLOT_B = "enable_slot_b"
+CONF_DISCHARGE_A_START_TIME = "discharge_a_start_time"
+CONF_DISCHARGE_B_START_TIME = "discharge_b_start_time"
+CONF_DISCHARGE_B_END_CAP = "discharge_b_end_cap"
+CONF_DISCHARGE_A_RESERVE_PCT = "discharge_a_reserve_pct"
+
+DEFAULT_ENABLE_DUAL_DISCHARGE_NON_SOLAREDGE = True
+DEFAULT_ENABLE_DUAL_DISCHARGE_SOLAREDGE = False
+DEFAULT_DISCHARGE_A_START_TIME = "20:00"
+DEFAULT_DISCHARGE_B_START_TIME = "03:00"
+DEFAULT_DISCHARGE_B_END_CAP = "07:00"
+DEFAULT_DISCHARGE_A_RESERVE_PCT = 15
+
 # Optimizer modes (D-17)
 MODE_EIN = "Ein"
 MODE_TEST = "Test"
@@ -175,6 +198,14 @@ TELEMETRY_SETTINGS_KEYS = (
     "safety_buffer_pct",
     "peakshare_community",
     "forecast_source",
+    # Phase 11: Dual-Window
+    "enable_dual_discharge",
+    "enable_slot_a",
+    "enable_slot_b",
+    "discharge_a_start_time",
+    "discharge_b_start_time",
+    "discharge_b_end_cap",
+    "discharge_a_reserve_pct",
 )
 
 # Phase 8 — Runtime Watchdog-Schwellen (08-03, D-16)
