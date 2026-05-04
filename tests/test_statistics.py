@@ -235,27 +235,45 @@ class TestStaleDataGuard:
 
 
 class TestMidnightRollover:
-    """Session should be split at midnight boundary."""
+    """Sessions running across midnight stay attached to the start day."""
 
     @pytest.mark.asyncio
-    async def test_midnight_splits_session(self):
-        """Active session at midnight should be closed for old day and date updated."""
+    async def test_session_stays_on_start_day_across_midnight(self):
+        """Cross-midnight sessions accumulate on the start day; no daily entry
+        is written until the session closes (e.g. via state change to Normal).
+        """
         hass = _make_hass(grid_kw=3.0)
         stats = _make_stats(hass=hass)
-        decision = _make_decision(STATE_ABEND_ENTLADUNG)
+        decision_evening = _make_decision(STATE_ABEND_ENTLADUNG)
 
-        # Start evening session at 23:58
-        await stats.async_update(decision, _utc(23, 58, 0, day=10))
-        await stats.async_update(decision, _utc(23, 58, 30, day=10))
-        await stats.async_update(decision, _utc(23, 59, 0, day=10))
+        # Start evening session at 23:58 on day 10
+        await stats.async_update(decision_evening, _utc(23, 58, 0, day=10))
+        await stats.async_update(decision_evening, _utc(23, 58, 30, day=10))
+        await stats.async_update(decision_evening, _utc(23, 59, 0, day=10))
 
         # Cross midnight — day=11
-        await stats.async_update(decision, _utc(0, 0, 30, day=11))
+        await stats.async_update(decision_evening, _utc(0, 0, 30, day=11))
+        await stats.async_update(decision_evening, _utc(0, 1, 0, day=11))
 
-        # Old day should have a closed session
+        # No closed session yet — both days should be empty in _daily
+        assert "2026-04-10" not in stats._daily
+        assert "2026-04-11" not in stats._daily
+
+        # Session is still active and tagged with the start day
+        assert stats._current_session is not None
+        assert stats._current_session["date"] == "2026-04-10"
+
+        # Close session via state change (back to Normal)
+        decision_normal = _make_decision("Normal")
+        await stats.async_update(decision_normal, _utc(0, 2, 0, day=11))
+
+        # Session must be closed and bucketed on the START day (10), not 11
         assert "2026-04-10" in stats._daily
         evening_10 = stats._daily["2026-04-10"].get("evening", {})
-        assert evening_10.get("count", 0) >= 1
+        assert evening_10.get("count", 0) == 1
+        # Day 11 must NOT have a session
+        assert "2026-04-11" not in stats._daily or \
+            stats._daily.get("2026-04-11", {}).get("evening", {}).get("count", 0) == 0
 
 
 class TestCompaction:
@@ -379,12 +397,7 @@ class TestHaRestartRecovery:
 
     @pytest.mark.asyncio
     async def test_persisted_session_restored(self):
-        """A current_session from Store should be restored on load.
-
-        The session date must match the wall date that async_update will compute
-        from the synthetic _utc(...) timestamps — otherwise the midnight-split
-        logic closes the restored session and accumulation starts from zero.
-        """
+        """A current_session from Store should be restored on load."""
         stats = _make_stats()
 
         # Simulate Store load — use the same date as the test's synthetic clock
