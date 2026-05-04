@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: optimizer-erweiterungen
-status: Ready to execute
-stopped_at: Phase 11 planned (4 plans, 3 waves)
+status: In progress
+stopped_at: Plan 11-02 abgeschlossen — Plan 11-03 (Wave 3, parallel mit 11-04) als nächstes
 last_updated: "2026-05-04T00:00:00.000Z"
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
+  completed_plans: 2
 ---
 
 # Project State
@@ -24,12 +24,12 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 11 — Dual-Window-Entladung
-Status: Ready to execute (4 plans, 3 waves)
-Plan: 11-01 (Wave 1, foundational)
+Status: In progress (2/4 plans done; Wave 1+2 abgeschlossen, Wave 3 als nächstes)
+Plan: 11-03 (Wave 3, parallel) als nächstes
 
 ### Phase 11 Plans
-- 11-01 (Wave 1): const.py + Migration v14→v15 + compute_b_window_end + Reasons + Decision-Field
-- 11-02 (Wave 2): Optimizer-Refactor + Pro-Slot-Hysterese + PeakShare-Cache-Migration
+- 11-01 (Wave 1): const.py + Migration v14→v15 + compute_b_window_end + Reasons + Decision-Field — ✅ done
+- 11-02 (Wave 2): Optimizer-Refactor + Pro-Slot-Hysterese + PeakShare-Cache-Migration — ✅ done
 - 11-03 (Wave 3, parallel): Panel-UI + websocket_api Save-Path-Validation
 - 11-04 (Wave 3, parallel): Markdown-Renderer + Activity-Log + 24h-Sim-Test + CHANGELOG
 
@@ -69,6 +69,8 @@ Manual UAT: 7-Tage-User-Beobachtung an Test-HA-Instanz (Huawei und/oder Fronius)
 | Phase 05 P01 | 1min | 2 tasks | 2 files |
 | Phase 06 P01 | 1min | 2 tasks | 2 files |
 | Phase 06 P02 | 2min | 2 tasks | 2 files |
+| Phase 11 P01 | 10min | 2 tasks | 9 files |
+| Phase 11 P02 | 35min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
