@@ -20,8 +20,8 @@ SolarEdge StorEdge (`inverter/solaredge.py`) schreibt Entlade-Kommandos in NVRAM
 
 1. **Konfigurations-Schema für Dual-Window**: Zwei unabhängig aktivierbare Slots mit eigenen Zeit-Konfigurationen.
    - Current: `CONF_DISCHARGE_START_TIME` und `CONF_DISCHARGE_POWER_KW` (`const.py:89-90`) konfigurieren genau ein Fenster.
-   - Target: Neue Config-Keys `CONF_ENABLE_DUAL_DISCHARGE` (default False), `CONF_ENABLE_SLOT_A`, `CONF_ENABLE_SLOT_B`, `CONF_DISCHARGE_A_START` (default "20:00"), `CONF_DISCHARGE_B_START` (default "03:00"), `CONF_DISCHARGE_B_END_CAP` (default "07:00"), `CONF_DISCHARGE_A_RESERVE_PCT` (default 15). Die alten Keys bleiben für `enable_dual_discharge=False` erhalten.
-   - Acceptance: Mit `enable_dual_discharge=False` (Default) bleibt die heutige Single-Window-Logik byte-genau erhalten — bestehende Tests in `tests/` laufen unverändert grün; Config-Migration setzt `enable_dual_discharge=False` für alle Bestands-Entries (config_entry version bump in `__init__.py`).
+   - Target: Neue Config-Keys `CONF_ENABLE_DUAL_DISCHARGE` (default **True** für nicht-SolarEdge-Setups), `CONF_ENABLE_SLOT_A` (default True), `CONF_ENABLE_SLOT_B` (default True), `CONF_DISCHARGE_A_START` (default "20:00"), `CONF_DISCHARGE_B_START` (default "03:00"), `CONF_DISCHARGE_B_END_CAP` (default "07:00"), `CONF_DISCHARGE_A_RESERVE_PCT` (default 15). Auf SolarEdge ist `CONF_ENABLE_DUAL_DISCHARGE` immer False; stattdessen erlaubt eine XOR-Auswahl genau einen Slot (Default Slot A).
+   - Acceptance: Bestands-Entries werden via `_async_migrate_entry` (Version 12→13) auf `enable_dual_discharge=True` (nicht-SolarEdge) bzw. `enable_slot_a=True, enable_slot_b=False` (SolarEdge) gesetzt. Bestehende Test-Suiten in `tests/` werden ggf. angepasst, weil das Default-Verhalten sich von Single- auf Dual-Window ändert — Verhaltensänderung wird in CHANGELOG/Release-Notes prominent dokumentiert. Der Single-Window-Pfad (Legacy) bleibt für Setups mit explizitem `enable_dual_discharge=False` 1:1 erhalten und ist durch eigene Tests abgedeckt.
 
 2. **Slot A — Abend-Entladung mit Energie-Reserve**: Entlädt ab `discharge_a_start_time` ohne harte Uhrzeit-Obergrenze, bis SOC die für Slot B reservierte Untergrenze erreicht.
    - Current: Es existiert kein Slot-A-Konzept; Entladung beginnt einmalig bei `discharge_start_time`.
@@ -90,13 +90,14 @@ SolarEdge StorEdge (`inverter/solaredge.py`) schreibt Entlade-Kommandos in NVRAM
 
 - **Inverter-Kompatibilität:** Dual-Mode erfordert Wechselrichter, die mehrfache Entlade-Start/Stop-Zyklen pro Tag ohne Verschleiß tolerieren. Huawei, Fronius, SolaX bestätigt; SolarEdge gesperrt.
 - **Mindestpause:** ≥5 Minuten zwischen Slot-Ende und nächstem Inverter-Kommando (Slot-A-Ende vor Slot-B-Start, Slot-B-Ende vor Morgen-Einspeisung).
-- **Backwards-Compatibility:** Mit `enable_dual_discharge=False` (Default für Bestands-Entries) bleibt das Verhalten der heutigen Single-Window-Logik byte-genau erhalten — keine Verhaltensänderung ohne explizites Opt-in.
-- **Config-Entry-Migration:** Version-Bump in `__init__.py` mit `_async_migrate_entry`-Eintrag, der für Bestands-Entries `enable_dual_discharge=False` setzt.
+- **Backwards-Compatibility:** Single-Window-Pfad (Legacy) bleibt verfügbar für Setups mit explizitem `enable_dual_discharge=False` und ist 1:1 erhalten. Bestands-Anlagen werden jedoch beim Update auf Dual-Window migriert (Default-Wechsel ist intendierter Mehrwert) — Verhaltensänderung wird in Release-Notes prominent kommuniziert.
+- **Config-Entry-Migration:** Version-Bump 12→13 in `__init__.py` mit `_async_migrate_entry`-Eintrag, der für Bestands-Entries die neuen Keys setzt: nicht-SolarEdge → `enable_dual_discharge=True, enable_slot_a=True, enable_slot_b=True`; SolarEdge → `enable_dual_discharge=False, enable_slot_a=True, enable_slot_b=False`.
 - **PeakShare-Daten-Reichweite:** Die `community_data["hours"]`-Liste muss die Slot-A- und Slot-B-Zeiträume abdecken; falls nicht, fällt der betroffene Slot auf `static_reserve`-Modus zurück (kein Slot-Ausfall).
 
 ## Acceptance Criteria
 
-- [ ] `enable_dual_discharge=False` (Default) — bestehende Tests in `tests/` laufen byte-identisch grün
+- [ ] `enable_dual_discharge=False` (explizit gesetzt) — Single-Window-Logik verhält sich byte-identisch zu v1.1 (durch Legacy-Tests abgedeckt)
+- [ ] Bestands-Entry mit version=12 wird via `_async_migrate_entry` auf version=13 mit korrekten Defaults migriert; SolarEdge-Bestands-Entry erhält XOR-Konfiguration (nur Slot A)
 - [ ] `enable_slot_a=true, enable_slot_b=true` — Slot A und Slot B liefern in einem 24h-Simulationstest jeweils ≥1 separate Entladephase mit korrekter Slot-Markierung in Decision
 - [ ] `enable_slot_a=true, enable_slot_b=false` — Verhalten entspricht klassischer Abend-Entladung mit `a_start` als `discharge_start_time`, ohne Reserve-Aufschlag
 - [ ] `enable_slot_a=false, enable_slot_b=true` — System startet Entladung erst um `b_start`, nutzt klassische `min_soc_dyn`-Schwelle
@@ -104,7 +105,7 @@ SolarEdge StorEdge (`inverter/solaredge.py`) schreibt Entlade-Kommandos in NVRAM
 - [ ] Slot B endet stets ≥5min vor Beginn der Morgen-Einspeisung, validiert über parametrisierten Test über `morning_offset ∈ {0, 1}` × Sunrise-Range
 - [ ] Pro-Slot-Hysterese: Test simuliert A-Aktivierung → A-Ende durch Reserve → A-Reaktivierung benötigt SOC > Reserve+5%, gleichzeitig B startet später am Tag mit `min_soc_dyn`-Schwelle ohne Aufschlag
 - [ ] SolarEdge-Erzwingung: Config mit `inverter_type=solaredge_storedge, enable_dual_discharge=true` führt zu Logged-Warning und `enable_dual_discharge=false` zur Laufzeit
-- [ ] Onboarding-Panel zeigt Dual-Window-Settings nur wenn `inverter_type ≠ solaredge_storedge`; bei SolarEdge ist die Toggle deaktiviert mit erläuterndem Tooltip
+- [ ] Onboarding-Panel zeigt Master-Toggle `enable_dual_discharge` nur wenn `inverter_type ≠ solaredge_storedge`; bei SolarEdge erscheint stattdessen ein Radio-Button "Slot A (Abend) | Slot B (Morgen)" mit Default Slot A und Tooltip "NVRAM-Verschleiß: nur ein Slot pro Tag möglich"
 - [ ] Activity-Log enthält die in Requirement 7 gelisteten neuen Reasons mit korrekter Slot-Zuordnung
 - [ ] Inverter-Race-Schutz: Konfigurations-Validation lehnt `b_start < a_min_required_end + 5min` ab oder korrigiert automatisch (Verhalten in PLAN.md festzulegen)
 - [ ] Manuelle 7-Tage-Beobachtung an mind. einer der Test-HA-Instanzen (Huawei und/oder Fronius) durch User; Bewertung "gute Idee oder nicht" als finale UAT-Entscheidung
