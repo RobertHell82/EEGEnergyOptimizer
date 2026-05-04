@@ -88,11 +88,16 @@ class TestConfigFlowMetadata:
     def test_version_in_sync_with_migration(self):
         """VERSION must match the highest migration target in __init__.py.
 
-        Latest migration: v14 (discharge_start_time hard-set auf 01:00).
+        Latest migration: v15 (Phase 11 — Dual-Window-Entladung,
+        slot-spezifische Defaults + SolarEdge-XOR).
         New entries must be created at the current schema version so
         async_migrate_entry never runs on a fresh install.
         """
-        assert EegEnergyOptimizerConfigFlow.VERSION == 14
+        assert EegEnergyOptimizerConfigFlow.VERSION == 15
+
+    def test_config_flow_version_is_15(self):
+        """Phase-11-Smoke: VERSION wurde von 14 auf 15 angehoben."""
+        assert EegEnergyOptimizerConfigFlow.VERSION == 15
 
 
 class TestStepUser:

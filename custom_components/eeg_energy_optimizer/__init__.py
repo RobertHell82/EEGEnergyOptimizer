@@ -843,6 +843,36 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data["discharge_start_time"] = "01:00"
         hass.config_entries.async_update_entry(entry, data=new_data, version=14)
 
+    if entry.version < 15:
+        # v15 — Phase 11: Dual-Window-Entladung
+        # Additive Migration: setzt neue Slot-Konfigurations-Keys mit Defaults.
+        # Default-Wechsel (D-04, intendiert) — Bestands-Anlagen (nicht
+        # SolarEdge) erhalten Dual-Window automatisch beim Update. Mitigation:
+        # Pro-Slot-Hysterese und PV-Tomorrow-Garantie verhindern aggressive
+        # Erstaktivierung; CHANGELOG dokumentiert die Verhaltensänderung
+        # prominent ("Verhaltensänderung beim Update").
+        # SolarEdge-Sonderfall (D-03): NVRAM-Verschleiß erlaubt nur einen
+        # Slot pro Tag → enable_dual_discharge=False, enable_slot_a=True,
+        # enable_slot_b=False. Defense-in-depth in 11-03 (Save-Path) und
+        # 11-02 (Runtime-Erzwingung).
+        # setdefault statt Hard-Set respektiert vorhandene User-Werte (T-11-01-01).
+        new_data = {**entry.data}
+        inverter_type = new_data.get("inverter_type", "")
+        is_solaredge = inverter_type == "solaredge_storedge"
+        if is_solaredge:
+            new_data.setdefault("enable_dual_discharge", False)
+            new_data.setdefault("enable_slot_a", True)
+            new_data.setdefault("enable_slot_b", False)
+        else:
+            new_data.setdefault("enable_dual_discharge", True)
+            new_data.setdefault("enable_slot_a", True)
+            new_data.setdefault("enable_slot_b", True)
+        new_data.setdefault("discharge_a_start_time", "20:00")
+        new_data.setdefault("discharge_b_start_time", "03:00")
+        new_data.setdefault("discharge_b_end_cap", "07:00")
+        new_data.setdefault("discharge_a_reserve_pct", 15)
+        hass.config_entries.async_update_entry(entry, data=new_data, version=15)
+
     return True
 
 

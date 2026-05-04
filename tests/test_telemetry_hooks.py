@@ -322,7 +322,9 @@ async def test_v13_to_v14_migration_hard_sets_discharge_start_to_01_00():
     )
     ok = await async_migrate_entry(hass, entry)
     assert ok is True
-    assert entry.version == 14
+    # Phase 11: nach v14 läuft v15 direkt durch — finale Version ist 15.
+    # Der v14-Effekt (discharge_start_time="01:00") gilt weiterhin.
+    assert entry.version == 15
     assert entry.data["discharge_start_time"] == "01:00"
     # andere Felder bleiben unverändert
     assert entry.data["some"] == "value"
@@ -343,7 +345,8 @@ async def test_v13_to_v14_migration_overrides_old_default_too():
     entry = SimpleNamespace(version=13, data={"discharge_start_time": "20:00"})
     await async_migrate_entry(hass, entry)
     assert entry.data["discharge_start_time"] == "01:00"
-    assert entry.version == 14
+    # Phase 11: nach v14 läuft v15 direkt durch — finale Version ist 15.
+    assert entry.version == 15
 
 
 # ---------------------------------------------------------------------------
