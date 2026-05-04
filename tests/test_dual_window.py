@@ -893,3 +893,192 @@ class TestDualWindow24hSimulation:
         slots = [s for _, _, s in seq if s is not None]
         assert "B" in slots
         assert "A" not in slots
+
+
+# ---------------------------------------------------------------------------
+# Phase 11 Plan 11-03 — WebSocket save_config: SolarEdge-XOR + Inverter-Race
+# ---------------------------------------------------------------------------
+
+
+def _call_ws(handler, hass, connection, msg):
+    """Bypass @websocket_api.async_response by calling the inner coroutine."""
+    inner = getattr(handler, "_func", handler)
+    return inner(hass, connection, msg)
+
+
+def _ws_hass(entry_data):
+    """Build a hass mock with one config entry containing entry_data."""
+    from types import SimpleNamespace
+
+    entry = SimpleNamespace(
+        entry_id="entry-test",
+        data=dict(entry_data),
+        options={},
+        version=15,
+    )
+    hass = MagicMock()
+    hass.config_entries.async_entries = MagicMock(return_value=[entry])
+    hass.config_entries.async_update_entry = MagicMock()
+    return hass, entry
+
+
+def _ws_msg(config_payload):
+    return {
+        "id": 1,
+        "type": "eeg_optimizer/save_config",
+        "config": config_payload,
+    }
+
+
+class TestSolarEdgeXOR:
+    """SPEC §6 + Plan 11-03 Task 1: SolarEdge-XOR Defense-in-depth Layer 2."""
+
+    @pytest.mark.asyncio
+    async def test_save_config_solaredge_disables_dual(self):
+        """SolarEdge + enable_dual_discharge=True → Auto-Korrektur auf False."""
+        from custom_components.eeg_energy_optimizer.websocket_api import (
+            ws_save_config,
+        )
+
+        hass, _entry = _ws_hass({"inverter_type": "solaredge_storedge"})
+        connection = MagicMock()
+        msg = _ws_msg({
+            "inverter_type": "solaredge_storedge",
+            "enable_dual_discharge": True,
+            "enable_slot_a": True,
+            "enable_slot_b": False,
+        })
+        await _call_ws(ws_save_config, hass, connection, msg)
+
+        # Auto-Korrektur muss greifen
+        assert hass.config_entries.async_update_entry.called
+        kwargs = hass.config_entries.async_update_entry.call_args.kwargs
+        new_data = kwargs.get("data")
+        assert new_data["enable_dual_discharge"] is False
+        # KEIN send_error
+        assert not connection.send_error.called
+        # send_result success
+        assert connection.send_result.called
+
+    @pytest.mark.asyncio
+    async def test_save_config_solaredge_two_slots_falls_back_a(self):
+        """SolarEdge + slot_a=True + slot_b=True → slot_b auf False."""
+        from custom_components.eeg_energy_optimizer.websocket_api import (
+            ws_save_config,
+        )
+
+        hass, _ = _ws_hass({"inverter_type": "solaredge_storedge"})
+        connection = MagicMock()
+        msg = _ws_msg({
+            "inverter_type": "solaredge_storedge",
+            "enable_dual_discharge": False,
+            "enable_slot_a": True,
+            "enable_slot_b": True,
+        })
+        await _call_ws(ws_save_config, hass, connection, msg)
+        new_data = hass.config_entries.async_update_entry.call_args.kwargs["data"]
+        assert new_data["enable_slot_a"] is True
+        assert new_data["enable_slot_b"] is False
+
+    @pytest.mark.asyncio
+    async def test_save_config_solaredge_no_slot_falls_back_to_a(self):
+        """SolarEdge + beide Slots False → slot_a True (Fallback)."""
+        from custom_components.eeg_energy_optimizer.websocket_api import (
+            ws_save_config,
+        )
+
+        hass, _ = _ws_hass({"inverter_type": "solaredge_storedge"})
+        connection = MagicMock()
+        msg = _ws_msg({
+            "inverter_type": "solaredge_storedge",
+            "enable_dual_discharge": False,
+            "enable_slot_a": False,
+            "enable_slot_b": False,
+        })
+        await _call_ws(ws_save_config, hass, connection, msg)
+        new_data = hass.config_entries.async_update_entry.call_args.kwargs["data"]
+        assert new_data["enable_slot_a"] is True
+
+
+class TestInverterRaceValidation:
+    """SPEC §9 + Plan 11-03 Task 1: Auto-Korrektur statt Hard-Reject."""
+
+    @pytest.mark.asyncio
+    async def test_b_start_too_close_auto_bumped(self):
+        """Dual + a_start=20:00 + b_start=20:25 → b_start auf 20:35."""
+        from custom_components.eeg_energy_optimizer.websocket_api import (
+            ws_save_config,
+        )
+
+        hass, _ = _ws_hass({"inverter_type": "huawei_sun2000"})
+        connection = MagicMock()
+        msg = _ws_msg({
+            "inverter_type": "huawei_sun2000",
+            "enable_dual_discharge": True,
+            "enable_slot_a": True,
+            "enable_slot_b": True,
+            "discharge_a_start_time": "20:00",
+            "discharge_b_start_time": "20:25",  # zu nah an a_start+30min=20:30
+        })
+        await _call_ws(ws_save_config, hass, connection, msg)
+        new_data = hass.config_entries.async_update_entry.call_args.kwargs["data"]
+        # b_start auf a_start + 30min + 5min = 20:35 angehoben
+        assert new_data["discharge_b_start_time"] == "20:35"
+
+    @pytest.mark.asyncio
+    async def test_default_dual_config_no_correction(self):
+        """Default a=20:00 + b=03:00 → keine Änderung."""
+        from custom_components.eeg_energy_optimizer.websocket_api import (
+            ws_save_config,
+        )
+
+        hass, _ = _ws_hass({"inverter_type": "huawei_sun2000"})
+        connection = MagicMock()
+        msg = _ws_msg({
+            "inverter_type": "huawei_sun2000",
+            "enable_dual_discharge": True,
+            "enable_slot_a": True,
+            "enable_slot_b": True,
+            "discharge_a_start_time": "20:00",
+            "discharge_b_start_time": "03:00",
+        })
+        await _call_ws(ws_save_config, hass, connection, msg)
+        new_data = hass.config_entries.async_update_entry.call_args.kwargs["data"]
+        assert new_data["discharge_b_start_time"] == "03:00"
+
+    @pytest.mark.asyncio
+    async def test_only_one_slot_active_skips_race_check(self):
+        """Wenn nur Slot A aktiv ist, bleibt b_start unangetastet (Race-Check inaktiv)."""
+        from custom_components.eeg_energy_optimizer.websocket_api import (
+            ws_save_config,
+        )
+
+        hass, _ = _ws_hass({"inverter_type": "huawei_sun2000"})
+        connection = MagicMock()
+        msg = _ws_msg({
+            "inverter_type": "huawei_sun2000",
+            "enable_dual_discharge": True,
+            "enable_slot_a": True,
+            "enable_slot_b": False,
+            "discharge_a_start_time": "20:00",
+            "discharge_b_start_time": "20:25",  # innerhalb der 5min, aber B aus
+        })
+        await _call_ws(ws_save_config, hass, connection, msg)
+        new_data = hass.config_entries.async_update_entry.call_args.kwargs["data"]
+        assert new_data["discharge_b_start_time"] == "20:25"
+
+    def test_parse_hhmm_basic(self):
+        from custom_components.eeg_energy_optimizer.websocket_api import (
+            _parse_hhmm,
+        )
+        assert _parse_hhmm("20:00") == 1200
+        assert _parse_hhmm("03:30") == 210
+        assert _parse_hhmm("00:00") == 0
+        assert _parse_hhmm("23:59") == 1439
+
+    def test_parse_hhmm_raises_on_malformed(self):
+        from custom_components.eeg_energy_optimizer.websocket_api import (
+            _parse_hhmm,
+        )
+        with pytest.raises((ValueError, AttributeError)):
+            _parse_hhmm("invalid")
