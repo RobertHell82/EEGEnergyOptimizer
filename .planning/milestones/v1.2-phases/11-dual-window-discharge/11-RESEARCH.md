@@ -1078,19 +1078,22 @@ def _evaluate_slot_b(
 | A5 | Frontend Plain-HTML/Shadow-DOM-Pattern skaliert auf zwei Sub-Bereiche | Architektur | Falls UI-Code zu unübersichtlich wird, Wizard-Step könnte langfristig auf Web-Components migrieren. Nicht in Phase 11. |
 | A6 | Backend-D1-Schema akzeptiert neue Reasons-Keys ohne Migrate (string[] ist additiv) | Telemetry-Reasons | Falls Backend strikt validiert, würde ein 400-Response beim State-Change kommen. Reporter loggt + buffert das — keine Daten gehen verloren. PR-Body 11-04 sollte Backend-PR-Hinweis enthalten. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Wie lange soll `_evaluate_legacy_window` neben den Slot-Methoden bestehen bleiben?**
+   - **Status:** RESOLVED — Auf Backlog mit Trigger "6 Monate Dual-Stabilität + Telemetrie >95% Dual-Pfad-Nutzung"; Phase 11 macht keine Änderung am Legacy-Pfad.
    - What we know: D-05 fixiert "Code wird nicht entfernt", spätere Phase könnte konsolidieren.
    - What's unclear: Wann ist "spätere Phase"? Nach 6 Monaten Dual-Stabilität (siehe Deferred)?
    - Recommendation: Auf Backlog setzen mit Trigger "Dual-Window 6 Monate stabil + Telemetrie-Daten zeigen >95% Dual-Pfad-Nutzung". Phase 11 selbst keine Änderung.
 
 2. **Sollen Slot A und Slot B unabhängige Discharge-Power-Settings haben?**
+   - **Status:** RESOLVED — Nein für Phase 11; globales `discharge_power_kw` gilt für beide Slots, Backlog v1.3+ falls Empirie es nahelegt.
    - What we know: SPEC fixiert `CONF_DISCHARGE_POWER_KW` als single Value.
    - What's unclear: SolarEdge-Mindest-5-kW-Constraint gilt heute global. Wenn Slot A z.B. 3 kW sanft entlädt und Slot B 5 kW kurz feuert, würde sich der Algorithmus ändern.
    - Recommendation: **Nein für Phase 11.** Globale `discharge_power_kw` bleibt für beide Slots. Backlog v1.3+ falls Empirie es nahelegt.
 
 3. **Activity-Log-Heartbeat-Texte: deutsch oder snake_case?**
+   - **Status:** RESOLVED — User-Anzeige bleibt deutsch über `REASON_LABELS_DE`; State-Change-Log-Strings im Format "Abend-Entladung Slot A gestartet (SOC 80% → 25%)" analog zum bestehenden Pattern.
    - What we know: D-38 aus Phase 8 hält Activity-Log-Strings deutsch (User-Texte), Reasons-Keys separat.
    - What's unclear: "Slot A aktiv (Abend-Entladung)" oder "Abend-Entladung" für die User-Anzeige?
    - Recommendation: User-Anzeige nutzt `REASON_LABELS_DE` für die deutschen Texte. Heartbeat-String beim Slot-Start-Log: `"Abend-Entladung Slot A gestartet (SOC 80% → 25%)"` — analog zum bestehenden Slot-agnostischen Log-Pattern.
