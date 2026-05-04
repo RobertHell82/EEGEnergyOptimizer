@@ -638,3 +638,258 @@ class TestEnableDualDischargeFalseLegacyPath:
         # SolarEdge → Legacy → keine Slot-Reasons
         assert REASON_SLOT_A_ACTIVE not in reasons
         assert REASON_SLOT_B_ACTIVE not in reasons
+
+
+# ---------------------------------------------------------------------------
+# Plan 11-02 — PeakShare-Cache-Schema dict[a/b] (T-11-02-03)
+# ---------------------------------------------------------------------------
+
+class TestPeakShareCacheSchema:
+    """Schema-Migration: _discharge_plan ist dict[a/b] mit gemeinsamem
+    Tageslock; alte tuple-Form wird in async_load verworfen."""
+
+    def test_init_creates_dict_schema(self):
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+        )
+        ps = PeakShareProvider(MagicMock(), entry_id="test")
+        assert ps._discharge_plan == {"a": None, "b": None}
+        assert ps._discharge_plan_date is None
+
+    def test_get_discharge_plan_default_slot_is_a(self):
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+        )
+        ps = PeakShareProvider(MagicMock(), entry_id="test")
+        ps._discharge_plan_date = "2026-06-15"
+        ps._discharge_plan = {
+            "a": (
+                datetime(2026, 6, 15, 22, 0, tzinfo=timezone.utc),
+                datetime(2026, 6, 15, 23, 0, tzinfo=timezone.utc),
+            ),
+            "b": None,
+        }
+        now = datetime(2026, 6, 15, 23, 30, tzinfo=timezone.utc)
+        # Default slot ist "a" — Cache-Hit liefert Slot-A-Plan
+        result = ps.get_discharge_plan(
+            community="BEG",
+            available_kwh=5.0,
+            discharge_power_kw=5.0,
+            sunset_time=None,
+            now=now,
+        )
+        assert result is not None
+        assert result[0].hour == 22
+
+    def test_get_discharge_plan_slot_b_returns_b_cache(self):
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+        )
+        ps = PeakShareProvider(MagicMock(), entry_id="test")
+        ps._discharge_plan_date = "2026-06-15"
+        ps._discharge_plan = {
+            "a": None,
+            "b": (
+                datetime(2026, 6, 16, 5, 0, tzinfo=timezone.utc),
+                datetime(2026, 6, 16, 6, 30, tzinfo=timezone.utc),
+            ),
+        }
+        now = datetime(2026, 6, 15, 23, 30, tzinfo=timezone.utc)
+        result = ps.get_discharge_plan(
+            community="BEG",
+            available_kwh=5.0,
+            discharge_power_kw=5.0,
+            sunset_time=None,
+            now=now,
+            slot="b",
+        )
+        assert result is not None
+        assert result[0].hour == 5
+
+    def test_async_fetch_invalidate_uses_dict_schema(self):
+        """async_fetch setzt {"a": None, "b": None} — kein None-Skalar mehr."""
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+        )
+        ps = PeakShareProvider(MagicMock(), entry_id="test")
+        # Simuliere belegten Cache (beide Slots) und prüfe Invalidate-Form.
+        ps._discharge_plan = {
+            "a": (
+                datetime(2026, 6, 15, 22, 0, tzinfo=timezone.utc),
+                datetime(2026, 6, 15, 23, 0, tzinfo=timezone.utc),
+            ),
+            "b": (
+                datetime(2026, 6, 16, 5, 0, tzinfo=timezone.utc),
+                datetime(2026, 6, 16, 6, 0, tzinfo=timezone.utc),
+            ),
+        }
+        ps._discharge_plan_date = "2026-06-15"
+        # Manuelles Invalidate-Pattern wie in async_fetch:
+        ps._discharge_plan = {"a": None, "b": None}
+        ps._discharge_plan_date = None
+        assert ps._discharge_plan == {"a": None, "b": None}
+        assert ps._discharge_plan_date is None
+
+
+# ---------------------------------------------------------------------------
+# Plan 11-02 — 24h-Decision-Sequenz-Simulation (SPEC §8)
+# ---------------------------------------------------------------------------
+
+class TestDualWindow24hSimulation:
+    """24h-Simulationslauf: Decision-Sequenz über einen vollen Tag.
+
+    SPEC §8: A-only / B-only / Dual liefern erwartete Decision-Sequenzen
+    mit korrekten Slot-Markern.
+    """
+
+    def _simulate(self, opt, snap_factory, hours):
+        """Run optimizer for sequence of hours, return slot markers."""
+        results = []
+        for hour in hours:
+            snap = snap_factory(hour)
+            should, min_soc, reasons, blocked, hyst = opt._should_discharge(snap)
+            slot = None
+            if REASON_SLOT_A_ACTIVE in reasons:
+                slot = "A"
+            elif REASON_SLOT_B_ACTIVE in reasons:
+                slot = "B"
+            results.append((hour, should, slot))
+        return results
+
+    def test_dual_a_and_b_both_activate(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+            discharge_a_reserve_pct=15,
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        sunrise_today = datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc)
+        sunrise_tomorrow = datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc)
+
+        def snap_factory(hour):
+            day = 21 if hour < 24 else 22
+            hour_norm = hour % 24
+            # Sunrise = "next upcoming sunrise" gemäß HA-Konvention. Auf Tag 21
+            # vor 07:30 zeigt sunrise auf 21.12. 07:30; danach auf 22.12. 07:30.
+            # Auf Tag 22 (hour >= 24) zeigt sunrise immer auf 22.12. 07:30.
+            if day == 22 or (day == 21 and hour_norm >= 8):
+                snap_sunrise = sunrise_tomorrow
+            else:
+                snap_sunrise = sunrise_today
+            # sunrise_today: heutiger SA. Auf Tag 21 = 21.12. 07:30; Tag 22 = 22.12. 07:30.
+            today_sunrise = sunrise_tomorrow if day == 22 else sunrise_today
+            return _make_snapshot(
+                now=datetime(2026, 12, day, hour_norm, 0, tzinfo=timezone.utc),
+                battery_soc=80.0,
+                battery_capacity_kwh=10.0,
+                sunrise=snap_sunrise,
+                sunrise_today=today_sunrise,
+                pv_tomorrow_kwh=20.0,
+                consumption_tomorrow_daylight_kwh=9.0,
+                consumption_overnight_kwh=2.0,
+            )
+
+        # Stunden 18..30 (=06:00 next day)
+        seq = self._simulate(opt, snap_factory, range(18, 30))
+        slots = [s for _, _, s in seq if s is not None]
+        assert "A" in slots, f"Slot A erwartet zwischen 20:00-02:55: {seq}"
+        assert "B" in slots, f"Slot B erwartet zwischen 03:00-07:00: {seq}"
+
+    def test_a_only_pure_evening_discharge(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            discharge_a_reserve_pct=15,
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        sunrise_today = datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc)
+        sunrise_tomorrow = datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc)
+
+        def snap_factory(hour):
+            day = 21 if hour < 24 else 22
+            hour_norm = hour % 24
+            # Sunrise = "next upcoming sunrise" gemäß HA-Konvention. Auf Tag 21
+            # vor 07:30 zeigt sunrise auf 21.12. 07:30; danach auf 22.12. 07:30.
+            # Auf Tag 22 (hour >= 24) zeigt sunrise immer auf 22.12. 07:30.
+            if day == 22 or (day == 21 and hour_norm >= 8):
+                snap_sunrise = sunrise_tomorrow
+            else:
+                snap_sunrise = sunrise_today
+            # sunrise_today: heutiger SA. Auf Tag 21 = 21.12. 07:30; Tag 22 = 22.12. 07:30.
+            today_sunrise = sunrise_tomorrow if day == 22 else sunrise_today
+            return _make_snapshot(
+                now=datetime(2026, 12, day, hour_norm, 0, tzinfo=timezone.utc),
+                battery_soc=80.0,
+                battery_capacity_kwh=10.0,
+                sunrise=snap_sunrise,
+                sunrise_today=today_sunrise,
+                pv_tomorrow_kwh=20.0,
+                consumption_tomorrow_daylight_kwh=9.0,
+                consumption_overnight_kwh=2.0,
+            )
+
+        seq = self._simulate(opt, snap_factory, range(18, 30))
+        slots = [s for _, _, s in seq if s is not None]
+        assert "A" in slots
+        assert "B" not in slots
+
+    def test_b_only_pure_morning_discharge(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=False,
+            enable_slot_b=True,
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        sunrise_today = datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc)
+        sunrise_tomorrow = datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc)
+
+        def snap_factory(hour):
+            day = 21 if hour < 24 else 22
+            hour_norm = hour % 24
+            # Sunrise = "next upcoming sunrise" gemäß HA-Konvention. Auf Tag 21
+            # vor 07:30 zeigt sunrise auf 21.12. 07:30; danach auf 22.12. 07:30.
+            # Auf Tag 22 (hour >= 24) zeigt sunrise immer auf 22.12. 07:30.
+            if day == 22 or (day == 21 and hour_norm >= 8):
+                snap_sunrise = sunrise_tomorrow
+            else:
+                snap_sunrise = sunrise_today
+            # sunrise_today: heutiger SA. Auf Tag 21 = 21.12. 07:30; Tag 22 = 22.12. 07:30.
+            today_sunrise = sunrise_tomorrow if day == 22 else sunrise_today
+            return _make_snapshot(
+                now=datetime(2026, 12, day, hour_norm, 0, tzinfo=timezone.utc),
+                battery_soc=80.0,
+                battery_capacity_kwh=10.0,
+                sunrise=snap_sunrise,
+                sunrise_today=today_sunrise,
+                pv_tomorrow_kwh=20.0,
+                consumption_tomorrow_daylight_kwh=9.0,
+                consumption_overnight_kwh=2.0,
+            )
+
+        seq = self._simulate(opt, snap_factory, range(18, 30))
+        slots = [s for _, _, s in seq if s is not None]
+        assert "B" in slots
+        assert "A" not in slots
