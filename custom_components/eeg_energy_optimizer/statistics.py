@@ -218,9 +218,9 @@ class FeedinStatistics:
             elapsed_seconds = (now_utc - self._last_update_utc).total_seconds()
         self._last_update_utc = now_utc
 
-        # Handle midnight boundary: close current session if date changed
-        if self._current_session and self._current_session.get("date") != today_str:
-            self._split_session_at_midnight(now_local)
+        # Sessions are bucketed by their start date. Sessions running across
+        # midnight stay attached to their start day and continue accumulating —
+        # the closing _close_session writes total kWh to session["date"].
 
         # State transition logic
         current_state = self._current_session.get("state") if self._current_session else None
@@ -506,19 +506,6 @@ class FeedinStatistics:
             self._hass.async_create_task(self._reporter.send_outcome(payload))
         except Exception:  # pragma: no cover — defensiv
             _LOGGER.exception("Telemetry: failed to schedule send_outcome")
-
-    def _split_session_at_midnight(self, now_local: datetime) -> None:
-        """Split the current session at midnight boundary."""
-        if self._current_session is None:
-            return
-
-        # Close the session at midnight of the new day
-        midnight_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-        self._close_session(midnight_local)
-
-        # Re-open session for the new day if state is still active
-        # (the caller will handle this in the state transition logic,
-        #  but we need to set up for it)
 
     # ------------------------------------------------------------------
     # Query methods (for WebSocket API and sensors)
