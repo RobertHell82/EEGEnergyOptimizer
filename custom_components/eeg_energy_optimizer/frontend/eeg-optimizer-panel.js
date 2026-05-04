@@ -100,6 +100,14 @@ const WIZARD_DEFAULTS = {
   morning_start_offset: 0,
   morning_end_time: "11:00",
   enable_night_discharge: true,
+  // Phase 11: Dual-Window-Defaults (nicht-SolarEdge → Dual=ON; SolarEdge wird im Save-Path normalisiert)
+  enable_dual_discharge: true,
+  enable_slot_a: true,
+  enable_slot_b: true,
+  discharge_a_start_time: "20:00",
+  discharge_b_start_time: "03:00",
+  discharge_b_end_cap: "07:00",
+  discharge_a_reserve_pct: 15,
   enable_peakshare: true,
   peakshare_community: "BEG",
   discharge_start_time: "01:00",
@@ -831,6 +839,27 @@ class EegOptimizerPanel extends HTMLElement {
     });
 
     this._shadow.addEventListener("change", (e) => {
+      // Phase 11: SolarEdge XOR radio (data-field-radio). Wir handhaben den Radio
+      // hier vor dem allgemeinen data-field-Handler, weil das Radio kein
+      // data-field hat (sondern data-field-radio mit "slot_a"/"slot_b" oder
+      // settings_-Präfix). Ein selected radio mappt auf zwei Bool-Werte.
+      const radio = e.target.closest("[data-field-radio]");
+      if (radio && radio.checked) {
+        const which = radio.getAttribute("data-field-radio");
+        const isSettings = which.startsWith("settings_");
+        const slotKey = which.replace("settings_", "");
+        const target = isSettings ? this._settingsData : this._wizardData;
+        if (slotKey === "slot_a") {
+          target.enable_slot_a = true;
+          target.enable_slot_b = false;
+        } else if (slotKey === "slot_b") {
+          target.enable_slot_a = false;
+          target.enable_slot_b = true;
+        }
+        // SolarEdge: dual_discharge bleibt false (Defense-in-depth). Backend setzt es ohnehin.
+        target.enable_dual_discharge = false;
+        return;
+      }
       const target = e.target.closest("[data-field]");
       if (target) {
         const field = target.dataset.field;
@@ -2992,8 +3021,89 @@ class EegOptimizerPanel extends HTMLElement {
         </div>`;
     })();
 
+    // Phase 11: Dual-Window-Konfiguration
+    const isSolarEdge = this._wizardData.inverter_type === "solaredge_storedge";
+    const dualOn = !!this._wizardData.enable_dual_discharge;
+    const slotA = !!this._wizardData.enable_slot_a;
+    const slotB = !!this._wizardData.enable_slot_b;
+
+    const dualMasterToggle = isSolarEdge ? "" : `
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px">
+        <input type="checkbox" data-field="enable_dual_discharge" ${dualOn ? "checked" : ""}>
+        <div>
+          <div style="font-weight:500">Dual-Window-Entladung</div>
+          <div class="help-text" style="margin-top:2px">
+            Zwei unabh\u00e4ngige Entladefenster: Slot A abends (~20:00 bis nach Mitternacht) und Slot B morgens (~03:00 bis vor Sonnenaufgang). Maximiert EEG-Bedarfsabdeckung in beiden Tagesperioden.
+          </div>
+        </div>
+      </label>
+    `;
+
+    const solarEdgeXorRadio = isSolarEdge ? `
+      <div class="field-group" title="NVRAM-Verschlei\u00df: nur ein Slot pro Tag m\u00f6glich">
+        <label style="font-weight:500">Welcher Slot soll laufen?</label>
+        <div class="help-text" style="margin-bottom:8px">
+          Auf SolarEdge-Wechselrichtern k\u00f6nnen nicht beide Slots gleichzeitig laufen. Grund: SolarEdge schreibt Entlade-Kommandos in NVRAM-Speicher, der nur eine begrenzte Zahl Schreibzyklen zul\u00e4sst. W\u00e4hle daher genau einen Slot:
+        </div>
+        <label style="display:block;margin-bottom:6px">
+          <input type="radio" name="solaredge_slot" data-field-radio="slot_a" ${slotA && !slotB ? "checked" : ""}>
+          Slot A \u2014 Abend (Default)
+        </label>
+        <label style="display:block">
+          <input type="radio" name="solaredge_slot" data-field-radio="slot_b" ${slotB && !slotA ? "checked" : ""}>
+          Slot B \u2014 Morgen
+        </label>
+      </div>
+    ` : "";
+
+    const slotAFields = (dualOn && !isSolarEdge) ? `
+      <div class="feature-params" style="border-left:3px solid var(--primary-color);padding-left:12px;margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
+          <input type="checkbox" data-field="enable_slot_a" ${slotA ? "checked" : ""}>
+          <span style="font-weight:500">Slot A \u2014 Abend</span>
+        </label>
+        <div class="field-group">
+          <label>Slot-A-Start</label>
+          <input type="text" data-field="discharge_a_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
+                 value="${this._wizardData.discharge_a_start_time || "20:00"}" style="width:80px">
+          <div class="help-text">Startzeit der Abend-Entladung. Empfehlung 20:00 (EEG-Abendpeak 18:00\u201323:00).</div>
+        </div>
+        <div class="field-group">
+          <label>Reserve f\u00fcr Slot B (%)</label>
+          <input type="number" data-field="discharge_a_reserve_pct" min="0" max="50" step="1"
+                 value="${this._wizardData.discharge_a_reserve_pct ?? 15}" style="width:80px">
+          <div class="help-text">SOC-Reserve in Prozent, die Slot A f\u00fcr Slot B aufhebt. Default 15%.</div>
+        </div>
+      </div>
+    ` : "";
+
+    const slotBFields = (dualOn && !isSolarEdge) ? `
+      <div class="feature-params" style="border-left:3px solid var(--accent-color);padding-left:12px;margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
+          <input type="checkbox" data-field="enable_slot_b" ${slotB ? "checked" : ""}>
+          <span style="font-weight:500">Slot B \u2014 Morgen</span>
+        </label>
+        <div class="field-group">
+          <label>Slot-B-Start</label>
+          <input type="text" data-field="discharge_b_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
+                 value="${this._wizardData.discharge_b_start_time || "03:00"}" style="width:80px">
+          <div class="help-text">Startzeit der Morgen-Entladung. Empfehlung 03:00.</div>
+        </div>
+        <div class="field-group">
+          <label>Sp\u00e4testes Slot-B-Ende</label>
+          <input type="text" data-field="discharge_b_end_cap" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
+                 value="${this._wizardData.discharge_b_end_cap || "07:00"}" style="width:80px">
+          <div class="help-text">Maximales Ende der Morgen-Entladung. Wird automatisch auf Sonnenaufgang\u22125min gek\u00fcrzt, falls SA fr\u00fcher liegt. Default 07:00.</div>
+        </div>
+      </div>
+    ` : "";
+
     const dischargeFields = nDischarge ? `
       <div class="feature-params">
+        ${dualMasterToggle}
+        ${solarEdgeXorRadio}
+        ${slotAFields}
+        ${slotBFields}
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px">
           <input type="checkbox" data-field="enable_peakshare" ${peakshare ? "checked" : ""}>
           <div>
@@ -3229,8 +3339,89 @@ class EegOptimizerPanel extends HTMLElement {
         </div>`;
     })();
 
+    // Phase 11: Dual-Window-Konfiguration (Settings-Tab evening, settings_*-Präfix)
+    const settingsIsSolarEdge = d.inverter_type === "solaredge_storedge";
+    const settingsDualOn = !!d.enable_dual_discharge;
+    const settingsSlotA = !!d.enable_slot_a;
+    const settingsSlotB = !!d.enable_slot_b;
+
+    const settingsDualMasterToggle = settingsIsSolarEdge ? "" : `
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px">
+        <input type="checkbox" data-field="settings_enable_dual_discharge" ${settingsDualOn ? "checked" : ""}>
+        <div>
+          <div style="font-weight:500">Dual-Window-Entladung</div>
+          <div class="help-text" style="margin-top:2px">
+            Zwei unabhängige Entladefenster: Slot A abends (~20:00 bis nach Mitternacht) und Slot B morgens (~03:00 bis vor Sonnenaufgang). Maximiert EEG-Bedarfsabdeckung in beiden Tagesperioden.
+          </div>
+        </div>
+      </label>
+    `;
+
+    const settingsSolarEdgeXorRadio = settingsIsSolarEdge ? `
+      <div class="field-group" title="NVRAM-Verschleiß: nur ein Slot pro Tag möglich">
+        <label style="font-weight:500">Welcher Slot soll laufen?</label>
+        <div class="help-text" style="margin-bottom:8px">
+          Auf SolarEdge-Wechselrichtern können nicht beide Slots gleichzeitig laufen. Grund: SolarEdge schreibt Entlade-Kommandos in NVRAM-Speicher, der nur eine begrenzte Zahl Schreibzyklen zulässt. Wähle daher genau einen Slot:
+        </div>
+        <label style="display:block;margin-bottom:6px">
+          <input type="radio" name="solaredge_slot" data-field-radio="settings_slot_a" ${settingsSlotA && !settingsSlotB ? "checked" : ""}>
+          Slot A — Abend (Default)
+        </label>
+        <label style="display:block">
+          <input type="radio" name="solaredge_slot" data-field-radio="settings_slot_b" ${settingsSlotB && !settingsSlotA ? "checked" : ""}>
+          Slot B — Morgen
+        </label>
+      </div>
+    ` : "";
+
+    const settingsSlotAFields = (settingsDualOn && !settingsIsSolarEdge) ? `
+      <div class="feature-params" style="border-left:3px solid var(--primary-color);padding-left:12px;margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
+          <input type="checkbox" data-field="settings_enable_slot_a" ${settingsSlotA ? "checked" : ""}>
+          <span style="font-weight:500">Slot A — Abend</span>
+        </label>
+        <div class="field-group">
+          <label>Slot-A-Start</label>
+          <input type="text" data-field="settings_discharge_a_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
+                 value="${d.discharge_a_start_time || "20:00"}" style="width:80px">
+          <div class="help-text">Startzeit der Abend-Entladung. Empfehlung 20:00 (EEG-Abendpeak 18:00–23:00).</div>
+        </div>
+        <div class="field-group">
+          <label>Reserve für Slot B (%)</label>
+          <input type="number" data-field="settings_discharge_a_reserve_pct" min="0" max="50" step="1"
+                 value="${d.discharge_a_reserve_pct ?? 15}" style="width:80px">
+          <div class="help-text">SOC-Reserve in Prozent, die Slot A für Slot B aufhebt. Default 15%.</div>
+        </div>
+      </div>
+    ` : "";
+
+    const settingsSlotBFields = (settingsDualOn && !settingsIsSolarEdge) ? `
+      <div class="feature-params" style="border-left:3px solid var(--accent-color);padding-left:12px;margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
+          <input type="checkbox" data-field="settings_enable_slot_b" ${settingsSlotB ? "checked" : ""}>
+          <span style="font-weight:500">Slot B — Morgen</span>
+        </label>
+        <div class="field-group">
+          <label>Slot-B-Start</label>
+          <input type="text" data-field="settings_discharge_b_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
+                 value="${d.discharge_b_start_time || "03:00"}" style="width:80px">
+          <div class="help-text">Startzeit der Morgen-Entladung. Empfehlung 03:00.</div>
+        </div>
+        <div class="field-group">
+          <label>Spätestes Slot-B-Ende</label>
+          <input type="text" data-field="settings_discharge_b_end_cap" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
+                 value="${d.discharge_b_end_cap || "07:00"}" style="width:80px">
+          <div class="help-text">Maximales Ende der Morgen-Entladung. Wird automatisch auf Sonnenaufgang−5min gekürzt, falls SA früher liegt. Default 07:00.</div>
+        </div>
+      </div>
+    ` : "";
+
     const dischargeFields = nDischarge ? `
       <div class="feature-params">
+        ${settingsDualMasterToggle}
+        ${settingsSolarEdgeXorRadio}
+        ${settingsSlotAFields}
+        ${settingsSlotBFields}
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px">
           <input type="checkbox" data-field="settings_enable_peakshare" ${settingsPeakshare ? "checked" : ""}>
           <div>
