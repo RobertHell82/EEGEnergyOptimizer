@@ -4,6 +4,7 @@
 
 - ✅ **v1.0 EEG Energy Optimizer** — Phases 1-6 (shipped 2026-03-22)
 - 🚧 **v1.1 Telemetrie & Wirksamkeitsanalyse** — Phases 7-10 (siehe `.planning/milestones/v1.1-telemetry-ROADMAP.md`)
+- 🚧 **v1.2 Optimizer-Erweiterungen** — Phase 11+ (siehe `.planning/milestones/v1.2-ROADMAP.md`)
 
 ## Phases
 
@@ -30,6 +31,12 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 Full details: `.planning/milestones/v1.1-telemetry-ROADMAP.md`
 
+### v1.2 Optimizer-Erweiterungen
+
+- [ ] Phase 11: Dual-Window-Entladung — Zwei unabhängig aktivierbare Entladefenster (Slot A abends, Slot B morgens), Pro-Slot-Hysterese, adaptives B-Ende vor Morgen-Einspeisung
+
+Full details: `.planning/milestones/v1.2-ROADMAP.md`
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -44,3 +51,4 @@ Full details: `.planning/milestones/v1.1-telemetry-ROADMAP.md`
 | 8. HA Reporter-Modul | v1.1 | 4/4 | Complete | 2026-04-29 |
 | 9. Dashboard | v1.1 | 0/0 | Planned | — |
 | 10. Sicherheit & Pflege | v1.1 | 0/0 | Planned | — |
+| 11. Dual-Window-Entladung | v1.2 | 0/0 | Planned | — |
