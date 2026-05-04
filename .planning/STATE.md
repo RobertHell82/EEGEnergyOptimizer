@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: optimizer-erweiterungen
-status: In progress
-stopped_at: Plan 11-02 abgeschlossen — Plan 11-03 (Wave 3, parallel mit 11-04) als nächstes
+status: Phase 11 verified — manual UAT pending
+stopped_at: Phase 11 complete — 412/413 tests pass, awaiting 7-day user observation
 last_updated: "2026-05-04T00:00:00.000Z"
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 4
 ---
 
 # Project State
@@ -19,22 +19,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Feed solar energy into the grid when the community actually needs it, not when everyone else is feeding in too.
-**Current focus:** Phase 11 — dual-window-discharge (v1.2 Milestone — Optimizer-Erweiterungen)
+**Current focus:** Phase 11 — dual-window-discharge (v1.2 Milestone — Optimizer-Erweiterungen) — verifiziert, wartet auf manuelle UAT
 
 ## Current Position
 
 Phase: 11 — Dual-Window-Entladung
-Status: In progress (2/4 plans done; Wave 1+2 abgeschlossen, Wave 3 als nächstes)
-Plan: 11-03 (Wave 3, parallel) als nächstes
+Status: Verifiziert (9/9 SPEC + 10/10 Decisions PASS, 412/413 Tests grün)
+Plan: alle 4 Plans abgeschlossen
 
 ### Phase 11 Plans
 - 11-01 (Wave 1): const.py + Migration v14→v15 + compute_b_window_end + Reasons + Decision-Field — ✅ done
 - 11-02 (Wave 2): Optimizer-Refactor + Pro-Slot-Hysterese + PeakShare-Cache-Migration — ✅ done
-- 11-03 (Wave 3, parallel): Panel-UI + websocket_api Save-Path-Validation
-- 11-04 (Wave 3, parallel): Markdown-Renderer + Activity-Log + 24h-Sim-Test + CHANGELOG
+- 11-03 (Wave 3a): Panel-UI + websocket_api Save-Path-Validation — ✅ done
+- 11-04 (Wave 3b): Markdown-Renderer + Activity-Log + Frontend-Slot-Suffix + CHANGELOG — ✅ done
 
-Verification: PASSED (iteration 2 nach Revision)
-Manual UAT: 7-Tage-User-Beobachtung an Test-HA-Instanz (Huawei und/oder Fronius)
+Verification: PASSED (gsd-verifier — siehe 11-VERIFICATION.md)
+Manual UAT pending: 7-Tage-User-Beobachtung an Test-HA-Instanz (Huawei 192.168.1.211 oder Fronius 192.168.100.211) — finale "gute Idee oder nicht"-Bewertung durch User
 
 ## Performance Metrics
 
