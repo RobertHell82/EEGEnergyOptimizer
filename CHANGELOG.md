@@ -7,7 +7,7 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
-## [1.2.0-dev] - 2026-05-04
+## [1.2.0-dev-31] - 2026-05-04
 
 > User selbst macht Releases — dieser Eintrag ist DEV-Repo-only und wird beim Release-Sync übernommen.
 
