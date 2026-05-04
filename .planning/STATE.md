@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: unknown
-stopped_at: Completed 06-02-PLAN.md
-last_updated: "2026-03-22T21:03:33.099Z"
+milestone: v1.2
+milestone_name: optimizer-erweiterungen
+status: Ready to execute
+stopped_at: Phase 11 planned (4 plans, 3 waves)
+last_updated: "2026-05-04T00:00:00.000Z"
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 14
-  completed_plans: 14
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 4
+  completed_plans: 0
 ---
 
 # Project State
@@ -19,12 +19,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Feed solar energy into the grid when the community actually needs it, not when everyone else is feeding in too.
-**Current focus:** Phase 06 — polish-tech-debt
+**Current focus:** Phase 11 — dual-window-discharge (v1.2 Milestone — Optimizer-Erweiterungen)
 
 ## Current Position
 
-Phase: 06
-Plan: Not started
+Phase: 11 — Dual-Window-Entladung
+Status: Ready to execute (4 plans, 3 waves)
+Plan: 11-01 (Wave 1, foundational)
+
+### Phase 11 Plans
+- 11-01 (Wave 1): const.py + Migration v14→v15 + compute_b_window_end + Reasons + Decision-Field
+- 11-02 (Wave 2): Optimizer-Refactor + Pro-Slot-Hysterese + PeakShare-Cache-Migration
+- 11-03 (Wave 3, parallel): Panel-UI + websocket_api Save-Path-Validation
+- 11-04 (Wave 3, parallel): Markdown-Renderer + Activity-Log + 24h-Sim-Test + CHANGELOG
+
+Verification: PASSED (iteration 2 nach Revision)
+Manual UAT: 7-Tage-User-Beobachtung an Test-HA-Instanz (Huawei und/oder Fronius)
 
 ## Performance Metrics
 
