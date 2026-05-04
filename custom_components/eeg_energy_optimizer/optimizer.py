@@ -1693,7 +1693,16 @@ class EEGOptimizer:
             lines.append("")
 
         if decision.entladung_aktiv:
-            lines.append("### Abend-Entladung")
+            # Phase 11: dynamischer Header für Slot B (Morgen-Entladung)
+            if decision.discharge_active_slot == "B":
+                lines.append("### Morgen-Entladung")
+            else:
+                lines.append("### Abend-Entladung")
+            # Phase 11: Slot-Marker (D-08, D-10)
+            if decision.discharge_active_slot == "A":
+                lines.append("- Aktiver Slot: A")
+            elif decision.discharge_active_slot == "B":
+                lines.append("- Aktiver Slot: B")
             lines.append(
                 f"- Startzeit: {self._discharge_start_h:02d}:{self._discharge_start_m:02d}"
             )
@@ -1705,6 +1714,21 @@ class EEGOptimizer:
                 )
             lines.append(
                 f"- Verbrauchsprognose morgen: {snap.consumption_tomorrow_kwh:.1f} kWh"
+            )
+            lines.append("")
+
+        # Phase 11: Slot-Konfigurations-Übersicht (nur wenn Dual-Mode aktiv)
+        if self._enable_dual_discharge and not self._is_solaredge:
+            lines.append("### Slot-Konfiguration")
+            lines.append(
+                f"- Slot A: {'aktiv' if self._enable_slot_a else 'deaktiviert'} "
+                f"({self._discharge_a_start_h:02d}:{self._discharge_a_start_m:02d}, "
+                f"Reserve {self._discharge_a_reserve_pct}%)"
+            )
+            lines.append(
+                f"- Slot B: {'aktiv' if self._enable_slot_b else 'deaktiviert'} "
+                f"({self._discharge_b_start_h:02d}:{self._discharge_b_start_m:02d}, "
+                f"Cap {self._discharge_b_end_cap})"
             )
             lines.append("")
 

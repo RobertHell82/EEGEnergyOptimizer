@@ -1299,6 +1299,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "discharge_bedarf": round(decision.discharge_demand_total_kwh, 1),
                 "discharge_pv": round(decision.discharge_pv_tomorrow_kwh, 1),
                 "ausführung": decision.ausführung,
+                # Phase 11 (D-09): Slot-Kontext für Frontend-Anzeige + Telemetrie
+                "discharge_active_slot": decision.discharge_active_slot,
             }
             activity_log.append(entry_data)
             hass.bus.async_fire("eeg_optimizer_activity", entry_data)

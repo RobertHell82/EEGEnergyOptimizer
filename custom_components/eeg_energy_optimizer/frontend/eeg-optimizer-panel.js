@@ -4193,7 +4193,13 @@ class EegOptimizerPanel extends HTMLElement {
       const dateStr = ts ? `${String(ts.getDate()).padStart(2,"0")}.${String(ts.getMonth()+1).padStart(2,"0")}` : "";
       const icon = zustandIcon(e.zustand);
       const color = zustandColor(e.zustand);
-      const reason = e.reason === "Heartbeat" ? `<span style="opacity:0.5">${e.zustand}</span>` : `<strong>${e.zustand}</strong>`;
+      // Phase 11 (D-09): Slot-Suffix bei Abend-Entladung. Defensiv für Legacy-Storage-Einträge:
+      // bei e.discharge_active_slot=null/undefined ist slotMarker = "" → Render bleibt rückwärtskompatibel.
+      const slotMarker = (e.zustand === "Abend-Entladung" && (e.discharge_active_slot === "A" || e.discharge_active_slot === "B"))
+        ? ` (Slot ${e.discharge_active_slot})`
+        : "";
+      const zustandLabel = `${e.zustand}${slotMarker}`;
+      const reason = e.reason === "Heartbeat" ? `<span style="opacity:0.5">${zustandLabel}</span>` : `<strong>${zustandLabel}</strong>`;
       const changeBadge = e.reason === "Heartbeat" ? "" : `<span class="activity-badge" style="background:${color}">\u00C4nderung</span>`;
       const testBadge = e.ausführung === false ? `<span class="activity-badge" style="background:var(--warning-color,#ff9800)">Testmodus</span>` : "";
       return `<div class="activity-entry">
