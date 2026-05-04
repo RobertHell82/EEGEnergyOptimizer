@@ -1239,10 +1239,18 @@ async def ws_get_peakshare_data(
         age_sec = (datetime.now(timezone.utc) - peakshare._cache_time).total_seconds()
         cache_age = round(age_sec / 60)
 
-    # Discharge plan if computed
+    # Discharge plan if computed.
+    # Phase 11: _discharge_plan ist dict[a/b]. Panel zeigt den Slot-A-Plan
+    # (Hauptfenster für Single-Window und Dual-Mode-Abend); Slot-B wird
+    # erst in 11-03/11-04 separat im Panel sichtbar.
     plan_info = None
-    if peakshare._discharge_plan_date and peakshare._discharge_plan:
-        plan_start, plan_end = peakshare._discharge_plan
+    plan_dict = getattr(peakshare, "_discharge_plan", None) or {}
+    if isinstance(plan_dict, dict):
+        plan_a = plan_dict.get("a")
+    else:
+        plan_a = None
+    if peakshare._discharge_plan_date and plan_a is not None:
+        plan_start, plan_end = plan_a
         plan_info = {
             "start": plan_start.strftime("%H:%M"),
             "end": plan_end.strftime("%H:%M"),

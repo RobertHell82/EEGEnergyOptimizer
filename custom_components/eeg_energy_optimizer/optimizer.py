@@ -868,12 +868,15 @@ class EEGOptimizer:
         Returns a dict with: status, reasons (deutsche Freitext-Liste für Panel),
         soc, min_soc, pv_tomorrow_kwh, demand_tomorrow_kwh, power_kw, start_time.
         """
-        # Show PeakShare window times if a plan was computed today
+        # Show PeakShare window times if a plan was computed today.
+        # Phase 11: _discharge_plan ist nun dict[a/b]; Legacy-Pfad nutzt Slot "a".
         ps_plan = None
         if self._enable_peakshare and self._peakshare is not None:
             ps_plan_date = getattr(self._peakshare, "_discharge_plan_date", None)
             if ps_plan_date == snap.now.strftime("%Y-%m-%d"):
-                ps_plan = getattr(self._peakshare, "_discharge_plan", None)
+                plan_dict = getattr(self._peakshare, "_discharge_plan", None) or {}
+                if isinstance(plan_dict, dict):
+                    ps_plan = plan_dict.get("a")
         if ps_plan is not None:
             start_time_str = f"{ps_plan[0].strftime('%H:%M')}-{ps_plan[1].strftime('%H:%M')} (PeakShare)"
         else:
@@ -1549,7 +1552,9 @@ class EEGOptimizer:
                 f"{self._morning_end_hour:02d}:{self._morning_end_min:02d}"
             )
         elif zustand == STATE_ABEND_ENTLADUNG:
-            # Show PeakShare window times if available
+            # Show PeakShare window times if available.
+            # Phase 11: get_discharge_plan liefert Slot-A-Plan (Default) — der
+            # Legacy-Pfad nutzt heute nur Slot "a" (siehe Plan 11-02).
             ps_plan = self._peakshare.get_discharge_plan(
                 self._peakshare_community, 0, 0, None, snap.now
             ) if self._enable_peakshare and self._peakshare and self._peakshare._discharge_plan_date == snap.now.strftime("%Y-%m-%d") else None
@@ -1612,11 +1617,21 @@ class EEGOptimizer:
             discharge_active_slot=active_slot,
         )
 
-        # Populate PeakShare fields if a plan was computed today
+        # Populate PeakShare fields if a plan was computed today.
+        # Phase 11: _discharge_plan ist nun dict[a/b]. Wir ziehen — abhängig
+        # vom aktiven Slot — den passenden Plan; Legacy-Pfad nutzt Slot "a".
         if self._enable_peakshare and self._peakshare is not None:
             ps_plan_date = getattr(self._peakshare, "_discharge_plan_date", None)
-            ps_plan = getattr(self._peakshare, "_discharge_plan", None)
-            if ps_plan_date == snap.now.strftime("%Y-%m-%d") and ps_plan is not None:
+            plan_dict = getattr(self._peakshare, "_discharge_plan", None) or {}
+            ps_plan = None
+            if ps_plan_date == snap.now.strftime("%Y-%m-%d") and isinstance(
+                plan_dict, dict
+            ):
+                # Slot-Marker entscheidet welcher Plan in den Decision-Feldern
+                # angezeigt wird (Legacy/A → "a", Dual-B → "b").
+                slot_key = "b" if active_slot == "B" else "a"
+                ps_plan = plan_dict.get(slot_key)
+            if ps_plan is not None:
                 decision.discharge_peakshare_active = True
                 decision.discharge_window_start = ps_plan[0].strftime("%H:%M")
                 decision.discharge_window_end = ps_plan[1].strftime("%H:%M")
