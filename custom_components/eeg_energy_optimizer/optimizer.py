@@ -856,7 +856,7 @@ class EEGOptimizer:
 
     def _discharge_detail_status(
         self, snap: Snapshot, should_discharge: bool, min_soc: float,
-        discharge_blocked_by: list[str]
+        discharge_blocked_by: list[str], active_slot: str | None = None,
     ) -> dict:
         """Compute detailed discharge status for the status card.
 
@@ -864,23 +864,55 @@ class EEGOptimizer:
             discharge_blocked_by: snake_case-Keys aus ALL_REASONS, die das
                 Discharge blockieren. Werden für die Status-Karte via
                 REASON_LABELS_DE in deutsche Texte übersetzt (D-38).
+            active_slot: aktueller Slot-Marker ("A"/"B"/None). Phase 11.1-02:
+                Slot-aware Plan-Lookup + Slot-spezifische Fixzeit-Fallback.
 
         Returns a dict with: status, reasons (deutsche Freitext-Liste für Panel),
         soc, min_soc, pv_tomorrow_kwh, demand_tomorrow_kwh, power_kw, start_time.
         """
-        # Show PeakShare window times if a plan was computed today.
-        # Phase 11: _discharge_plan ist nun dict[a/b]; Legacy-Pfad nutzt Slot "a".
+        # Phase 11.1-02: Slot-aware Plan-Lookup. Wenn active_slot bekannt ist,
+        # zeige den passenden Slot-Plan; sonst Slot "a" (Legacy + Slot-A-Default).
+        #
+        # Hinweis zur Cache-Architektur: Wir nutzen _discharge_plan_date (Day-
+        # Marker für UI-Lookup), NICHT _discharge_plan_computed_dates[slot]
+        # (Per-Slot-Compute-Tracking aus Plan 11.1-01). Beide tragen heute
+        # identische Datums-Werte — für die UI-Sicht ("ist der Plan von heute?")
+        # reicht der Day-Marker, weil plan_dict.get(slot_key) ein None liefert,
+        # wenn der Slot-Plan an dem Tag noch nicht berechnet wurde. Die Per-
+        # Slot-Lifecycle-Steuerung gehört zur Compute-Skip-Entscheidung in
+        # peakshare.py:get_discharge_plan und ist absichtlich vom UI-Lookup
+        # getrennt (Single Responsibility).
         ps_plan = None
         if self._enable_peakshare and self._peakshare is not None:
             ps_plan_date = getattr(self._peakshare, "_discharge_plan_date", None)
             if ps_plan_date == snap.now.strftime("%Y-%m-%d"):
                 plan_dict = getattr(self._peakshare, "_discharge_plan", None) or {}
                 if isinstance(plan_dict, dict):
-                    ps_plan = plan_dict.get("a")
+                    slot_key = "b" if active_slot == "B" else "a"
+                    ps_plan = plan_dict.get(slot_key)
         if ps_plan is not None:
-            start_time_str = f"{ps_plan[0].strftime('%H:%M')}-{ps_plan[1].strftime('%H:%M')} (PeakShare)"
+            start_time_str = (
+                f"{ps_plan[0].strftime('%H:%M')}-"
+                f"{ps_plan[1].strftime('%H:%M')} (PeakShare)"
+            )
         else:
-            start_time_str = f"{self._discharge_start_h:02d}:{self._discharge_start_m:02d}"
+            # Phase 11.1-02: Slot-spezifische Fixzeit-Fallback. Im Dual-Mode
+            # zeigt der Fallback die Slot-Startzeit, sonst Legacy discharge_start.
+            if active_slot == "B":
+                start_time_str = (
+                    f"{self._discharge_b_start_h:02d}:"
+                    f"{self._discharge_b_start_m:02d}"
+                )
+            elif active_slot == "A" and self._enable_dual_discharge:
+                start_time_str = (
+                    f"{self._discharge_a_start_h:02d}:"
+                    f"{self._discharge_a_start_m:02d}"
+                )
+            else:
+                start_time_str = (
+                    f"{self._discharge_start_h:02d}:"
+                    f"{self._discharge_start_m:02d}"
+                )
         pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
         overnight_kwh = snap.consumption_overnight_kwh
 
@@ -1637,29 +1669,56 @@ class EEGOptimizer:
                 f"{self._morning_end_hour:02d}:{self._morning_end_min:02d}"
             )
         elif zustand == STATE_ABEND_ENTLADUNG:
-            # Show PeakShare window times if available.
-            # Phase 11: get_discharge_plan liefert Slot-A-Plan (Default) — der
-            # Legacy-Pfad nutzt heute nur Slot "a" (siehe Plan 11-02).
-            ps_plan = self._peakshare.get_discharge_plan(
-                self._peakshare_community, 0, 0, None, snap.now
-            ) if self._enable_peakshare and self._peakshare and self._peakshare._discharge_plan_date == snap.now.strftime("%Y-%m-%d") else None
-            if ps_plan:
+            # Phase 11.1-02: Slot-aware naechste_aktion. Slot-Plan-Lookup direkt
+            # aus _discharge_plan dict statt get_discharge_plan(0, 0, ...) hack —
+            # letzteres triggerte einen synthetischen Recompute-Aufruf, jetzt
+            # überflüssig nach Per-Slot-Caching.
+            slot_label = (
+                "Morgen-Entladung" if active_slot == "B" else "Abend-Entladung"
+            )
+            ps_plan = None
+            if (
+                self._enable_peakshare
+                and self._peakshare is not None
+                and getattr(self._peakshare, "_discharge_plan_date", None)
+                == snap.now.strftime("%Y-%m-%d")
+            ):
+                plan_dict = getattr(self._peakshare, "_discharge_plan", None) or {}
+                if isinstance(plan_dict, dict):
+                    slot_key = "b" if active_slot == "B" else "a"
+                    ps_plan = plan_dict.get(slot_key)
+            if ps_plan is not None:
                 nächste_aktion = (
-                    f"Abend-Entladung {ps_plan[0].strftime('%H:%M')}-"
+                    f"{slot_label} {ps_plan[0].strftime('%H:%M')}-"
                     f"{ps_plan[1].strftime('%H:%M')} (PeakShare)"
                 )
             else:
-                nächste_aktion = (
-                    f"Abend-Entladung {self._discharge_start_h:02d}:"
-                    f"{self._discharge_start_m:02d}"
-                )
+                # Slot-spezifische Fixzeit-Fallback (Phase 11.1-02)
+                if active_slot == "B":
+                    nächste_aktion = (
+                        f"{slot_label} {self._discharge_b_start_h:02d}:"
+                        f"{self._discharge_b_start_m:02d}"
+                    )
+                elif active_slot == "A" and self._enable_dual_discharge:
+                    nächste_aktion = (
+                        f"{slot_label} {self._discharge_a_start_h:02d}:"
+                        f"{self._discharge_a_start_m:02d}"
+                    )
+                else:
+                    nächste_aktion = (
+                        f"{slot_label} {self._discharge_start_h:02d}:"
+                        f"{self._discharge_start_m:02d}"
+                    )
         else:
             nächste_aktion = "Normalbetrieb"
 
         # Compute detailed status for both features
         morning_info = self._morning_delay_status(snap, bedarf)
+        # Phase 11.1-02: active_slot durchreichen, damit der Plan-Lookup
+        # den passenden Slot-Plan zieht (sonst hartkodiert "a").
         discharge_info = self._discharge_detail_status(
-            snap, should_discharge, min_soc, dis_blocked_by_keys
+            snap, should_discharge, min_soc, dis_blocked_by_keys,
+            active_slot=active_slot,
         )
 
         decision = Decision(
@@ -1788,9 +1847,31 @@ class EEGOptimizer:
                 lines.append("- Aktiver Slot: A")
             elif decision.discharge_active_slot == "B":
                 lines.append("- Aktiver Slot: B")
-            lines.append(
-                f"- Startzeit: {self._discharge_start_h:02d}:{self._discharge_start_m:02d}"
-            )
+            # Phase 11.1-02: PeakShare-Window-Marker pro Slot
+            if decision.discharge_peakshare_active and decision.discharge_window_start:
+                lines.append(
+                    f"- PeakShare-Fenster: "
+                    f"{decision.discharge_window_start}-"
+                    f"{decision.discharge_window_end}"
+                )
+            # Slot-spezifische Startzeit (Phase 11.1-02): zeige die echte Slot-
+            # Startzeit statt der Legacy `_discharge_start_h/m`-Felder, die im
+            # Dual-Mode irrelevant sind.
+            if decision.discharge_active_slot == "A":
+                lines.append(
+                    f"- Startzeit: {self._discharge_a_start_h:02d}:"
+                    f"{self._discharge_a_start_m:02d}"
+                )
+            elif decision.discharge_active_slot == "B":
+                lines.append(
+                    f"- Startzeit: {self._discharge_b_start_h:02d}:"
+                    f"{self._discharge_b_start_m:02d}"
+                )
+            else:
+                lines.append(
+                    f"- Startzeit: {self._discharge_start_h:02d}:"
+                    f"{self._discharge_start_m:02d}"
+                )
             lines.append(f"- Leistung: {decision.entladeleistung_kw:.1f} kW")
             lines.append(f"- Ziel-SOC: {decision.min_soc_berechnet:.0f}%")
             if snap.pv_tomorrow_kwh is not None:
