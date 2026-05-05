@@ -6,7 +6,7 @@ status: Phase 11 verified — manual UAT pending
 stopped_at: Phase 11 complete — 412/413 tests pass, awaiting 7-day user observation
 last_updated: "2026-05-04T00:00:00.000Z"
 progress:
-  total_phases: 1
+  total_phases: 2
   completed_phases: 1
   total_plans: 4
   completed_plans: 4
@@ -73,6 +73,10 @@ Manual UAT pending: 7-Tage-User-Beobachtung an Test-HA-Instanz (Huawei 192.168.1
 | Phase 11 P02 | 35min | 2 tasks | 4 files |
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 11.1 inserted after Phase 11 (2026-05-04): PeakShare-Steuerung der Slot-A/B-Fenster (URGENT — schließt Spec-Lücke aus Phase 11 SPEC §"In scope" Z. 75; PeakShare-Integration für Dual-Mode war zugesagt, aber nie umgesetzt)
 
 ### Decisions
 

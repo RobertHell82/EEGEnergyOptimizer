@@ -19,7 +19,15 @@ human_verification:
   - test: "Settings-Tab `evening` Round-Trip mit `settings_*`-Präfix"
     expected: "Save schreibt settings_*-Werte korrekt zurück; Backend setzt dual_discharge=False auf SolarEdge zusätzlich."
     why_human: "Live-DOM-Interaktion mit WS-Backend ist nur in laufender HA-Instanz beobachtbar."
-gaps: []
+gaps:
+  - kind: spec_implementation_gap
+    discovered: 2026-05-04
+    severity: high
+    spec_reference: "11-SPEC.md §'In scope' Z. 75"
+    spec_text: "PeakShare-Integration für Dual-Mode (zwei separate Sliding-Window-Suchen, eine pro Slot, mit slot-spezifischem available_kwh)"
+    what_was_built: "Cache-Schema (peakshare._discharge_plan: dict[a/b]) und get_discharge_plan(slot=)-Parameter wurden in Plan 11-02 vorbereitet, aber nie aufgerufen — _evaluate_slot_a/_evaluate_slot_b nutzen ausschließlich Fixzeiten + Sonnenaufgang."
+    why_missed: "Punkt steht nur unter 'In scope', nicht als nummeriertes Requirement (§1..§9). Per-Requirement-Tabelle hat ihn nicht geführt — durchs Raster gefallen."
+    addressed_by: "Phase 11.1 (inserted 2026-05-04) — siehe .planning/milestones/v1.2-phases/11.1-peakshare-per-slot/"
 ---
 
 # Phase 11: Dual-Window-Entladung — Verification Report
