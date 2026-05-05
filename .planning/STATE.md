@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: optimizer-erweiterungen
-status: Phase 11 verified — manual UAT pending
-stopped_at: Phase 11 complete — 412/413 tests pass, awaiting 7-day user observation
+status: Phase 11.1 verified — manual UAT pending (Phase 11 also UAT-pending)
+stopped_at: Phase 11.1 complete — 444/445 tests pass, awaiting 7-day user observation
 last_updated: "2026-05-04T00:00:00.000Z"
 progress:
   total_phases: 2
-  completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
+  completed_phases: 2
+  total_plans: 6
+  completed_plans: 6
 ---
 
 # Project State
@@ -19,22 +19,27 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Feed solar energy into the grid when the community actually needs it, not when everyone else is feeding in too.
-**Current focus:** Phase 11 — dual-window-discharge (v1.2 Milestone — Optimizer-Erweiterungen) — verifiziert, wartet auf manuelle UAT
+**Current focus:** Phase 11.1 — peakshare-per-slot (v1.2 Milestone — Optimizer-Erweiterungen) — verifiziert, wartet auf manuelle UAT (Phase 11 ebenfalls UAT-pending — gemeinsame Beobachtung möglich)
 
 ## Current Position
 
-Phase: 11 — Dual-Window-Entladung
-Status: Verifiziert (9/9 SPEC + 10/10 Decisions PASS, 412/413 Tests grün)
-Plan: alle 4 Plans abgeschlossen
+Phase: 11.1 — PeakShare-Steuerung der Slot-A/B-Fenster (INSERTED nach Phase 11)
+Status: Verifiziert (11/11 must-haves PASS, 444/445 Tests grün)
+Plan: alle 2 Plans abgeschlossen
 
-### Phase 11 Plans
+### Phase 11.1 Plans
+- 11.1-01 (Wave 1): const.py 15→5 + Per-Slot-Cache-Fix + PeakShare-Aufruf in _evaluate_slot_a/b mit window_end-Mutual-Exclusion-Clamp + 31 neue Tests — ✅ done
+- 11.1-02 (Wave 2): Slot-aware _discharge_detail_status + naechste_aktion + Markdown-PeakShare-Marker + 9 neue Tests + CHANGELOG — ✅ done
+
+Verification: PASSED (gsd-verifier — siehe 11.1-VERIFICATION.md)
+Manual UAT pending: 7-Tage-User-Beobachtung an Test-HA-Instanz (Huawei 192.168.1.211 oder Fronius 192.168.100.211) für Slot-A/B-PeakShare-Aktivierung mit `(PeakShare)`-Marker im Activity-Log
+
+### Phase 11 Plans (vorherige Phase)
 - 11-01 (Wave 1): const.py + Migration v14→v15 + compute_b_window_end + Reasons + Decision-Field — ✅ done
 - 11-02 (Wave 2): Optimizer-Refactor + Pro-Slot-Hysterese + PeakShare-Cache-Migration — ✅ done
 - 11-03 (Wave 3a): Panel-UI + websocket_api Save-Path-Validation — ✅ done
 - 11-04 (Wave 3b): Markdown-Renderer + Activity-Log + Frontend-Slot-Suffix + CHANGELOG — ✅ done
-
-Verification: PASSED (gsd-verifier — siehe 11-VERIFICATION.md)
-Manual UAT pending: 7-Tage-User-Beobachtung an Test-HA-Instanz (Huawei 192.168.1.211 oder Fronius 192.168.100.211) — finale "gute Idee oder nicht"-Bewertung durch User
+Verification: PASSED — Spec-Lücke (PeakShare-per-Slot) wurde durch Phase 11.1 geschlossen
 
 ## Performance Metrics
 
