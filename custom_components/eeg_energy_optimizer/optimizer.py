@@ -18,11 +18,16 @@ from .const import (
     CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_POWER_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
+    CONF_DISCHARGE_A_RESERVE_PCT,
+    CONF_DISCHARGE_A_START_TIME,
+    CONF_DISCHARGE_B_END_CAP,
+    CONF_DISCHARGE_B_START_TIME,
     CONF_DISCHARGE_POWER_KW,
-    CONF_DISCHARGE_START_TIME,
     CONF_ENABLE_MORNING_DELAY,
     CONF_ENABLE_NIGHT_DISCHARGE,
     CONF_ENABLE_PEAKSHARE,
+    CONF_ENABLE_SLOT_A,
+    CONF_ENABLE_SLOT_B,
     CONF_GRID_POWER_SENSOR,
     CONF_INVERTER_TYPE,
     CONF_MIN_SOC,
@@ -32,8 +37,11 @@ from .const import (
     CONF_PV_POWER_SENSOR,
     CONF_SAFETY_BUFFER_PCT,
     CONSUMPTION_SENSOR,
+    DEFAULT_DISCHARGE_A_RESERVE_PCT,
+    DEFAULT_DISCHARGE_A_START_TIME,
+    DEFAULT_DISCHARGE_B_END_CAP,
+    DEFAULT_DISCHARGE_B_START_TIME,
     DEFAULT_DISCHARGE_POWER_KW,
-    DEFAULT_DISCHARGE_START_TIME,
     DEFAULT_ENABLE_PEAKSHARE,
     DEFAULT_MIN_SOC,
     DEFAULT_MORNING_END_TIME,
@@ -91,6 +99,16 @@ REASON_TOMORROW_PV_INSUFFICIENT = "tomorrow_pv_insufficient"
 REASON_DISCHARGE_ABORTED_TODAY = "discharge_aborted_today"
 REASON_BATTERY_SOC_UNAVAILABLE = "battery_soc_unavailable"
 
+# Phase 11: Dual-Window-Entladung — Slot-aware Reasons (D-09 additiv)
+REASON_BEFORE_SLOT_A = "before_slot_a"
+REASON_SLOT_A_ACTIVE = "slot_a_active"
+REASON_SLOT_A_RESERVE_REACHED = "slot_a_reserve_reached"
+REASON_BETWEEN_SLOTS = "between_slots"
+REASON_BEFORE_SLOT_B = "before_slot_b"
+REASON_SLOT_B_ACTIVE = "slot_b_active"
+REASON_SLOT_B_WINDOW_EXPIRED = "slot_b_window_expired"
+REASON_SLOT_B_PRE_SUNRISE_CUTOFF = "slot_b_pre_sunrise_cutoff"
+
 # Closed-Set-Garantie für Tests + Backend-Diagnose
 ALL_REASONS: frozenset[str] = frozenset({
     REASON_PV_FORECAST_EXCEEDS_DEMAND,
@@ -114,6 +132,15 @@ ALL_REASONS: frozenset[str] = frozenset({
     REASON_TOMORROW_PV_INSUFFICIENT,
     REASON_DISCHARGE_ABORTED_TODAY,
     REASON_BATTERY_SOC_UNAVAILABLE,
+    # Phase 11: Dual-Window
+    REASON_BEFORE_SLOT_A,
+    REASON_SLOT_A_ACTIVE,
+    REASON_SLOT_A_RESERVE_REACHED,
+    REASON_BETWEEN_SLOTS,
+    REASON_BEFORE_SLOT_B,
+    REASON_SLOT_B_ACTIVE,
+    REASON_SLOT_B_WINDOW_EXPIRED,
+    REASON_SLOT_B_PRE_SUNRISE_CUTOFF,
 })
 
 # Deutsche Texte für UI-Renderer (D-38). Telemetrie sendet nur Keys.
@@ -139,6 +166,15 @@ REASON_LABELS_DE: dict[str, str] = {
     REASON_TOMORROW_PV_INSUFFICIENT: "PV-Prognose morgen zu gering",
     REASON_DISCHARGE_ABORTED_TODAY: "Entladung heute wegen Netzbezug abgebrochen",
     REASON_BATTERY_SOC_UNAVAILABLE: "Batterie-SOC-Sensor nicht verfügbar",
+    # Phase 11: Dual-Window
+    REASON_BEFORE_SLOT_A: "Vor Slot-A-Start (Abend)",
+    REASON_SLOT_A_ACTIVE: "Slot A aktiv (Abend-Entladung)",
+    REASON_SLOT_A_RESERVE_REACHED: "Slot-A-Reserve erreicht",
+    REASON_BETWEEN_SLOTS: "Pause zwischen Slot A und Slot B",
+    REASON_BEFORE_SLOT_B: "Vor Slot-B-Start (Morgen)",
+    REASON_SLOT_B_ACTIVE: "Slot B aktiv (Morgen-Entladung)",
+    REASON_SLOT_B_WINDOW_EXPIRED: "Slot-B-Fenster abgelaufen",
+    REASON_SLOT_B_PRE_SUNRISE_CUTOFF: "Slot B beendet vor Sonnenaufgang",
 }
 
 
@@ -206,6 +242,46 @@ def compute_hard_cutoff(now: datetime, next_sunrise: datetime | None) -> datetim
     )
     pre_sunrise = next_sunrise - timedelta(hours=1)
     return min(fixed_at_sunrise_day, pre_sunrise)
+
+
+def compute_b_window_end(
+    now: datetime,
+    sunrise: datetime | None,
+    b_end_cap: str,
+    morning_offset_h: float,
+) -> datetime | None:
+    """Berechne das effektive Slot-B-Ende (Phase 11).
+
+    Slot B (Morgen-Entladung) endet zum striktesten Minimum aus:
+      - ``b_end_cap`` an Sunrise-Tag verankert (z.B. "07:00")
+      - ``sunrise − morning_offset_h − 5min`` (Pause vor Morgen-Einspeisung)
+      - ``sunrise − 5min`` (Pause vor Sunrise selbst)
+
+    Garantiert ≥5 Minuten Pause vor Beginn der Morgen-Einspeisung
+    (``sunrise − morning_offset_h``) — Slot B und Morgen-Einspeisung
+    laufen niemals parallel (SPEC §5).
+
+    Wenn ``sunrise`` unbekannt: ``None`` — Slot B kann ohne Sonnenaufgangs-
+    Information nicht laufen.
+
+    Beispiele:
+      - Sommer SA 04:52, cap 07:00, offset 0 → 04:47 (sunrise−5min dominiert)
+      - Winter SA 07:30, cap 07:00, offset 0 → 07:00 (cap dominiert)
+      - Übergang SA 06:00, cap 07:00, offset 0 → 05:55 (sunrise−5min dominiert)
+      - Tiefer Winter SA 08:30, cap 07:00, offset 0 → 07:00 (cap dominiert)
+      - Winter SA 07:30, cap 07:00, offset 1 → 06:25 (pre-morning dominiert)
+    """
+    if sunrise is None:
+        return None
+    cap_h, cap_m = (int(p) for p in b_end_cap.split(":"))
+    cap_at_sunrise_day = sunrise.replace(
+        hour=cap_h, minute=cap_m, second=0, microsecond=0
+    )
+    pre_morning_einspeisung = sunrise - timedelta(
+        hours=morning_offset_h, minutes=5
+    )
+    pre_sunrise = sunrise - timedelta(minutes=5)
+    return min(cap_at_sunrise_day, pre_morning_einspeisung, pre_sunrise)
 
 
 @dataclass
@@ -296,6 +372,9 @@ class Decision:
     discharge_window_end: str = ""
     discharge_hysteresis_active: bool = False
 
+    # Phase 11: aktiver Slot ("A" | "B" | None für Legacy/Pause)
+    discharge_active_slot: str | None = None
+
 
 class EEGOptimizer:
     """EEG-optimized battery management decision engine."""
@@ -334,13 +413,6 @@ class EEGOptimizer:
         self._morning_end_hour = int(parts[0])
         self._morning_end_min = int(parts[1]) if len(parts) > 1 else 0
 
-        discharge_start = config.get(
-            CONF_DISCHARGE_START_TIME, DEFAULT_DISCHARGE_START_TIME
-        )
-        parts = discharge_start.split(":")
-        self._discharge_start_h = int(parts[0])
-        self._discharge_start_m = int(parts[1]) if len(parts) > 1 else 0
-
         self._discharge_power_kw = config.get(
             CONF_DISCHARGE_POWER_KW, DEFAULT_DISCHARGE_POWER_KW
         )
@@ -370,6 +442,12 @@ class EEGOptimizer:
         self._discharge_activated_date: str | None = None
         self._last_eval_zustand: str = STATE_NORMAL
 
+        # Phase 11: Pro-Slot-Hysterese-Felder (analog _discharge_activated_date)
+        # Reset zentral in _evaluate nach today's Sunrise (analog Legacy-Pattern).
+        self._slot_a_activated_date: str | None = None  # ISO "YYYY-MM-DD"
+        self._slot_b_activated_date: str | None = None
+        self._last_active_slot: str | None = None  # "A" | "B" | None — Reaktivierungs-Check
+
         # Startup grace period: don't send inverter commands until sensors
         # have had time to settle after a HA restart.
         self._startup_time: datetime = _now()
@@ -387,6 +465,42 @@ class EEGOptimizer:
         self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, "")
         inv_type = config.get(CONF_INVERTER_TYPE, "")
         self._grid_sign = INVERTER_SIGN_CONVENTIONS.get(inv_type, {}).get("grid_sign", 1)
+
+        # Phase 12: Slot-A/B Config-Reads (Phase-11 Dual-Master entfernt)
+        # SolarEdge erzwingt XOR-Constraint via websocket_api save-path und
+        # Migration — pro Optimizer-Instanz wird hier nur das Pattern gelesen.
+        self._enable_slot_a: bool = bool(config.get(CONF_ENABLE_SLOT_A, True))
+        self._enable_slot_b: bool = bool(
+            config.get(CONF_ENABLE_SLOT_B, not (inv_type_cfg == "solaredge_storedge"))
+        )
+        self._discharge_a_reserve_pct: int = int(
+            config.get(CONF_DISCHARGE_A_RESERVE_PCT, DEFAULT_DISCHARGE_A_RESERVE_PCT)
+        )
+        a_start_str = str(
+            config.get(CONF_DISCHARGE_A_START_TIME, DEFAULT_DISCHARGE_A_START_TIME)
+        )
+        b_start_str = str(
+            config.get(CONF_DISCHARGE_B_START_TIME, DEFAULT_DISCHARGE_B_START_TIME)
+        )
+        b_end_cap_str = str(
+            config.get(CONF_DISCHARGE_B_END_CAP, DEFAULT_DISCHARGE_B_END_CAP)
+        )
+        a_parts = a_start_str.split(":")
+        self._discharge_a_start_h = int(a_parts[0])
+        self._discharge_a_start_m = int(a_parts[1]) if len(a_parts) > 1 else 0
+        b_parts = b_start_str.split(":")
+        self._discharge_b_start_h = int(b_parts[0])
+        self._discharge_b_start_m = int(b_parts[1]) if len(b_parts) > 1 else 0
+        self._discharge_b_end_cap: str = b_end_cap_str
+
+        # Defense-in-depth: SolarEdge erzwingt zur Laufzeit XOR (genau ein Slot).
+        # Konflikt-Auflösung: Slot A bevorzugt (Default-Profil Abend-Entladung).
+        if self._is_solaredge and self._enable_slot_a and self._enable_slot_b:
+            _LOGGER.warning(
+                "SolarEdge: nur ein Slot pro Tag erlaubt — Slot B deaktiviert "
+                "(NVRAM-Verschleiß-Schutz)"
+            )
+            self._enable_slot_b = False
 
     # ------------------------------------------------------------------
     # Snapshot gathering
@@ -437,14 +551,20 @@ class EEGOptimizer:
             ).get("verbrauch_kwh", 0.0)
 
         # Overnight consumption for discharge min-SOC calculation
-        # Before discharge start: from discharge_start to sunrise + 1h
-        # After discharge start (incl. past midnight): from now to sunrise + 1h
+        # Phase 12: Nacht-Beginn = Slot-A-Start (Default 20:00). Wenn nur
+        # Slot B aktiv ist (z.B. SolarEdge-Slot-B-only), nutze b_start als
+        # spätere Untergrenze.
         consumption_overnight = 0.0
         if sunrise is not None:
             overnight_end = sunrise + timedelta(hours=1)
+            night_start_h = self._discharge_a_start_h
+            night_start_m = self._discharge_a_start_m
+            if self._enable_slot_b and not self._enable_slot_a:
+                night_start_h = self._discharge_b_start_h
+                night_start_m = self._discharge_b_start_m
             discharge_start = now.replace(
-                hour=self._discharge_start_h,
-                minute=self._discharge_start_m,
+                hour=night_start_h,
+                minute=night_start_m,
                 second=0,
                 microsecond=0,
             )
@@ -728,7 +848,7 @@ class EEGOptimizer:
 
     def _discharge_detail_status(
         self, snap: Snapshot, should_discharge: bool, min_soc: float,
-        discharge_blocked_by: list[str]
+        discharge_blocked_by: list[str], active_slot: str | None = None,
     ) -> dict:
         """Compute detailed discharge status for the status card.
 
@@ -736,20 +856,52 @@ class EEGOptimizer:
             discharge_blocked_by: snake_case-Keys aus ALL_REASONS, die das
                 Discharge blockieren. Werden für die Status-Karte via
                 REASON_LABELS_DE in deutsche Texte übersetzt (D-38).
+            active_slot: aktueller Slot-Marker ("A"/"B"/None). Phase 11.1-02:
+                Slot-aware Plan-Lookup + Slot-spezifische Fixzeit-Fallback.
 
         Returns a dict with: status, reasons (deutsche Freitext-Liste für Panel),
         soc, min_soc, pv_tomorrow_kwh, demand_tomorrow_kwh, power_kw, start_time.
         """
-        # Show PeakShare window times if a plan was computed today
+        # Phase 11.1-02: Slot-aware Plan-Lookup. Wenn active_slot bekannt ist,
+        # zeige den passenden Slot-Plan; sonst Slot "a" (Legacy + Slot-A-Default).
+        #
+        # Hinweis zur Cache-Architektur: Wir nutzen _discharge_plan_date (Day-
+        # Marker für UI-Lookup), NICHT _discharge_plan_computed_dates[slot]
+        # (Per-Slot-Compute-Tracking aus Plan 11.1-01). Beide tragen heute
+        # identische Datums-Werte — für die UI-Sicht ("ist der Plan von heute?")
+        # reicht der Day-Marker, weil plan_dict.get(slot_key) ein None liefert,
+        # wenn der Slot-Plan an dem Tag noch nicht berechnet wurde. Die Per-
+        # Slot-Lifecycle-Steuerung gehört zur Compute-Skip-Entscheidung in
+        # peakshare.py:get_discharge_plan und ist absichtlich vom UI-Lookup
+        # getrennt (Single Responsibility).
         ps_plan = None
         if self._enable_peakshare and self._peakshare is not None:
             ps_plan_date = getattr(self._peakshare, "_discharge_plan_date", None)
             if ps_plan_date == snap.now.strftime("%Y-%m-%d"):
-                ps_plan = getattr(self._peakshare, "_discharge_plan", None)
+                plan_dict = getattr(self._peakshare, "_discharge_plan", None) or {}
+                if isinstance(plan_dict, dict):
+                    slot_key = "b" if active_slot == "B" else "a"
+                    ps_plan = plan_dict.get(slot_key)
         if ps_plan is not None:
-            start_time_str = f"{ps_plan[0].strftime('%H:%M')}-{ps_plan[1].strftime('%H:%M')} (PeakShare)"
+            start_time_str = (
+                f"{ps_plan[0].strftime('%H:%M')}-"
+                f"{ps_plan[1].strftime('%H:%M')} (PeakShare)"
+            )
         else:
-            start_time_str = f"{self._discharge_start_h:02d}:{self._discharge_start_m:02d}"
+            # Slot-spezifische Fixzeit-Fallback. Default ist Slot A (Abend),
+            # nur wenn explizit Slot B aktiv ist, zeigen wir b_start.
+            if active_slot == "B" or (
+                self._enable_slot_b and not self._enable_slot_a
+            ):
+                start_time_str = (
+                    f"{self._discharge_b_start_h:02d}:"
+                    f"{self._discharge_b_start_m:02d}"
+                )
+            else:
+                start_time_str = (
+                    f"{self._discharge_a_start_h:02d}:"
+                    f"{self._discharge_a_start_m:02d}"
+                )
         pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
         overnight_kwh = snap.consumption_overnight_kwh
 
@@ -902,157 +1054,334 @@ class EEGOptimizer:
         soc_pct = needed_kwh / snap.battery_capacity_kwh * 100
         return min(float(self._min_soc + math.ceil(soc_pct)), 100.0)
 
-    def _should_discharge(
+    # ------------------------------------------------------------------
+    # Phase 11: Dual-Window-Dispatcher + Slot-Pfade
+    # ------------------------------------------------------------------
+
+    def _check_common_guards(
         self, snap: Snapshot
-    ) -> tuple[bool, float, list[str], list[str], bool]:
-        """Determine if evening discharge should be active.
+    ) -> tuple[list[str], float]:
+        """Slot-übergreifende Guards für den Dual-Mode-Pfad (Phase 11).
 
-        Returns ``(should_discharge, min_soc, reasons, blocked_by, hysteresis_active)``
-        per D-11. Alle Einträge in ``reasons``/``blocked_by`` sind snake_case-Keys
-        aus ALL_REASONS (D-12).
+        Liefert ``(blocked_by, min_soc)``. Wenn ``blocked_by`` leer ist, dürfen
+        Slot-A/B evaluiert werden. Reihenfolge der Guards entspricht dem
+        heutigen ``_should_discharge``-Body-Anfang (D-01).
 
-        Wenn ``should_discharge=True`` → ``reasons`` listet die Pass-Gründe,
-        ``blocked_by`` ist leer. Wenn ``should_discharge=False`` → ``reasons``
-        ist leer, ``blocked_by`` listet jeden Guard.
+        Hinweis: Wird NUR vom Dual-Mode-Dispatcher genutzt — der Legacy-Pfad
+        (``_evaluate_legacy_window``) hat seine eigenen Guards 1:1 erhalten
+        (D-05 byte-identische Garantie).
         """
-        # Guard 1: Feature aus
         if not self._enable_night_discharge:
-            return (False, float(self._min_soc), [], [REASON_NIGHT_DISCHARGE_DISABLED], False)
+            return ([REASON_NIGHT_DISCHARGE_DISABLED], float(self._min_soc))
 
         min_soc = self._calc_min_soc(snap)
-
-        # Guard 2: Nachtverbrauch verschlingt komplette Batterie
         if min_soc >= 100.0:
-            return (False, min_soc, [], [REASON_OVERNIGHT_DEMAND_TOO_HIGH], False)
+            return ([REASON_OVERNIGHT_DEMAND_TOO_HIGH], min_soc)
 
-        blocked_by: list[str] = []
-        passing: list[str] = []
-
+        # SolarEdge-Discharge-Aborted-Watchdog (slot-übergreifend)
         today_str = snap.now.strftime("%Y-%m-%d")
-        # Hysterese-Status früh bestimmen — wird auch in blocked_by-Liste reflektiert.
-        # Eine Sitzung gilt so lange als „läuft noch", wie das Aktivierungsdatum
-        # gesetzt ist (Reset erfolgt zentral in _evaluate nach dem Sonnenaufgang
-        # des Folgetags). Damit bleibt Hysterese auch bei Oszillation über
-        # Mitternacht innerhalb derselben Abend-Sitzung wirksam.
-        is_reactivation = (
-            self._discharge_activated_date is not None
-            and self._last_eval_zustand != STATE_ABEND_ENTLADUNG
-        )
+        if self._is_solaredge and self._discharge_aborted_date == today_str:
+            return ([REASON_DISCHARGE_ABORTED_TODAY], min_soc)
 
-        # Check time — PeakShare or fixed start time
-        # Pre-init guards so neither branch can leave them unbound (past bug: UnboundLocalError)
-        past_midnight_in_window = False
-        past_midnight = False
-        peakshare_plan = None
-        # Konfigurierte Mindeststart-Uhrzeit als Datetime auflösen — gilt in
-        # beiden Modi als Untergrenze für den Start.
-        # Sonderfall: Wenn die Startzeit in den frühen Morgenstunden liegt
-        # (< 12:00) und wir aktuell nachmittags sind, zeigt sie auf MORGEN —
-        # die Sitzung beginnt also erst nach Mitternacht (z.B. discharge
-        # ab 01:00 → bei now 18:00 ist gemeint: morgen 01:00).
-        discharge_start_today = snap.now.replace(
-            hour=self._discharge_start_h,
-            minute=self._discharge_start_m,
+        # Tomorrow-PV-Surplus-Check (slot-übergreifend)
+        consumption_with_buffer = snap.consumption_tomorrow_daylight_kwh * (
+            1 + self._safety_buffer_pct / 100
+        )
+        battery_charge_needed = (
+            (100 - self._min_soc) / 100 * snap.battery_capacity_kwh * snap.sim_factor
+        )
+        tomorrow_demand = consumption_with_buffer + battery_charge_needed
+        pv_tomorrow = (
+            snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
+        )
+        if pv_tomorrow < tomorrow_demand:
+            return ([REASON_TOMORROW_PV_INSUFFICIENT], min_soc)
+
+        return ([], min_soc)
+
+    def _evaluate_slot_a(
+        self, snap: Snapshot, min_soc: float
+    ) -> tuple[bool, list[str], list[str], bool]:
+        """Slot A — Abend-Entladung mit Energie-Reserve (Phase 11, SPEC §2).
+
+        Liefert ``(passed, reasons, blocked_by, hysteresis_active)``.
+
+        SOC-Schwelle:
+          - Wenn Slot B aktiv: ``min_soc + reserve_pct`` (Reserve für Slot B)
+          - Sonst (A-only): ``min_soc`` (kein Reserve-Aufschlag)
+
+        Hysterese-Aufschlag +5% bei Reaktivierung innerhalb derselben Sitzung
+        (Slot A war heute schon aktiv, _last_active_slot ist nicht "A").
+
+        Slot A endet 5 Minuten vor Slot-B-Start (wenn B aktiv) → Mindestpause
+        zwischen Inverter-Kommandos (SPEC §9, Phase 11 Constraint).
+
+        Phase 11.1: PeakShare-Plan-Lookup mit slot="a", window_start=
+        a_window_start (past-midnight-aware), window_end=a_end_cap. Wenn ein
+        Plan vorhanden ist, ersetzt er die Fixzeit-Aktivierung durch
+        REASON_PEAKSHARE_*. Mutual-Exclusion ist via window_end-Argument
+        an find_discharge_window garantiert (Library-interner Clamp).
+        """
+        # Slot-A-Window: ab a_start (typisch 20:00). Slot A läuft über
+        # Mitternacht weiter bis kurz vor Slot-B-Start (wenn B aktiv) oder
+        # bis SOC-Reserve erreicht wird.
+        a_start_today = snap.now.replace(
+            hour=self._discharge_a_start_h,
+            minute=self._discharge_a_start_m,
             second=0,
             microsecond=0,
         )
-        if self._discharge_start_h < 12 and snap.now.hour >= 12:
-            discharge_start_resolved = discharge_start_today + timedelta(days=1)
-        else:
-            discharge_start_resolved = discharge_start_today
+        # Past-Midnight-Phase: now in den frühen Morgenstunden + a_start
+        # liegt am Vorabend (a_start_h >= 12). In dieser Phase läuft A
+        # noch von gestern weiter — wir sind innerhalb des Fensters.
+        is_past_midnight_phase = (
+            snap.now.hour < 12 and self._discharge_a_start_h >= 12
+        )
+        if not is_past_midnight_phase and snap.now < a_start_today:
+            return (False, [], [REASON_BEFORE_SLOT_A], False)
 
+        # 5min-Pause vor Slot B (wenn B aktiv): Slot A endet automatisch
+        if self._enable_slot_b:
+            b_start = snap.now.replace(
+                hour=self._discharge_b_start_h,
+                minute=self._discharge_b_start_m,
+                second=0,
+                microsecond=0,
+            )
+            # Wenn b_start in den frühen Morgenstunden liegt und now nachmittags
+            # ist → b_start gehört zum Folgetag.
+            if self._discharge_b_start_h < 12 and snap.now.hour >= 12:
+                b_start = b_start + timedelta(days=1)
+            a_end_cap = b_start - timedelta(minutes=5)
+            if snap.now >= a_end_cap:
+                return (False, [], [REASON_SLOT_A_RESERVE_REACHED], False)
+        else:
+            # Slot-A-only: Hard-Cutoff (sunrise − 1h oder 04:00, was früher).
+            a_end_cap = compute_hard_cutoff(snap.now, snap.sunrise)
+
+        # SOC-Schwelle: nur wenn Slot B aktiv → reserve_pct als Aufschlag.
+        # Vorgezogen für PeakShare-available_kwh-Berechnung.
+        a_reserve = self._discharge_a_reserve_pct if self._enable_slot_b else 0
+        a_min_soc = min_soc + a_reserve
+
+        # Phase 11.1: PeakShare-Plan-Lookup pro Slot
+        peakshare_plan = None
         if self._enable_peakshare and self._peakshare is not None:
-            # PeakShare mode: compute discharge window based on community demand
-            available_kwh = (snap.battery_soc - min_soc) / 100 * snap.battery_capacity_kwh
+            available_kwh = (
+                (snap.battery_soc - a_min_soc) / 100 * snap.battery_capacity_kwh
+            )
             if available_kwh > 0:
+                # Past-Midnight: Window-Start auf gestern projizieren, sonst
+                # liegen gestrige PeakShare-Hours ausserhalb [start, end).
+                a_window_start = (
+                    a_start_today - timedelta(days=1)
+                    if is_past_midnight_phase
+                    else a_start_today
+                )
                 peakshare_plan = self._peakshare.get_discharge_plan(
                     self._peakshare_community,
                     available_kwh,
                     self._discharge_power_kw,
                     snap.sunset_today,
                     snap.now,
-                    discharge_start_lower_bound=discharge_start_resolved,
+                    discharge_start_lower_bound=a_window_start,
                     next_sunrise=snap.sunrise,
+                    slot="a",
+                    window_start=a_window_start,
+                    window_end=a_end_cap,
                 )
 
+        # Phase 11.1: PeakShare-Window-Status ersetzt die Fixzeit-Aktivierung
+        # für Slot A, wenn ein Plan vorhanden ist.
         if peakshare_plan is not None:
             plan_start, plan_end = peakshare_plan
             if snap.now < plan_start:
-                blocked_by.append(REASON_PEAKSHARE_BEFORE_WINDOW)
-            elif snap.now >= plan_end:
-                blocked_by.append(REASON_PEAKSHARE_WINDOW_EXPIRED)
-            else:
-                # Fenster aktiv → Pass-Grund
-                passing.append(REASON_PEAKSHARE_WINDOW_ACTIVE)
-            # Hard-Cutoff dynamisch: min(04:00, sunrise − 1h).
-            cutoff = compute_hard_cutoff(snap.now, snap.sunrise)
-            past_midnight = snap.now.hour < 12 and plan_start.hour >= 12
-            if past_midnight and snap.now >= cutoff:
-                blocked_by.append(REASON_HARD_CUTOFF_AFTER_4AM)
-        else:
-            # Fixed start time check (fallback oder PeakShare disabled)
-            discharge_start = discharge_start_resolved
-            # Past midnight: discharge_start points to a future moment, but we
-            # are already in the discharge window that started the prior evening.
-            # Beispiel: start=21:00, now=03:00 (gleicher Kalendertag) — `now <
-            # start` und sunrise ist nah. Bei einem Morgen-Start (z.B. 01:00,
-            # via discharge_start_resolved auf morgen verschoben) trifft `now
-            # < start` aber AUCH um 18:00 abends zu — daher zusätzlich auf
-            # echte Morgen-Stunden klemmen (now.hour < 12).
-            past_midnight_in_window = (
-                snap.now < discharge_start
-                and snap.now.hour < 12
-                and snap.sunrise is not None
-                and snap.now < snap.sunrise
-                and (snap.sunrise - snap.now).total_seconds() < 12 * 3600
-            )
-            if snap.now < discharge_start and not past_midnight_in_window:
-                blocked_by.append(REASON_BEFORE_DISCHARGE_START)
+                return (False, [], [REASON_PEAKSHARE_BEFORE_WINDOW], False)
+            if snap.now >= plan_end:
+                return (False, [], [REASON_PEAKSHARE_WINDOW_EXPIRED], False)
+            # Plan aktiv → fall through zu Hysterese + SOC-Check
 
-            # Hard-Cutoff dynamisch — siehe compute_hard_cutoff.
-            cutoff = compute_hard_cutoff(snap.now, snap.sunrise)
-            if past_midnight_in_window and snap.now >= cutoff:
-                blocked_by.append(REASON_HARD_CUTOFF_AFTER_4AM)
-
-        # Hysteresis: SOC-Schwelle anheben falls schon einmal aktiv und deaktiviert.
-        # REASON_HYSTERESIS_STRICT wird nur gemeinsam mit dem SOC-Resultat gesetzt
-        # (begleitende Modifier-Markierung — nicht eigenständig blockierend).
-        effective_min_soc = min_soc + 5 if is_reactivation else min_soc
+        # Pro-Slot-Hysterese: Aufschlag bei Reaktivierung
+        is_reactivation = (
+            self._slot_a_activated_date is not None
+            and self._last_active_slot != "A"
+        )
+        effective_min_soc = a_min_soc + (5 if is_reactivation else 0)
 
         if snap.battery_soc <= effective_min_soc:
+            blocked_by: list[str] = []
+            if is_reactivation:
+                blocked_by.append(REASON_HYSTERESIS_STRICT)
+            blocked_by.append(REASON_SLOT_A_RESERVE_REACHED)
+            return (False, [], blocked_by, is_reactivation)
+
+        passing: list[str] = []
+        if is_reactivation:
+            passing.append(REASON_HYSTERESIS_STRICT)
+        if peakshare_plan is not None:
+            passing.append(REASON_PEAKSHARE_WINDOW_ACTIVE)
+        passing.append(REASON_SOC_ABOVE_MIN)
+        passing.append(REASON_SLOT_A_ACTIVE)
+        return (True, passing, [], is_reactivation)
+
+    def _evaluate_slot_b(
+        self, snap: Snapshot, min_soc: float
+    ) -> tuple[bool, list[str], list[str], bool]:
+        """Slot B — Morgen-Entladung mit adaptivem Ende vor Sonnenaufgang
+        (Phase 11, SPEC §3 + §5).
+
+        Liefert ``(passed, reasons, blocked_by, hysteresis_active)``.
+
+        Window:
+          - Start: ``b_start`` (z.B. 03:00); auf morgen verschoben wenn
+            now nachmittags ist und b_start vormittags.
+          - Ende: ``compute_b_window_end`` — striktestes ``min()`` aus
+            ``b_end_cap``, ``sunrise − morning_offset_h − 5min``,
+            ``sunrise − 5min``. Garantiert Mutual Exclusion zur
+            Morgen-Einspeisung (≥5min Pause).
+
+        Sommer-Edge-Case: Wenn ``b_start ≥ b_end_effective``, kann Slot B
+        in dieser Sitzung nicht aktiviert werden → REASON_SLOT_B_PRE_SUNRISE_CUTOFF.
+        """
+        if snap.sunrise is None:
+            return (False, [], [REASON_SUNRISE_UNKNOWN], False)
+
+        # b_start auf morgen verschieben wenn now nachmittags + b_start vormittags
+        # (analog discharge_start_resolved-Pattern in _evaluate_legacy_window).
+        b_start = snap.now.replace(
+            hour=self._discharge_b_start_h,
+            minute=self._discharge_b_start_m,
+            second=0,
+            microsecond=0,
+        )
+        if snap.now.hour >= 12 and self._discharge_b_start_h < 12:
+            b_start = b_start + timedelta(days=1)
+
+        b_end = compute_b_window_end(
+            snap.now,
+            snap.sunrise,
+            self._discharge_b_end_cap,
+            float(self._morning_start_offset_h),
+        )
+        if b_end is None:
+            return (False, [], [REASON_SUNRISE_UNKNOWN], False)
+        if b_start >= b_end:
+            # Sommer-Fall: Fenster schon vorbei bevor es startet
+            return (False, [], [REASON_SLOT_B_PRE_SUNRISE_CUTOFF], False)
+
+        # Phase 11.1: PeakShare-Plan-Lookup pro Slot. available_kwh_b ist
+        # die Reserve, die Slot A für Slot B übrig gelassen hat — eine
+        # statische Annäherung (demand-weighted Aufteilung ist Backlog v1.3+).
+        peakshare_plan = None
+        if self._enable_peakshare and self._peakshare is not None:
+            available_kwh_b = (
+                self._discharge_a_reserve_pct / 100
+            ) * snap.battery_capacity_kwh
+            if available_kwh_b > 0:
+                peakshare_plan = self._peakshare.get_discharge_plan(
+                    self._peakshare_community,
+                    available_kwh_b,
+                    self._discharge_power_kw,
+                    snap.sunset_today,
+                    snap.now,
+                    discharge_start_lower_bound=b_start,
+                    next_sunrise=snap.sunrise,
+                    slot="b",
+                    window_start=b_start,
+                    window_end=b_end,
+                )
+
+        # Phase 11.1: PeakShare-Window-Status ODER Fixzeit-Fallback. Anders
+        # als Slot A braucht Slot B den Fixzeit-Pfad als expliziten Fallback,
+        # weil es keinen Past-Midnight-Pre-Guard gibt.
+        if peakshare_plan is not None:
+            plan_start, plan_end = peakshare_plan
+            if snap.now < plan_start:
+                return (False, [], [REASON_PEAKSHARE_BEFORE_WINDOW], False)
+            if snap.now >= plan_end:
+                return (False, [], [REASON_PEAKSHARE_WINDOW_EXPIRED], False)
+        else:
+            # Fixzeit-Fallback: Slot B ohne PeakShare oder ohne Daten
+            if snap.now < b_start:
+                return (False, [], [REASON_BEFORE_SLOT_B], False)
+            if snap.now >= b_end:
+                return (False, [], [REASON_SLOT_B_WINDOW_EXPIRED], False)
+
+        # Pro-Slot-Hysterese (Slot B): kein Reserve-Aufschlag, nur +5%
+        # bei Reaktivierung.
+        is_reactivation = (
+            self._slot_b_activated_date is not None
+            and self._last_active_slot != "B"
+        )
+        effective_min_soc = min_soc + (5 if is_reactivation else 0)
+
+        if snap.battery_soc <= effective_min_soc:
+            blocked_by: list[str] = []
             if is_reactivation:
                 blocked_by.append(REASON_HYSTERESIS_STRICT)
             blocked_by.append(REASON_SOC_BELOW_MIN)
-        else:
-            if is_reactivation:
-                passing.append(REASON_HYSTERESIS_STRICT)
-            passing.append(REASON_SOC_ABOVE_MIN)
+            return (False, [], blocked_by, is_reactivation)
 
-        # Tomorrow surplus check (D-09)
-        # Tomorrow demand = daylight consumption (mit Safety-Buffer) + battery charge needed
-        # Nur Tageslicht-Verbrauch konkurriert mit PV; Abendverbrauch deckt die geladene Batterie.
-        consumption_with_buffer = snap.consumption_tomorrow_daylight_kwh * (1 + self._safety_buffer_pct / 100)
-        battery_charge_needed = (
-            (100 - self._min_soc) / 100 * snap.battery_capacity_kwh * snap.sim_factor
-        )
-        tomorrow_demand = consumption_with_buffer + battery_charge_needed
-        pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
+        passing: list[str] = []
+        if is_reactivation:
+            passing.append(REASON_HYSTERESIS_STRICT)
+        if peakshare_plan is not None:
+            passing.append(REASON_PEAKSHARE_WINDOW_ACTIVE)
+        passing.append(REASON_SOC_ABOVE_MIN)
+        passing.append(REASON_SLOT_B_ACTIVE)
+        return (True, passing, [], is_reactivation)
 
-        if pv_tomorrow < tomorrow_demand:
-            blocked_by.append(REASON_TOMORROW_PV_INSUFFICIENT)
-        else:
-            passing.append(REASON_TOMORROW_PV_SUFFICIENT)
+    def _should_discharge(
+        self, snap: Snapshot
+    ) -> tuple[bool, float, list[str], list[str], bool]:
+        """Slot-A/B Discharge-Evaluation (Phase 12).
 
-        # Grid import watchdog (nur SolarEdge): falls Entladung heute abgebrochen wurde
-        if self._is_solaredge:
-            if self._discharge_aborted_date == today_str:
-                blocked_by.append(REASON_DISCHARGE_ABORTED_TODAY)
+        Schnittstelle:
+        ``(should_discharge, min_soc, reasons, blocked_by, hysteresis_active)``.
 
-        # Mutual-Exclusion-Invariante: bei Pass werden passing-Keys reasons,
-        # bei Block bleibt reasons leer und blocked_by führt die Liste.
-        if not blocked_by:
-            return (True, min_soc, passing, [], is_reactivation)
-        return (False, min_soc, [], blocked_by, is_reactivation)
+        Common-Guards einmal vorab (Feature aus / Nachtverbrauch ≥ 100 / PV
+        morgen unzureichend / SolarEdge-Tagesabbruch). Dann Slot A bevorzugt
+        (zeitlich früher), Slot B als Fallback. SolarEdge erzwingt XOR
+        (genau ein Slot pro Tag).
+        """
+        # Common-Guards einmal vorab
+        common_blocked, min_soc = self._check_common_guards(snap)
+        if common_blocked:
+            return (False, min_soc, [], common_blocked, False)
+
+        # Slot A bevorzugt (zeitlich früher), dann Slot B als Fallback
+        passed_a_flag = False
+        passed_b_flag = False
+        passing_a: list[str] = []
+        blocked_a: list[str] = []
+        hyst_a = False
+        passing_b: list[str] = []
+        blocked_b: list[str] = []
+        hyst_b = False
+
+        if self._enable_slot_a:
+            passed_a_flag, passing_a, blocked_a, hyst_a = self._evaluate_slot_a(
+                snap, min_soc
+            )
+            if passed_a_flag:
+                return (True, min_soc, passing_a, [], hyst_a)
+        if self._enable_slot_b:
+            passed_b_flag, passing_b, blocked_b, hyst_b = self._evaluate_slot_b(
+                snap, min_soc
+            )
+            if passed_b_flag:
+                return (True, min_soc, passing_b, [], hyst_b)
+
+        # Beide Slots blockiert/aus → kombinierte blocked_by-Liste
+        combined_blocked: list[str] = []
+        if self._enable_slot_a:
+            combined_blocked.extend(blocked_a)
+        if self._enable_slot_b:
+            combined_blocked.extend(blocked_b)
+        if not combined_blocked:
+            # Beide Slots disabled — synthetischer Reason
+            combined_blocked = [REASON_NIGHT_DISCHARGE_DISABLED]
+        return (False, min_soc, [], combined_blocked, hyst_a or hyst_b)
 
     def _evaluate(self, snap: Snapshot, mode: str) -> Decision:
         """Evaluate snapshot and produce a Decision."""
@@ -1092,6 +1421,25 @@ class EEGOptimizer:
         ):
             self._discharge_activated_date = None
 
+        # Phase 11: Pro-Slot-Hysterese-Reset (analog _discharge_activated_date).
+        # Slot A (Abend-Entladung) und Slot B (Morgen-Entladung) bekommen
+        # eigene Reset-Trigger. Reset NUR nach today's Sunrise — verhindert
+        # Mitternachts-Reset, der Hysterese aushebeln würde (T-11-02-01).
+        if (
+            self._slot_a_activated_date is not None
+            and self._slot_a_activated_date < today_str
+            and snap.sunrise_today is not None
+            and snap.now >= snap.sunrise_today
+        ):
+            self._slot_a_activated_date = None
+        if (
+            self._slot_b_activated_date is not None
+            and self._slot_b_activated_date < today_str
+            and snap.sunrise_today is not None
+            and snap.now >= snap.sunrise_today
+        ):
+            self._slot_b_activated_date = None
+
         bedarf = self._calc_energiebedarf(snap)
         block, block_reasons_keys, block_blocked_by_keys = self._should_block_charging(snap)
         should_discharge, min_soc, dis_reasons_keys, dis_blocked_by_keys, hysteresis_active = (
@@ -1106,6 +1454,15 @@ class EEGOptimizer:
         else:
             zustand = STATE_NORMAL
 
+        # Phase 11: Slot-Marker aus den Discharge-Reasons ableiten (D-10).
+        # Im Legacy-Pfad bleibt active_slot None (keine slot-Reasons in der Liste).
+        active_slot: str | None = None
+        if zustand == STATE_ABEND_ENTLADUNG:
+            if REASON_SLOT_A_ACTIVE in dis_reasons_keys:
+                active_slot = "A"
+            elif REASON_SLOT_B_ACTIVE in dis_reasons_keys:
+                active_slot = "B"
+
         # Aktivierungsdatum nur beim erstmaligen Aktivieren setzen — bei
         # durchgehender Sitzung (z.B. Abend-Entladung über Mitternacht)
         # bleibt das ursprüngliche Startdatum erhalten, damit der Reset
@@ -1116,6 +1473,17 @@ class EEGOptimizer:
         elif zustand == STATE_ABEND_ENTLADUNG:
             if self._discharge_activated_date is None:
                 self._discharge_activated_date = today_str
+            # Phase 11: Pro-Slot-Aktivierungsdatum + last_active_slot.
+            # _last_active_slot trackt den zuletzt aktiven Slot — wird in
+            # _evaluate_slot_a/b für die Reaktivierungs-Logik gelesen.
+            if active_slot == "A":
+                if self._slot_a_activated_date is None:
+                    self._slot_a_activated_date = today_str
+                self._last_active_slot = "A"
+            elif active_slot == "B":
+                if self._slot_b_activated_date is None:
+                    self._slot_b_activated_date = today_str
+                self._last_active_slot = "B"
         self._last_eval_zustand = zustand
 
         # Determine next action text
@@ -1131,27 +1499,53 @@ class EEGOptimizer:
                 f"{self._morning_end_hour:02d}:{self._morning_end_min:02d}"
             )
         elif zustand == STATE_ABEND_ENTLADUNG:
-            # Show PeakShare window times if available
-            ps_plan = self._peakshare.get_discharge_plan(
-                self._peakshare_community, 0, 0, None, snap.now
-            ) if self._enable_peakshare and self._peakshare and self._peakshare._discharge_plan_date == snap.now.strftime("%Y-%m-%d") else None
-            if ps_plan:
+            # Phase 11.1-02: Slot-aware naechste_aktion. Slot-Plan-Lookup direkt
+            # aus _discharge_plan dict statt get_discharge_plan(0, 0, ...) hack —
+            # letzteres triggerte einen synthetischen Recompute-Aufruf, jetzt
+            # überflüssig nach Per-Slot-Caching.
+            slot_label = (
+                "Morgen-Entladung" if active_slot == "B" else "Abend-Entladung"
+            )
+            ps_plan = None
+            if (
+                self._enable_peakshare
+                and self._peakshare is not None
+                and getattr(self._peakshare, "_discharge_plan_date", None)
+                == snap.now.strftime("%Y-%m-%d")
+            ):
+                plan_dict = getattr(self._peakshare, "_discharge_plan", None) or {}
+                if isinstance(plan_dict, dict):
+                    slot_key = "b" if active_slot == "B" else "a"
+                    ps_plan = plan_dict.get(slot_key)
+            if ps_plan is not None:
                 nächste_aktion = (
-                    f"Abend-Entladung {ps_plan[0].strftime('%H:%M')}-"
+                    f"{slot_label} {ps_plan[0].strftime('%H:%M')}-"
                     f"{ps_plan[1].strftime('%H:%M')} (PeakShare)"
                 )
             else:
-                nächste_aktion = (
-                    f"Abend-Entladung {self._discharge_start_h:02d}:"
-                    f"{self._discharge_start_m:02d}"
-                )
+                # Slot-spezifische Fixzeit-Fallback
+                if active_slot == "B" or (
+                    self._enable_slot_b and not self._enable_slot_a
+                ):
+                    nächste_aktion = (
+                        f"{slot_label} {self._discharge_b_start_h:02d}:"
+                        f"{self._discharge_b_start_m:02d}"
+                    )
+                else:
+                    nächste_aktion = (
+                        f"{slot_label} {self._discharge_a_start_h:02d}:"
+                        f"{self._discharge_a_start_m:02d}"
+                    )
         else:
             nächste_aktion = "Normalbetrieb"
 
         # Compute detailed status for both features
         morning_info = self._morning_delay_status(snap, bedarf)
+        # Phase 11.1-02: active_slot durchreichen, damit der Plan-Lookup
+        # den passenden Slot-Plan zieht (sonst hartkodiert "a").
         discharge_info = self._discharge_detail_status(
-            snap, should_discharge, min_soc, dis_blocked_by_keys
+            snap, should_discharge, min_soc, dis_blocked_by_keys,
+            active_slot=active_slot,
         )
 
         decision = Decision(
@@ -1190,13 +1584,25 @@ class EEGOptimizer:
             discharge_power_kw=self._discharge_power_kw,
             discharge_start_time=discharge_info["start_time"],
             discharge_hysteresis_active=hysteresis_active,
+            # Phase 11: aktiver Slot ("A" | "B" | None für Legacy/Pause).
+            discharge_active_slot=active_slot,
         )
 
-        # Populate PeakShare fields if a plan was computed today
+        # Populate PeakShare fields if a plan was computed today.
+        # Phase 11: _discharge_plan ist nun dict[a/b]. Wir ziehen — abhängig
+        # vom aktiven Slot — den passenden Plan; Legacy-Pfad nutzt Slot "a".
         if self._enable_peakshare and self._peakshare is not None:
             ps_plan_date = getattr(self._peakshare, "_discharge_plan_date", None)
-            ps_plan = getattr(self._peakshare, "_discharge_plan", None)
-            if ps_plan_date == snap.now.strftime("%Y-%m-%d") and ps_plan is not None:
+            plan_dict = getattr(self._peakshare, "_discharge_plan", None) or {}
+            ps_plan = None
+            if ps_plan_date == snap.now.strftime("%Y-%m-%d") and isinstance(
+                plan_dict, dict
+            ):
+                # Slot-Marker entscheidet welcher Plan in den Decision-Feldern
+                # angezeigt wird (Legacy/A → "a", Dual-B → "b").
+                slot_key = "b" if active_slot == "B" else "a"
+                ps_plan = plan_dict.get(slot_key)
+            if ps_plan is not None:
                 decision.discharge_peakshare_active = True
                 decision.discharge_window_start = ps_plan[0].strftime("%H:%M")
                 decision.discharge_window_end = ps_plan[1].strftime("%H:%M")
@@ -1258,10 +1664,36 @@ class EEGOptimizer:
             lines.append("")
 
         if decision.entladung_aktiv:
-            lines.append("### Abend-Entladung")
-            lines.append(
-                f"- Startzeit: {self._discharge_start_h:02d}:{self._discharge_start_m:02d}"
-            )
+            # Phase 11: dynamischer Header für Slot B (Morgen-Entladung)
+            if decision.discharge_active_slot == "B":
+                lines.append("### Morgen-Entladung")
+            else:
+                lines.append("### Abend-Entladung")
+            # Phase 11: Slot-Marker (D-08, D-10)
+            if decision.discharge_active_slot == "A":
+                lines.append("- Aktiver Slot: A")
+            elif decision.discharge_active_slot == "B":
+                lines.append("- Aktiver Slot: B")
+            # Phase 11.1-02: PeakShare-Window-Marker pro Slot
+            if decision.discharge_peakshare_active and decision.discharge_window_start:
+                lines.append(
+                    f"- PeakShare-Fenster: "
+                    f"{decision.discharge_window_start}-"
+                    f"{decision.discharge_window_end}"
+                )
+            # Slot-spezifische Startzeit
+            if decision.discharge_active_slot == "B" or (
+                self._enable_slot_b and not self._enable_slot_a
+            ):
+                lines.append(
+                    f"- Startzeit: {self._discharge_b_start_h:02d}:"
+                    f"{self._discharge_b_start_m:02d}"
+                )
+            else:
+                lines.append(
+                    f"- Startzeit: {self._discharge_a_start_h:02d}:"
+                    f"{self._discharge_a_start_m:02d}"
+                )
             lines.append(f"- Leistung: {decision.entladeleistung_kw:.1f} kW")
             lines.append(f"- Ziel-SOC: {decision.min_soc_berechnet:.0f}%")
             if snap.pv_tomorrow_kwh is not None:
@@ -1270,6 +1702,22 @@ class EEGOptimizer:
                 )
             lines.append(
                 f"- Verbrauchsprognose morgen: {snap.consumption_tomorrow_kwh:.1f} kWh"
+            )
+            lines.append("")
+
+        # Slot-Konfigurations-Übersicht (nur non-SolarEdge — bei SolarEdge
+        # ist immer genau ein Slot aktiv, Übersicht wäre redundant).
+        if not self._is_solaredge:
+            lines.append("### Slot-Konfiguration")
+            lines.append(
+                f"- Slot A: {'aktiv' if self._enable_slot_a else 'deaktiviert'} "
+                f"({self._discharge_a_start_h:02d}:{self._discharge_a_start_m:02d}, "
+                f"Reserve {self._discharge_a_reserve_pct}%)"
+            )
+            lines.append(
+                f"- Slot B: {'aktiv' if self._enable_slot_b else 'deaktiviert'} "
+                f"({self._discharge_b_start_h:02d}:{self._discharge_b_start_m:02d}, "
+                f"Cap {self._discharge_b_end_cap})"
             )
             lines.append("")
 

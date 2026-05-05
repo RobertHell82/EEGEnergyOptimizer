@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: unknown
-stopped_at: Completed 06-02-PLAN.md
-last_updated: "2026-03-22T21:03:33.099Z"
+milestone: v1.2
+milestone_name: optimizer-erweiterungen
+status: Phase 11.1 verified — manual UAT pending (Phase 11 also UAT-pending)
+stopped_at: Phase 11.1 complete — 444/445 tests pass, awaiting 7-day user observation
+last_updated: "2026-05-04T00:00:00.000Z"
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 14
-  completed_plans: 14
+  total_phases: 2
+  completed_phases: 2
+  total_plans: 6
+  completed_plans: 6
 ---
 
 # Project State
@@ -19,12 +19,27 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Feed solar energy into the grid when the community actually needs it, not when everyone else is feeding in too.
-**Current focus:** Phase 06 — polish-tech-debt
+**Current focus:** Phase 11.1 — peakshare-per-slot (v1.2 Milestone — Optimizer-Erweiterungen) — verifiziert, wartet auf manuelle UAT (Phase 11 ebenfalls UAT-pending — gemeinsame Beobachtung möglich)
 
 ## Current Position
 
-Phase: 06
-Plan: Not started
+Phase: 11.1 — PeakShare-Steuerung der Slot-A/B-Fenster (INSERTED nach Phase 11)
+Status: Verifiziert (11/11 must-haves PASS, 444/445 Tests grün)
+Plan: alle 2 Plans abgeschlossen
+
+### Phase 11.1 Plans
+- 11.1-01 (Wave 1): const.py 15→5 + Per-Slot-Cache-Fix + PeakShare-Aufruf in _evaluate_slot_a/b mit window_end-Mutual-Exclusion-Clamp + 31 neue Tests — ✅ done
+- 11.1-02 (Wave 2): Slot-aware _discharge_detail_status + naechste_aktion + Markdown-PeakShare-Marker + 9 neue Tests + CHANGELOG — ✅ done
+
+Verification: PASSED (gsd-verifier — siehe 11.1-VERIFICATION.md)
+Manual UAT pending: 7-Tage-User-Beobachtung an Test-HA-Instanz (Huawei 192.168.1.211 oder Fronius 192.168.100.211) für Slot-A/B-PeakShare-Aktivierung mit `(PeakShare)`-Marker im Activity-Log
+
+### Phase 11 Plans (vorherige Phase)
+- 11-01 (Wave 1): const.py + Migration v14→v15 + compute_b_window_end + Reasons + Decision-Field — ✅ done
+- 11-02 (Wave 2): Optimizer-Refactor + Pro-Slot-Hysterese + PeakShare-Cache-Migration — ✅ done
+- 11-03 (Wave 3a): Panel-UI + websocket_api Save-Path-Validation — ✅ done
+- 11-04 (Wave 3b): Markdown-Renderer + Activity-Log + Frontend-Slot-Suffix + CHANGELOG — ✅ done
+Verification: PASSED — Spec-Lücke (PeakShare-per-Slot) wurde durch Phase 11.1 geschlossen
 
 ## Performance Metrics
 
@@ -59,8 +74,14 @@ Plan: Not started
 | Phase 05 P01 | 1min | 2 tasks | 2 files |
 | Phase 06 P01 | 1min | 2 tasks | 2 files |
 | Phase 06 P02 | 2min | 2 tasks | 2 files |
+| Phase 11 P01 | 10min | 2 tasks | 9 files |
+| Phase 11 P02 | 35min | 2 tasks | 4 files |
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 11.1 inserted after Phase 11 (2026-05-04): PeakShare-Steuerung der Slot-A/B-Fenster (URGENT — schließt Spec-Lücke aus Phase 11 SPEC §"In scope" Z. 75; PeakShare-Integration für Dual-Mode war zugesagt, aber nie umgesetzt)
 
 ### Decisions
 

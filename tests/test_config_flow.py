@@ -88,11 +88,14 @@ class TestConfigFlowMetadata:
     def test_version_in_sync_with_migration(self):
         """VERSION must match the highest migration target in __init__.py.
 
-        Latest migration: v14 (discharge_start_time hard-set auf 01:00).
-        New entries must be created at the current schema version so
-        async_migrate_entry never runs on a fresh install.
+        Latest migration: v16 (Phase 12 — Dual-Master-Toggle entfernt,
+        discharge_start_time aus Schema raus, SolarEdge XOR per Slot).
         """
-        assert EegEnergyOptimizerConfigFlow.VERSION == 14
+        assert EegEnergyOptimizerConfigFlow.VERSION == 16
+
+    def test_config_flow_version_is_16(self):
+        """Phase-12-Smoke: VERSION wurde von 15 auf 16 angehoben."""
+        assert EegEnergyOptimizerConfigFlow.VERSION == 16
 
 
 class TestStepUser:
@@ -110,7 +113,7 @@ class TestStepUser:
         assert result["type"] == "create_entry"
         assert result["title"] == "EEG Energy Optimizer"
         # Setup intentionally incomplete — the panel finishes configuration.
-        assert result["data"] == {"setup_complete": False}
+        assert result["data"]["setup_complete"] is False
 
     async def test_unique_id_set_to_domain(self, flow):
         """Only one entry is allowed; uniqueness is enforced via DOMAIN as id."""

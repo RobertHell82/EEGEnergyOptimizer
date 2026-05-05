@@ -25,7 +25,7 @@ from .const import (
     CONF_BATTERY_POWER_DISCHARGE_SENSOR,
     CONF_BATTERY_POWER_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
-    CONF_DISCHARGE_START_TIME,
+    CONF_DISCHARGE_A_START_TIME,
     CONF_FORECAST_REMAINING_ENTITY,
     CONF_FORECAST_SOURCE,
     CONF_FORECAST_TOMORROW_ENTITY,
@@ -41,7 +41,7 @@ from .const import (
     COMBINED_BATTERY_POWER_SENSOR_ID,
     COMBINED_GRID_POWER_SENSOR_ID,
     CONSUMPTION_SENSOR,
-    DEFAULT_DISCHARGE_START_TIME,
+    DEFAULT_DISCHARGE_A_START_TIME,
     DEFAULT_LOOKBACK_WEEKS,
     DEFAULT_UPDATE_INTERVAL_FAST,
     DEFAULT_UPDATE_INTERVAL_SLOW,
@@ -198,15 +198,15 @@ class VerbrauchsprofilSensor(SensorEntity):
         self._attr_native_value: float | None = None
         self._attr_extra_state_attributes: dict[str, Any] = {}
 
-        # Discharge start hour from config — Tag/Nacht-Aufteilung spiegelt
-        # den Optimizer: Nacht = discharge_start (heute) → sunrise+1h (morgen)
-        discharge_start = entry.data.get(
-            CONF_DISCHARGE_START_TIME, DEFAULT_DISCHARGE_START_TIME
+        # Nacht-Beginn aus Slot-A-Start (Default 20:00). Tag/Nacht-Aufteilung
+        # spiegelt den Optimizer: Nacht = a_start (heute) → sunrise+1h (morgen).
+        a_start = entry.data.get(
+            CONF_DISCHARGE_A_START_TIME, DEFAULT_DISCHARGE_A_START_TIME
         )
         try:
-            self._discharge_start_h = int(discharge_start.split(":")[0])
+            self._discharge_start_h = int(a_start.split(":")[0])
         except (ValueError, AttributeError):
-            self._discharge_start_h = int(DEFAULT_DISCHARGE_START_TIME.split(":")[0])
+            self._discharge_start_h = int(DEFAULT_DISCHARGE_A_START_TIME.split(":")[0])
 
     @staticmethod
     def _calc_night_kwh(

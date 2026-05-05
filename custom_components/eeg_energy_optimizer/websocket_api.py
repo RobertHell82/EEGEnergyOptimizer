@@ -62,6 +62,17 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _parse_hhmm(s: str) -> int:
+    """Parse 'HH:MM' to minutes since midnight.
+
+    Strict format: 'HH:MM' (zero-padded). Wirft ValueError bei malformed Input.
+    Phase 11: genutzt für Inverter-Race-Validation in ws_save_config.
+    """
+    h_str, m_str = s.split(":")
+    return int(h_str) * 60 + int(m_str)
+
+
 # Known default entity IDs per inverter type.
 # If these entities exist, they are pre-selected during auto-detection.
 # Each key maps to a list of candidates — first match wins.
@@ -412,6 +423,17 @@ async def ws_save_config(
         discharge_kw = new_data.get("discharge_power_kw")
         if discharge_kw is not None and float(discharge_kw) < 5.0:
             new_data["discharge_power_kw"] = 5.0
+        # SolarEdge: NVRAM-Verschleiß-Schutz — XOR Slot A oder B.
+        # Defense-in-depth Layer 2 (Save-Path); Optimizer-__init__ wiederholt
+        # die Normalisierung als Runtime-Force.
+        if new_data.get("enable_slot_a") and new_data.get("enable_slot_b"):
+            _LOGGER.warning(
+                "SolarEdge: nur ein Slot erlaubt — Slot A bevorzugt"
+            )
+            new_data["enable_slot_b"] = False
+        if not new_data.get("enable_slot_a") and not new_data.get("enable_slot_b"):
+            # Fallback: Slot A aktivieren wenn beide aus
+            new_data["enable_slot_a"] = True
 
     # Fronius: server-side validation of the Modbus endpoint. The frontend
     # already checks "non-empty host", but we cannot trust the WebSocket
@@ -452,6 +474,44 @@ async def ws_save_config(
     if (new_data.get(CONF_GRID_POWER_EXPORT_SENSOR)
             and new_data.get(CONF_GRID_POWER_IMPORT_SENSOR)):
         new_data[CONF_GRID_POWER_SENSOR] = COMBINED_GRID_POWER_SENSOR_ID
+
+    # Inverter-Race-Schutz (≥5min zwischen Slot-A-Min-Ende und Slot-B-Start).
+    # Auto-Korrektur (NICHT Hard-Reject) — konsistent mit SolarEdge-5kW-Clamp.
+    # Nur relevant wenn beide Slots aktiv (SolarEdge XOR oben greift davor).
+    if new_data.get("enable_slot_a") and new_data.get("enable_slot_b"):
+        try:
+            a_start_min = _parse_hhmm(
+                new_data.get("discharge_a_start_time", "20:00")
+            )
+            b_start_min = _parse_hhmm(
+                new_data.get("discharge_b_start_time", "03:00")
+            )
+        except (ValueError, AttributeError):
+            # Malformed Time-String — vertraue auf Voluptuous-Schema oben
+            # (oder Default-Fallback durch Migration). Skip.
+            a_start_min = b_start_min = None
+
+        if a_start_min is not None and b_start_min is not None:
+            # 30min Mindest-Slot-A-Dauer + 5min Pause = a_start + 35
+            a_min_end_total = (a_start_min + 30) % (24 * 60)
+            # Auf "Tagesachse mit a abends, b nach Mitternacht" abbilden
+            if b_start_min < 12 * 60:
+                b_on_tomorrow = b_start_min + 24 * 60
+            else:
+                b_on_tomorrow = b_start_min
+            if a_min_end_total < 12 * 60:
+                a_on_tomorrow = a_min_end_total + 24 * 60
+            else:
+                a_on_tomorrow = a_min_end_total
+            if b_on_tomorrow < a_on_tomorrow + 5:
+                new_b_min = (a_on_tomorrow + 5) % (24 * 60)
+                new_b_start_str = f"{new_b_min // 60:02d}:{new_b_min % 60:02d}"
+                _LOGGER.warning(
+                    "Dual-Window: b_start %s zu nah an a_start+30min — auf %s angehoben",
+                    new_data.get("discharge_b_start_time"),
+                    new_b_start_str,
+                )
+                new_data["discharge_b_start_time"] = new_b_start_str
 
     hass.config_entries.async_update_entry(entry, data=new_data)
     connection.send_result(msg["id"], {"success": True})
@@ -1239,10 +1299,18 @@ async def ws_get_peakshare_data(
         age_sec = (datetime.now(timezone.utc) - peakshare._cache_time).total_seconds()
         cache_age = round(age_sec / 60)
 
-    # Discharge plan if computed
+    # Discharge plan if computed.
+    # Phase 11: _discharge_plan ist dict[a/b]. Panel zeigt den Slot-A-Plan
+    # (Hauptfenster für Single-Window und Dual-Mode-Abend); Slot-B wird
+    # erst in 11-03/11-04 separat im Panel sichtbar.
     plan_info = None
-    if peakshare._discharge_plan_date and peakshare._discharge_plan:
-        plan_start, plan_end = peakshare._discharge_plan
+    plan_dict = getattr(peakshare, "_discharge_plan", None) or {}
+    if isinstance(plan_dict, dict):
+        plan_a = plan_dict.get("a")
+    else:
+        plan_a = None
+    if peakshare._discharge_plan_date and plan_a is not None:
+        plan_start, plan_end = plan_a
         plan_info = {
             "start": plan_start.strftime("%H:%M"),
             "end": plan_end.strftime("%H:%M"),

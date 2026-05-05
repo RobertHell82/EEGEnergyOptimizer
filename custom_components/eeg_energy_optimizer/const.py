@@ -86,7 +86,6 @@ CONF_ENABLE_NIGHT_DISCHARGE = "enable_night_discharge"
 CONF_ÜBERSCHUSS_SCHWELLE = "ueberschuss_schwelle"  # legacy config key, do not rename string
 CONF_MORNING_START_OFFSET = "morning_start_offset"
 CONF_MORNING_END_TIME = "morning_end_time"
-CONF_DISCHARGE_START_TIME = "discharge_start_time"
 CONF_DISCHARGE_POWER_KW = "discharge_power_kw"
 CONF_MIN_SOC = "min_soc"
 CONF_SAFETY_BUFFER_PCT = "safety_buffer_pct"
@@ -99,10 +98,34 @@ DEFAULT_PEAKSHARE_COMMUNITY = "BEG"
 DEFAULT_UEBERSCHUSS_SCHWELLE = 1.25
 DEFAULT_MORNING_START_OFFSET = 0
 DEFAULT_MORNING_END_TIME = "11:00"
-DEFAULT_DISCHARGE_START_TIME = "01:00"
 DEFAULT_DISCHARGE_POWER_KW = 5.0
 DEFAULT_MIN_SOC = 10
 DEFAULT_SAFETY_BUFFER_PCT = 25
+
+# Phase 11: Dual-Window-Entladung
+# Zwei unabhängig aktivierbare Entlade-Slots: Slot A (Abend), Slot B (Morgen).
+# Slot A startet ab discharge_a_start_time und endet, sobald die Batterie auf
+# (min_soc_dyn + discharge_a_reserve_pct) gefallen ist (Reserve für Slot B).
+# Slot B startet ab discharge_b_start_time und endet adaptiv vor Sonnenaufgang
+# via compute_b_window_end (siehe optimizer.py).
+# Phase 12: enable_dual_discharge bleibt im Schema, ist aber für SolarEdge
+# weiterhin False (XOR genau einer der beiden Slots), für alle anderen
+# implizit True. Der Wizard schreibt es nicht mehr; der Optimizer evaluiert
+# Slot A + B unabhängig.
+CONF_ENABLE_DUAL_DISCHARGE = "enable_dual_discharge"
+CONF_ENABLE_SLOT_A = "enable_slot_a"
+CONF_ENABLE_SLOT_B = "enable_slot_b"
+CONF_DISCHARGE_A_START_TIME = "discharge_a_start_time"
+CONF_DISCHARGE_B_START_TIME = "discharge_b_start_time"
+CONF_DISCHARGE_B_END_CAP = "discharge_b_end_cap"
+CONF_DISCHARGE_A_RESERVE_PCT = "discharge_a_reserve_pct"
+
+DEFAULT_ENABLE_DUAL_DISCHARGE_NON_SOLAREDGE = True
+DEFAULT_ENABLE_DUAL_DISCHARGE_SOLAREDGE = False
+DEFAULT_DISCHARGE_A_START_TIME = "20:00"
+DEFAULT_DISCHARGE_B_START_TIME = "03:00"
+DEFAULT_DISCHARGE_B_END_CAP = "07:00"
+DEFAULT_DISCHARGE_A_RESERVE_PCT = 5  # Phase 11.1: 15 -> 5 (per D-02, PeakShare steuert Slot-A-Ende, Reserve nur als Sicherheits-Floor für Slot B)
 
 # Optimizer modes (D-17)
 MODE_EIN = "Ein"
@@ -169,12 +192,19 @@ TELEMETRY_SETTINGS_KEYS = (
     "enable_peakshare",
     "morning_start_offset",
     "morning_end_time",
-    "discharge_start_time",
     "discharge_power_kw",
     "min_soc",
     "safety_buffer_pct",
     "peakshare_community",
     "forecast_source",
+    # Phase 11: Dual-Window
+    "enable_dual_discharge",
+    "enable_slot_a",
+    "enable_slot_b",
+    "discharge_a_start_time",
+    "discharge_b_start_time",
+    "discharge_b_end_cap",
+    "discharge_a_reserve_pct",
 )
 
 # Phase 8 — Runtime Watchdog-Schwellen (08-03, D-16)

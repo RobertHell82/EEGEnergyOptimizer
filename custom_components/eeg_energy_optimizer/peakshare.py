@@ -168,8 +168,22 @@ class PeakShareProvider:
         self._cache_time: datetime | None = None
         self._jitter_today: int | None = None
         self._jitter_date: str | None = None
-        self._discharge_plan: tuple[datetime, datetime] | None = None
+        # Phase 11: Slot-indizierter Cache. Beide Slots teilen das Tageslock
+        # via _discharge_plan_date. Schema-Migration: alte tuple-Form wird in
+        # async_load verworfen (nächster Cycle berechnet neu).
+        self._discharge_plan: dict[str, tuple[datetime, datetime] | None] = {
+            "a": None,
+            "b": None,
+        }
         self._discharge_plan_date: str | None = None
+        # Phase 11.1: Per-Slot-Compute-Tracking — der gemeinsame Tageslock
+        # _discharge_plan_date verhinderte vorher, dass der zweite Slot am
+        # selben Tag berechnet wird (Tageslock-Bug). Mit dem dict-basierten
+        # Tracking kann jeder Slot unabhängig invalidiert / berechnet werden.
+        self._discharge_plan_computed_dates: dict[str, str | None] = {
+            "a": None,
+            "b": None,
+        }
 
     async def async_load(self) -> None:
         """Load persisted cache from Store on startup."""
@@ -191,6 +205,14 @@ class PeakShareProvider:
                     self._jitter_today,
                     self._jitter_date,
                 )
+                # Phase 11: Cache-Schema-Migration — alte tuple-Form (Single-
+                # Window) wird verworfen, nächster Cycle berechnet neu.
+                # Damit kann ein altes Persistat das neue Slot-Schema nicht
+                # vergiften (T-11-02-03 mitigation).
+                self._discharge_plan = {"a": None, "b": None}
+                self._discharge_plan_date = None
+                # Phase 11.1: Per-Slot-Compute-Tracking konsistent zurücksetzen.
+                self._discharge_plan_computed_dates = {"a": None, "b": None}
         except Exception:
             _LOGGER.debug("PeakShare: no persisted cache found")
 
@@ -232,9 +254,17 @@ class PeakShareProvider:
                             self._cache = data
                             self._cache_time = now
                             # Invalidate discharge plan so it recalculates
-                            # with fresh data on next cycle
-                            self._discharge_plan = None
+                            # with fresh data on next cycle.
+                            # Phase 11: dict-Schema (beide Slots werden neu berechnet).
+                            self._discharge_plan = {"a": None, "b": None}
                             self._discharge_plan_date = None
+                            # Phase 11.1: Per-Slot-Compute-Tracking konsistent
+                            # zurücksetzen — sonst trifft der dict-Cache-Hit
+                            # auf einen veralteten "berechnet"-Marker.
+                            self._discharge_plan_computed_dates = {
+                                "a": None,
+                                "b": None,
+                            }
                             if self._store is not None:
                                 await self._store.async_save(
                                     {
@@ -301,6 +331,10 @@ class PeakShareProvider:
         now: datetime,
         discharge_start_lower_bound: datetime | None = None,
         next_sunrise: datetime | None = None,
+        *,
+        slot: str = "a",
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
     ) -> tuple[datetime, datetime] | None:
         """Compute discharge window, recalculating when fresh API data arrives.
 
@@ -316,16 +350,22 @@ class PeakShareProvider:
             next_sunrise: Next sunrise as known by the snapshot — drives the
                 dynamic hard cutoff (``min(04:00, sunrise − 1h)``). None =
                 fixed 04:00 cutoff (legacy behaviour).
+            slot: Phase 11 — "a" (default, Slot A oder Legacy) oder "b"
+                (Slot B Morgen-Entladung). Cache-Lookup/Lock pro Slot.
+            window_start: Phase 11 — optionaler Override für den Window-Start
+                (Slot-spezifisch). Wenn None, wird sunset_time +
+                discharge_start_lower_bound verwendet (Legacy-Verhalten).
+            window_end: Phase 11 — optionaler Override für das Window-Ende.
+                Wenn None, wird ``compute_hard_cutoff`` genutzt (Legacy).
         """
         today_str = now.strftime("%Y-%m-%d")
 
-        # Already computed today (and not invalidated by fresh fetch):
-        # return cached plan
-        if self._discharge_plan_date == today_str:
-            return self._discharge_plan
-
-        if sunset_time is None:
-            return None
+        # Phase 11.1: Per-Slot-Compute-Hit. Wenn DIESER Slot heute schon
+        # berechnet wurde (auch None-Resultat), liefere den gecachten Wert
+        # zurück. Wenn ein ANDERER Slot heute berechnet wurde, blockiert das
+        # diesen Slot nicht mehr (vorher: gemeinsamer Tageslock-Bug).
+        if self._discharge_plan_computed_dates.get(slot) == today_str:
+            return self._discharge_plan.get(slot)
 
         # Find community data
         if not self._cache or not isinstance(self._cache, dict):
@@ -346,35 +386,40 @@ class PeakShareProvider:
         if not api_hours:
             return None
 
-        # Window: max(sunset, discharge_start_time) bis dynamischer Hard-Cutoff.
-        # Untergrenze sorgt dafür, dass PeakShare nicht vor der konfigurierten
-        # Mindeststart-Uhrzeit startet — auch wenn das beste Bedarfsfenster
-        # früher liegen würde. Späterer Start = präzisere Verbrauchsprognose.
-        window_start = sunset_time
-        if discharge_start_lower_bound is not None:
-            window_start = max(window_start, discharge_start_lower_bound)
+        # Phase 11: Slot-spezifische Window-Overrides haben Vorrang.
+        # Wenn nicht übergeben → Legacy-Window-Resolution wie bisher.
+        if window_start is None:
+            if sunset_time is None:
+                return None
+            # Window-Untergrenze: max(sunset, discharge_start_time).
+            # Untergrenze sorgt dafür, dass PeakShare nicht vor der
+            # konfigurierten Mindeststart-Uhrzeit startet.
+            window_start = sunset_time
+            if discharge_start_lower_bound is not None:
+                window_start = max(window_start, discharge_start_lower_bound)
 
-        # Dynamischer Hard-Cutoff: min(04:00 am Sunrise-Tag, sunrise − 1h).
-        # Im Winter (Sonnenaufgang ~07:30) gewinnt das bis zu 2.5 h zusätzlichen
-        # Korridor; im Sommer bleibt es bei ~03:30 (sunrise − 1h).
-        from .optimizer import compute_hard_cutoff
-        next_day = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(
-            days=1
-        )
-        # Anker für den 04:00-Fixwert ist der Folgetag; für die sunrise-1h-
-        # Variante zählt der mitgegebene next_sunrise des Snapshots.
-        window_end = compute_hard_cutoff(next_day, next_sunrise)
+        if window_end is None:
+            # Dynamischer Hard-Cutoff: min(04:00 am Sunrise-Tag, sunrise − 1h).
+            from .optimizer import compute_hard_cutoff
+            next_day = now.replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ) + timedelta(days=1)
+            window_end = compute_hard_cutoff(next_day, next_sunrise)
 
         # Edge-Case: Wenn die Untergrenze bereits nach Cutoff liegt (z.B. User
         # setzt discharge_start_time auf 05:00) → kein Fenster konstruierbar.
         if window_start >= window_end:
             _LOGGER.info(
-                "PeakShare: Untergrenze %s liegt nach Hard-Cutoff %s — kein Fenster",
+                "PeakShare: Untergrenze %s liegt nach Cutoff %s — kein Fenster (slot=%s)",
                 window_start.strftime("%H:%M"),
                 window_end.strftime("%H:%M"),
+                slot,
             )
-            self._discharge_plan = None
+            self._discharge_plan[slot] = None
             self._discharge_plan_date = today_str
+            # Phase 11.1: Per-Slot-Compute-Tracking auch im Edge-Case setzen,
+            # damit der Slot heute nicht erneut neu berechnet wird.
+            self._discharge_plan_computed_dates[slot] = today_str
             return None
 
         jitter = self.get_jitter_today()
@@ -388,9 +433,12 @@ class PeakShareProvider:
             jitter,
         )
 
-        # Lock computation for today
-        self._discharge_plan = plan
+        # Lock computation for today (slot-spezifisch). Phase 11.1: zusätzlich
+        # Per-Slot-Tracking, damit der zweite Slot am selben Tag NICHT vom
+        # Tageslock blockiert wird (vorher: _discharge_plan_date war gemeinsam).
+        self._discharge_plan[slot] = plan
         self._discharge_plan_date = today_str
+        self._discharge_plan_computed_dates[slot] = today_str
 
         if plan:
             _LOGGER.info(

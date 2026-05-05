@@ -34,6 +34,7 @@ from .const import (
     COMBINED_BATTERY_POWER_SENSOR_ID,
     COMBINED_GRID_POWER_SENSOR_ID,
     CONSUMPTION_SENSOR,
+    DEFAULT_DISCHARGE_A_RESERVE_PCT,
     DEFAULT_LOOKBACK_WEEKS,
     FAILURE_DEDUP_WINDOW_S,
     FORECAST_NONE_STREAK_THRESHOLD,
@@ -843,6 +844,64 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data["discharge_start_time"] = "01:00"
         hass.config_entries.async_update_entry(entry, data=new_data, version=14)
 
+    if entry.version < 15:
+        # v15 — Phase 11: Dual-Window-Entladung
+        # Additive Migration: setzt neue Slot-Konfigurations-Keys mit Defaults.
+        # Default-Wechsel (D-04, intendiert) — Bestands-Anlagen (nicht
+        # SolarEdge) erhalten Dual-Window automatisch beim Update. Mitigation:
+        # Pro-Slot-Hysterese und PV-Tomorrow-Garantie verhindern aggressive
+        # Erstaktivierung; CHANGELOG dokumentiert die Verhaltensänderung
+        # prominent ("Verhaltensänderung beim Update").
+        # SolarEdge-Sonderfall (D-03): NVRAM-Verschleiß erlaubt nur einen
+        # Slot pro Tag → enable_dual_discharge=False, enable_slot_a=True,
+        # enable_slot_b=False. Defense-in-depth in 11-03 (Save-Path) und
+        # 11-02 (Runtime-Erzwingung).
+        # setdefault statt Hard-Set respektiert vorhandene User-Werte (T-11-01-01).
+        new_data = {**entry.data}
+        inverter_type = new_data.get("inverter_type", "")
+        is_solaredge = inverter_type == "solaredge_storedge"
+        if is_solaredge:
+            new_data.setdefault("enable_dual_discharge", False)
+            new_data.setdefault("enable_slot_a", True)
+            new_data.setdefault("enable_slot_b", False)
+        else:
+            new_data.setdefault("enable_dual_discharge", True)
+            new_data.setdefault("enable_slot_a", True)
+            new_data.setdefault("enable_slot_b", True)
+        new_data.setdefault("discharge_a_start_time", "20:00")
+        new_data.setdefault("discharge_b_start_time", "03:00")
+        new_data.setdefault("discharge_b_end_cap", "07:00")
+        new_data.setdefault("discharge_a_reserve_pct", DEFAULT_DISCHARGE_A_RESERVE_PCT)
+        hass.config_entries.async_update_entry(entry, data=new_data, version=15)
+
+    if entry.version < 16:
+        # v16 — Phase 12: Dual-Window-Master-Toggle entfernt, Slot-A/B sind
+        # die einzige Discharge-Logik. discharge_start_time + enable_dual_discharge
+        # werden aus der Config entfernt (Optimizer-Code liest sie nicht mehr).
+        # SolarEdge-Sonderfall: bisheriger discharge_start_time wird auf den
+        # passenden Slot übertragen, damit das gewohnte Zeitfenster erhalten
+        # bleibt. start < 12:00 → Slot B (Morgen-Entladung), sonst Slot A.
+        new_data = {**entry.data}
+        inv_type = new_data.get("inverter_type", "")
+        is_solaredge = inv_type == "solaredge_storedge"
+        old_start = new_data.get("discharge_start_time", "")
+        if is_solaredge and old_start:
+            try:
+                old_h = int(str(old_start).split(":")[0])
+                if old_h < 12:
+                    new_data["enable_slot_a"] = False
+                    new_data["enable_slot_b"] = True
+                    new_data["discharge_b_start_time"] = old_start
+                else:
+                    new_data["enable_slot_a"] = True
+                    new_data["enable_slot_b"] = False
+                    new_data["discharge_a_start_time"] = old_start
+            except (ValueError, AttributeError):
+                pass
+        new_data.pop("discharge_start_time", None)
+        new_data.pop("enable_dual_discharge", None)
+        hass.config_entries.async_update_entry(entry, data=new_data, version=16)
+
     return True
 
 
@@ -1269,6 +1328,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "discharge_bedarf": round(decision.discharge_demand_total_kwh, 1),
                 "discharge_pv": round(decision.discharge_pv_tomorrow_kwh, 1),
                 "ausführung": decision.ausführung,
+                # Phase 11 (D-09): Slot-Kontext für Frontend-Anzeige + Telemetrie
+                "discharge_active_slot": decision.discharge_active_slot,
             }
             activity_log.append(entry_data)
             hass.bus.async_fire("eeg_optimizer_activity", entry_data)
