@@ -16,12 +16,16 @@ from custom_components.eeg_energy_optimizer.optimizer import (
     REASON_BETWEEN_SLOTS,
     REASON_HYSTERESIS_STRICT,
     REASON_LABELS_DE,
+    REASON_PEAKSHARE_BEFORE_WINDOW,
+    REASON_PEAKSHARE_WINDOW_ACTIVE,
+    REASON_PEAKSHARE_WINDOW_EXPIRED,
     REASON_SLOT_A_ACTIVE,
     REASON_SLOT_A_RESERVE_REACHED,
     REASON_SLOT_B_ACTIVE,
     REASON_SLOT_B_PRE_SUNRISE_CUTOFF,
     REASON_SLOT_B_WINDOW_EXPIRED,
     compute_b_window_end,
+    compute_hard_cutoff,
 )
 from tests.conftest import _make_config, _make_optimizer, _make_snapshot
 
@@ -833,6 +837,690 @@ class TestPeakShareCacheSchema:
             "b": "2026-12-20",
         }
         await ps.async_load()
+        assert ps._discharge_plan_computed_dates == {"a": None, "b": None}
+
+
+# ---------------------------------------------------------------------------
+# Plan 11.1-01 — PeakShare-Aufruf in _evaluate_slot_a/_evaluate_slot_b
+# ---------------------------------------------------------------------------
+
+def _mock_peakshare_provider(slot_a_plan=None, slot_b_plan=None):
+    """Erstellt einen Mock-Provider mit Capture-Logik für kwargs.
+
+    Liefert beim get_discharge_plan-Aufruf den Plan, der zu slot= passt.
+    Erfasst alle Aufrufe in ``ps._captured["calls"]`` als Liste von dicts.
+    """
+    ps = MagicMock()
+    today = "2026-12-21"
+    ps._discharge_plan = {"a": slot_a_plan, "b": slot_b_plan}
+    ps._discharge_plan_date = today if (slot_a_plan or slot_b_plan) else None
+    ps._discharge_plan_computed_dates = {
+        "a": today if slot_a_plan is not None else None,
+        "b": today if slot_b_plan is not None else None,
+    }
+    captured = {"calls": []}
+
+    def _get_plan(community, available_kwh, power, sunset, now,
+                  *, discharge_start_lower_bound=None, next_sunrise=None,
+                  slot="a", window_start=None, window_end=None, **extra):
+        captured["calls"].append({
+            "slot": slot,
+            "community": community,
+            "available_kwh": available_kwh,
+            "discharge_power_kw": power,
+            "sunset_time": sunset,
+            "now": now,
+            "discharge_start_lower_bound": discharge_start_lower_bound,
+            "next_sunrise": next_sunrise,
+            "window_start": window_start,
+            "window_end": window_end,
+        })
+        return slot_a_plan if slot == "a" else slot_b_plan
+
+    ps.get_discharge_plan = MagicMock(side_effect=_get_plan)
+    ps._captured = captured
+    return ps
+
+
+class TestPeakShareSlotIntegration:
+    """Phase 11.1-01: _evaluate_slot_a und _evaluate_slot_b rufen PeakShare
+    pro Slot auf (mit slot-spezifischem window_start/window_end).
+    """
+
+    # -----------------------------------------------------------------------
+    # Slot A
+    # -----------------------------------------------------------------------
+
+    def test_slot_a_calls_peakshare_with_correct_window_bounds(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """A1: Slot-A-Aufruf hat slot='a', window_start=a_start_today,
+        window_end=b_start - 5min (Dual-Mode)."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+            discharge_a_reserve_pct=5,
+            min_soc=20,
+            enable_peakshare=True,
+            peakshare_community="Testgemeinde",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        ps_mock = _mock_peakshare_provider(slot_a_plan=None)
+        opt._peakshare = ps_mock
+        # now=21:00, before any past-midnight phase
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 21, 21, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 21, 16, 30, tzinfo=timezone.utc),
+        )
+        opt._evaluate_slot_a(snap, 20.0)
+        calls = ps_mock._captured["calls"]
+        assert len(calls) == 1
+        c = calls[0]
+        assert c["slot"] == "a"
+        assert c["window_start"] == datetime(2026, 12, 21, 20, 0, tzinfo=timezone.utc)
+        # b_start=03:00 -> auf morgen verschoben (now>=12 + b<12) = 22.12. 03:00
+        # window_end = b_start - 5min = 22.12. 02:55
+        assert c["window_end"] == datetime(2026, 12, 22, 2, 55, tzinfo=timezone.utc)
+
+    def test_slot_a_window_end_is_hard_cutoff_when_a_only(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """A2: Mit enable_slot_b=False ist window_end=compute_hard_cutoff(...)."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            min_soc=20,
+            enable_peakshare=True,
+            peakshare_community="Testgemeinde",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        ps_mock = _mock_peakshare_provider(slot_a_plan=None)
+        opt._peakshare = ps_mock
+        sunrise = datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc)
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 21, 21, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=sunrise,
+            sunrise_today=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 21, 16, 30, tzinfo=timezone.utc),
+        )
+        opt._evaluate_slot_a(snap, 20.0)
+        c = ps_mock._captured["calls"][0]
+        assert c["window_end"] == compute_hard_cutoff(snap.now, sunrise)
+
+    def test_slot_a_past_midnight_uses_yesterday_a_start(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """A3: now=02:30, a_start_h=20 -> window_start=a_start_today - 1 day."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            min_soc=20,
+            enable_peakshare=True,
+            peakshare_community="Testgemeinde",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        ps_mock = _mock_peakshare_provider(slot_a_plan=None)
+        opt._peakshare = ps_mock
+        # now=02:30 (past-midnight), a_start_h=20 -> a_start_today wird auf
+        # heute 02:30 -> 02:30 vor 20:00. a_window_start sollte gestern 20:00 sein.
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 22, 2, 30, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 21, 16, 30, tzinfo=timezone.utc),
+        )
+        opt._evaluate_slot_a(snap, 20.0)
+        c = ps_mock._captured["calls"][0]
+        # a_start_today = 22.12. 20:00, past-midnight -> window_start = 21.12. 20:00
+        assert c["window_start"] == datetime(2026, 12, 21, 20, 0, tzinfo=timezone.utc)
+
+    def test_slot_a_peakshare_plan_active_returns_passing(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """A4: Plan aktiv -> passed=True, REASON_PEAKSHARE_WINDOW_ACTIVE
+        + REASON_SLOT_A_ACTIVE in reasons."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            min_soc=20,
+            enable_peakshare=True,
+            peakshare_community="Testgemeinde",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        now = datetime(2026, 12, 21, 22, 0, tzinfo=timezone.utc)
+        plan = (now - timedelta(minutes=30), now + timedelta(minutes=30))
+        ps_mock = _mock_peakshare_provider(slot_a_plan=plan)
+        opt._peakshare = ps_mock
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 21, 16, 30, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_a(snap, 20.0)
+        assert passed is True
+        assert REASON_PEAKSHARE_WINDOW_ACTIVE in reasons
+        assert REASON_SLOT_A_ACTIVE in reasons
+
+    def test_slot_a_peakshare_before_window_returns_blocked(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """A5: Plan-Start in der Zukunft -> passed=False,
+        blocked_by enthält REASON_PEAKSHARE_BEFORE_WINDOW (NICHT before_slot_a)."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            min_soc=20,
+            enable_peakshare=True,
+            peakshare_community="Testgemeinde",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        # now=21:00 (>= a_start), plan startet erst um 22:00 -> before_window
+        now = datetime(2026, 12, 21, 21, 0, tzinfo=timezone.utc)
+        plan = (now + timedelta(hours=1), now + timedelta(hours=2))
+        ps_mock = _mock_peakshare_provider(slot_a_plan=plan)
+        opt._peakshare = ps_mock
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 21, 16, 30, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_a(snap, 20.0)
+        assert passed is False
+        assert REASON_PEAKSHARE_BEFORE_WINDOW in blocked
+        assert REASON_BEFORE_SLOT_A not in blocked
+
+    def test_slot_a_peakshare_expired_returns_blocked(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """A6: Plan-End in der Vergangenheit -> blocked_by enthält
+        REASON_PEAKSHARE_WINDOW_EXPIRED."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            min_soc=20,
+            enable_peakshare=True,
+            peakshare_community="Testgemeinde",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        now = datetime(2026, 12, 21, 23, 0, tzinfo=timezone.utc)
+        plan = (now - timedelta(hours=2), now - timedelta(minutes=30))
+        ps_mock = _mock_peakshare_provider(slot_a_plan=plan)
+        opt._peakshare = ps_mock
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 21, 16, 30, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_a(snap, 20.0)
+        assert passed is False
+        assert REASON_PEAKSHARE_WINDOW_EXPIRED in blocked
+
+    def test_slot_a_no_peakshare_data_falls_through_to_fixed_time(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """A7: PeakShare-Plan=None, now < a_start -> Fallback Fixzeit-Pfad,
+        blocked_by=[REASON_BEFORE_SLOT_A]."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            min_soc=20,
+            enable_peakshare=True,
+            peakshare_community="Testgemeinde",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        # now=18:00, a_start=20:00 -> Pre-PeakShare-Guard greift -> BEFORE_SLOT_A
+        ps_mock = _mock_peakshare_provider(slot_a_plan=None)
+        opt._peakshare = ps_mock
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 21, 18, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 21, 16, 30, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_a(snap, 20.0)
+        assert passed is False
+        assert REASON_BEFORE_SLOT_A in blocked
+
+    def test_slot_a_disabled_peakshare_uses_fixed_time(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """A8: enable_peakshare=False -> kein get_discharge_plan-Call,
+        Fixzeit-Pfad aktiv (now>=a_start, SOC ok -> passed)."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            min_soc=20,
+            enable_peakshare=False,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        ps_mock = _mock_peakshare_provider(slot_a_plan=None)
+        opt._peakshare = ps_mock
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 21, 22, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 21, 16, 30, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_a(snap, 20.0)
+        assert passed is True
+        assert REASON_SLOT_A_ACTIVE in reasons
+        # No PeakShare reasons in passing (kein Plan im Fixzeit-Pfad)
+        assert REASON_PEAKSHARE_WINDOW_ACTIVE not in reasons
+        assert ps_mock.get_discharge_plan.call_count == 0
+
+    def test_slot_a_plan_never_extends_past_b_start_minus_5min(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """A9: Mutual-Exclusion-Clamp via window_end an find_discharge_window —
+        kein eigener Post-Process-Clamp im Optimizer."""
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+            find_discharge_window,
+        )
+        # Direkt die Library-Funktion testen, mit api_hours die einen
+        # 4-Stunden-Block über b_start-5min hinaus liefern würden.
+        b_start = datetime(2026, 12, 22, 3, 0, tzinfo=timezone.utc)
+        a_end_cap = b_start - timedelta(minutes=5)  # 02:55
+        a_window_start = datetime(2026, 12, 21, 20, 0, tzinfo=timezone.utc)
+        # Synthetische api_hours: 6 Stunden mit hohem deficit, von 22:00 bis 04:00
+        api_hours = []
+        for offset_h in range(0, 8):
+            ts = (a_window_start + timedelta(hours=offset_h)).strftime(
+                "%Y-%m-%dT%H:%M:%S+00:00"
+            )
+            api_hours.append({"timestamp": ts, "deficitKwh": 5.0})
+        # available_kwh für 4h Block, discharge_power 1 kW -> required=4 hours
+        result = find_discharge_window(
+            api_hours,
+            available_kwh=4.0,
+            discharge_power_kw=1.0,
+            window_start=a_window_start,
+            window_end=a_end_cap,
+            jitter_minutes=0,
+        )
+        assert result is not None
+        # Library MUSS end_time auf window_end klammen
+        assert result[1] <= a_end_cap
+
+    def test_slot_a_hysteresis_strict_with_peakshare_active(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """A10: PeakShare aktiv + Reaktivierung -> effective_min_soc +5,
+        passing enthält REASON_HYSTERESIS_STRICT zusätzlich zu PEAKSHARE_ACTIVE."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            min_soc=20,
+            enable_peakshare=True,
+            peakshare_community="Testgemeinde",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        opt._slot_a_activated_date = "2026-12-21"
+        opt._last_active_slot = "B"  # Reaktivierung
+        now = datetime(2026, 12, 21, 22, 0, tzinfo=timezone.utc)
+        plan = (now - timedelta(minutes=30), now + timedelta(minutes=30))
+        ps_mock = _mock_peakshare_provider(slot_a_plan=plan)
+        opt._peakshare = ps_mock
+        # SOC=22 -> > min_soc(20), aber <= min_soc+5(25) -> blocked durch hysterese
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=22.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 21, 16, 30, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_a(snap, 20.0)
+        assert passed is False
+        assert REASON_HYSTERESIS_STRICT in blocked
+        assert hyst is True
+
+    # -----------------------------------------------------------------------
+    # Slot B
+    # -----------------------------------------------------------------------
+
+    def test_slot_b_calls_peakshare_with_window_b_start_to_b_end(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """B1: slot='b', window_start=b_start, window_end=compute_b_window_end(...)."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=False,
+            enable_slot_b=True,
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+            min_soc=20,
+            enable_peakshare=True,
+            peakshare_community="Testgemeinde",
+            discharge_a_reserve_pct=5,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        ps_mock = _mock_peakshare_provider(slot_b_plan=None)
+        opt._peakshare = ps_mock
+        sunrise = datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc)
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 21, 4, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=sunrise,
+            sunrise_today=datetime(2026, 12, 20, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 20, 16, 30, tzinfo=timezone.utc),
+        )
+        opt._evaluate_slot_b(snap, 20.0)
+        calls = ps_mock._captured["calls"]
+        assert len(calls) == 1
+        c = calls[0]
+        assert c["slot"] == "b"
+        # b_start: now=04:00 (>= 12 false), b_start_h=03 (<12) -> kein +1 day
+        assert c["window_start"] == datetime(2026, 12, 21, 3, 0, tzinfo=timezone.utc)
+        # window_end = compute_b_window_end(now, sunrise, "07:00", 0)
+        # Winter: cap dominiert -> 07:00
+        assert c["window_end"] == datetime(2026, 12, 21, 7, 0, tzinfo=timezone.utc)
+
+    def test_slot_b_available_kwh_uses_reserve_pct(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """B2: available_kwh == reserve_pct/100 * capacity. reserve_pct=5, capacity=10 -> 0.5 kWh."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=False,
+            enable_slot_b=True,
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+            min_soc=20,
+            enable_peakshare=True,
+            peakshare_community="Testgemeinde",
+            discharge_a_reserve_pct=5,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        ps_mock = _mock_peakshare_provider(slot_b_plan=None)
+        opt._peakshare = ps_mock
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 21, 4, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 20, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 20, 16, 30, tzinfo=timezone.utc),
+        )
+        opt._evaluate_slot_b(snap, 20.0)
+        c = ps_mock._captured["calls"][0]
+        assert abs(c["available_kwh"] - 0.5) < 1e-6
+
+    def test_slot_b_no_peakshare_data_falls_through_to_fixed_time(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """B3: PeakShare-Plan=None, now < b_start -> blocked_by=[REASON_BEFORE_SLOT_B]."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=False,
+            enable_slot_b=True,
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+            min_soc=20,
+            enable_peakshare=True,
+            peakshare_community="Testgemeinde",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        ps_mock = _mock_peakshare_provider(slot_b_plan=None)
+        opt._peakshare = ps_mock
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 21, 2, 0, tzinfo=timezone.utc),  # vor 03:00
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 20, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 20, 16, 30, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_b(snap, 20.0)
+        assert passed is False
+        assert REASON_BEFORE_SLOT_B in blocked
+
+    def test_slot_b_peakshare_window_active_returns_passing(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """B4: Plan aktiv -> passing enthält REASON_PEAKSHARE_WINDOW_ACTIVE
+        + REASON_SLOT_B_ACTIVE."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=False,
+            enable_slot_b=True,
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+            min_soc=20,
+            enable_peakshare=True,
+            peakshare_community="Testgemeinde",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        now = datetime(2026, 12, 21, 5, 0, tzinfo=timezone.utc)
+        plan = (now - timedelta(minutes=30), now + timedelta(minutes=30))
+        ps_mock = _mock_peakshare_provider(slot_b_plan=plan)
+        opt._peakshare = ps_mock
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 20, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 20, 16, 30, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_b(snap, 20.0)
+        assert passed is True
+        assert REASON_PEAKSHARE_WINDOW_ACTIVE in reasons
+        assert REASON_SLOT_B_ACTIVE in reasons
+
+    def test_slot_b_peakshare_before_window_returns_blocked(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """B5: Plan-Start in der Zukunft -> REASON_PEAKSHARE_BEFORE_WINDOW."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=False,
+            enable_slot_b=True,
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+            min_soc=20,
+            enable_peakshare=True,
+            peakshare_community="Testgemeinde",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        now = datetime(2026, 12, 21, 4, 0, tzinfo=timezone.utc)
+        plan = (now + timedelta(hours=1), now + timedelta(hours=2))
+        ps_mock = _mock_peakshare_provider(slot_b_plan=plan)
+        opt._peakshare = ps_mock
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 20, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 20, 16, 30, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_b(snap, 20.0)
+        assert passed is False
+        assert REASON_PEAKSHARE_BEFORE_WINDOW in blocked
+
+    def test_slot_b_peakshare_expired_returns_blocked(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """B6: Plan-End in der Vergangenheit -> REASON_PEAKSHARE_WINDOW_EXPIRED."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=False,
+            enable_slot_b=True,
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+            min_soc=20,
+            enable_peakshare=True,
+            peakshare_community="Testgemeinde",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        now = datetime(2026, 12, 21, 6, 30, tzinfo=timezone.utc)
+        plan = (now - timedelta(hours=2), now - timedelta(minutes=30))
+        ps_mock = _mock_peakshare_provider(slot_b_plan=plan)
+        opt._peakshare = ps_mock
+        snap = _make_snapshot(
+            now=now,
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 20, 7, 30, tzinfo=timezone.utc),
+            sunset_today=datetime(2026, 12, 20, 16, 30, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_b(snap, 20.0)
+        assert passed is False
+        assert REASON_PEAKSHARE_WINDOW_EXPIRED in blocked
+
+    # -----------------------------------------------------------------------
+    # Cross-Slot
+    # -----------------------------------------------------------------------
+
+    def test_both_slots_compute_independently_same_day(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """C1: Per-Slot-Cache-Lifecycle. Vor 11.1 würde der zweite Slot None
+        zurückliefern (Tageslock-Bug). Mit Per-Slot-Tracking können beide
+        Slots am selben Tag berechnet werden.
+        """
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+        )
+        ps = PeakShareProvider(MagicMock(), entry_id="test")
+        # Synthetische api_hours für Slot A (22:00) und Slot B (05:00) am 21.12.2026
+        api_hours = []
+        for offset_h in range(0, 16):
+            ts_dt = datetime(2026, 12, 21, 14, 0, tzinfo=timezone.utc) + timedelta(hours=offset_h)
+            ts = ts_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+            # Hoher deficit von 22:00..00:00 und 05:00..06:00
+            hour = ts_dt.hour
+            deficit = 5.0 if (hour >= 22 or hour <= 1 or 5 <= hour <= 6) else 0.0
+            api_hours.append({"timestamp": ts, "deficitKwh": deficit})
+        ps._cache = {"communities": [{"name": "BEG", "hours": api_hours}]}
+        ps._cache_time = datetime(2026, 12, 21, 14, 0, tzinfo=timezone.utc)
+
+        # Slot A computation (now = 21:00, window 20:00 .. 02:55)
+        now = datetime(2026, 12, 21, 21, 0, tzinfo=timezone.utc)
+        plan_a = ps.get_discharge_plan(
+            community="BEG",
+            available_kwh=2.0,
+            discharge_power_kw=1.0,
+            sunset_time=datetime(2026, 12, 21, 16, 30, tzinfo=timezone.utc),
+            now=now,
+            slot="a",
+            window_start=datetime(2026, 12, 21, 20, 0, tzinfo=timezone.utc),
+            window_end=datetime(2026, 12, 22, 2, 55, tzinfo=timezone.utc),
+        )
+        assert plan_a is not None
+        assert ps._discharge_plan_computed_dates["a"] == "2026-12-21"
+
+        # Slot B computation am SELBEN Tag
+        plan_b = ps.get_discharge_plan(
+            community="BEG",
+            available_kwh=0.5,
+            discharge_power_kw=1.0,
+            sunset_time=datetime(2026, 12, 21, 16, 30, tzinfo=timezone.utc),
+            now=now,
+            slot="b",
+            window_start=datetime(2026, 12, 22, 3, 0, tzinfo=timezone.utc),
+            window_end=datetime(2026, 12, 22, 7, 0, tzinfo=timezone.utc),
+        )
+        # Vor Phase 11.1 würde plan_b == None sein (Tageslock-Bug).
+        # Phase 11.1: plan_b ist echt berechnet.
+        assert plan_b is not None
+        assert ps._discharge_plan_computed_dates["b"] == "2026-12-21"
+
+    def test_async_fetch_invalidates_both_slot_plans(self):
+        """C2: nach Invalidate sind beide computed_dates zurückgesetzt."""
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+        )
+        ps = PeakShareProvider(MagicMock(), entry_id="test")
+        ps._discharge_plan_computed_dates = {"a": "2026-12-21", "b": "2026-12-21"}
+        ps._discharge_plan = {
+            "a": (
+                datetime(2026, 12, 21, 22, 0, tzinfo=timezone.utc),
+                datetime(2026, 12, 22, 0, 0, tzinfo=timezone.utc),
+            ),
+            "b": (
+                datetime(2026, 12, 22, 5, 0, tzinfo=timezone.utc),
+                datetime(2026, 12, 22, 6, 0, tzinfo=timezone.utc),
+            ),
+        }
+        ps._discharge_plan_date = "2026-12-21"
+        # Invalidate-Pfad wie in async_fetch
+        ps._discharge_plan = {"a": None, "b": None}
+        ps._discharge_plan_date = None
+        ps._discharge_plan_computed_dates = {"a": None, "b": None}
         assert ps._discharge_plan_computed_dates == {"a": None, "b": None}
 
 

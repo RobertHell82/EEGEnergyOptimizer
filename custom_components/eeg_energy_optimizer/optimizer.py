@@ -1094,6 +1094,12 @@ class EEGOptimizer:
 
         Slot A endet 5 Minuten vor Slot-B-Start (wenn B aktiv) → Mindestpause
         zwischen Inverter-Kommandos (SPEC §9, Phase 11 Constraint).
+
+        Phase 11.1: PeakShare-Plan-Lookup mit slot="a", window_start=
+        a_window_start (past-midnight-aware), window_end=a_end_cap. Wenn ein
+        Plan vorhanden ist, ersetzt er die Fixzeit-Aktivierung durch
+        REASON_PEAKSHARE_*. Mutual-Exclusion ist via window_end-Argument
+        an find_discharge_window garantiert (Library-interner Clamp).
         """
         # Slot-A-Window: ab a_start (typisch 20:00). Slot A läuft über
         # Mitternacht weiter bis kurz vor Slot-B-Start (wenn B aktiv) oder
@@ -1128,10 +1134,51 @@ class EEGOptimizer:
             a_end_cap = b_start - timedelta(minutes=5)
             if snap.now >= a_end_cap:
                 return (False, [], [REASON_SLOT_A_RESERVE_REACHED], False)
+        else:
+            # Slot-A-only: Hard-Cutoff (sunrise − 1h oder 04:00, was früher).
+            a_end_cap = compute_hard_cutoff(snap.now, snap.sunrise)
 
-        # SOC-Schwelle: nur wenn Slot B aktiv → reserve_pct als Aufschlag
+        # SOC-Schwelle: nur wenn Slot B aktiv → reserve_pct als Aufschlag.
+        # Vorgezogen für PeakShare-available_kwh-Berechnung.
         a_reserve = self._discharge_a_reserve_pct if self._enable_slot_b else 0
         a_min_soc = min_soc + a_reserve
+
+        # Phase 11.1: PeakShare-Plan-Lookup pro Slot
+        peakshare_plan = None
+        if self._enable_peakshare and self._peakshare is not None:
+            available_kwh = (
+                (snap.battery_soc - a_min_soc) / 100 * snap.battery_capacity_kwh
+            )
+            if available_kwh > 0:
+                # Past-Midnight: Window-Start auf gestern projizieren, sonst
+                # liegen gestrige PeakShare-Hours ausserhalb [start, end).
+                a_window_start = (
+                    a_start_today - timedelta(days=1)
+                    if is_past_midnight_phase
+                    else a_start_today
+                )
+                peakshare_plan = self._peakshare.get_discharge_plan(
+                    self._peakshare_community,
+                    available_kwh,
+                    self._discharge_power_kw,
+                    snap.sunset_today,
+                    snap.now,
+                    discharge_start_lower_bound=a_window_start,
+                    next_sunrise=snap.sunrise,
+                    slot="a",
+                    window_start=a_window_start,
+                    window_end=a_end_cap,
+                )
+
+        # Phase 11.1: PeakShare-Window-Status ersetzt die Fixzeit-Aktivierung
+        # für Slot A, wenn ein Plan vorhanden ist.
+        if peakshare_plan is not None:
+            plan_start, plan_end = peakshare_plan
+            if snap.now < plan_start:
+                return (False, [], [REASON_PEAKSHARE_BEFORE_WINDOW], False)
+            if snap.now >= plan_end:
+                return (False, [], [REASON_PEAKSHARE_WINDOW_EXPIRED], False)
+            # Plan aktiv → fall through zu Hysterese + SOC-Check
 
         # Pro-Slot-Hysterese: Aufschlag bei Reaktivierung
         is_reactivation = (
@@ -1150,6 +1197,8 @@ class EEGOptimizer:
         passing: list[str] = []
         if is_reactivation:
             passing.append(REASON_HYSTERESIS_STRICT)
+        if peakshare_plan is not None:
+            passing.append(REASON_PEAKSHARE_WINDOW_ACTIVE)
         passing.append(REASON_SOC_ABOVE_MIN)
         passing.append(REASON_SLOT_A_ACTIVE)
         return (True, passing, [], is_reactivation)
@@ -1198,10 +1247,44 @@ class EEGOptimizer:
         if b_start >= b_end:
             # Sommer-Fall: Fenster schon vorbei bevor es startet
             return (False, [], [REASON_SLOT_B_PRE_SUNRISE_CUTOFF], False)
-        if snap.now < b_start:
-            return (False, [], [REASON_BEFORE_SLOT_B], False)
-        if snap.now >= b_end:
-            return (False, [], [REASON_SLOT_B_WINDOW_EXPIRED], False)
+
+        # Phase 11.1: PeakShare-Plan-Lookup pro Slot. available_kwh_b ist
+        # die Reserve, die Slot A für Slot B übrig gelassen hat — eine
+        # statische Annäherung (demand-weighted Aufteilung ist Backlog v1.3+).
+        peakshare_plan = None
+        if self._enable_peakshare and self._peakshare is not None:
+            available_kwh_b = (
+                self._discharge_a_reserve_pct / 100
+            ) * snap.battery_capacity_kwh
+            if available_kwh_b > 0:
+                peakshare_plan = self._peakshare.get_discharge_plan(
+                    self._peakshare_community,
+                    available_kwh_b,
+                    self._discharge_power_kw,
+                    snap.sunset_today,
+                    snap.now,
+                    discharge_start_lower_bound=b_start,
+                    next_sunrise=snap.sunrise,
+                    slot="b",
+                    window_start=b_start,
+                    window_end=b_end,
+                )
+
+        # Phase 11.1: PeakShare-Window-Status ODER Fixzeit-Fallback. Anders
+        # als Slot A braucht Slot B den Fixzeit-Pfad als expliziten Fallback,
+        # weil es keinen Past-Midnight-Pre-Guard gibt.
+        if peakshare_plan is not None:
+            plan_start, plan_end = peakshare_plan
+            if snap.now < plan_start:
+                return (False, [], [REASON_PEAKSHARE_BEFORE_WINDOW], False)
+            if snap.now >= plan_end:
+                return (False, [], [REASON_PEAKSHARE_WINDOW_EXPIRED], False)
+        else:
+            # Fixzeit-Fallback: Slot B ohne PeakShare oder ohne Daten
+            if snap.now < b_start:
+                return (False, [], [REASON_BEFORE_SLOT_B], False)
+            if snap.now >= b_end:
+                return (False, [], [REASON_SLOT_B_WINDOW_EXPIRED], False)
 
         # Pro-Slot-Hysterese (Slot B): kein Reserve-Aufschlag, nur +5%
         # bei Reaktivierung.
@@ -1221,6 +1304,8 @@ class EEGOptimizer:
         passing: list[str] = []
         if is_reactivation:
             passing.append(REASON_HYSTERESIS_STRICT)
+        if peakshare_plan is not None:
+            passing.append(REASON_PEAKSHARE_WINDOW_ACTIVE)
         passing.append(REASON_SOC_ABOVE_MIN)
         passing.append(REASON_SLOT_B_ACTIVE)
         return (True, passing, [], is_reactivation)
