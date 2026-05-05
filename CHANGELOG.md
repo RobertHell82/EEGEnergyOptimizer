@@ -7,13 +7,15 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
-## [1.2.0-dev-34] - 2026-05-05
+## [1.2.0] - 2026-05-05
+
+> Release konsolidiert die DEV-Iterationen 31–34 (Phase 11 Dual-Window, Phase 11.1 PeakShare-per-Slot, Phase 12 UI-Vereinfachung).
+
+### UI-Feinschliff (späteste Iterationen)
 
 **UI-Feinschliff:**
 - Slot A / Slot B Erklärtexte (Wizard + Settings + SolarEdge-XOR-Radio) ergänzen sich dynamisch um „Genaue Uhrzeit wird auf Basis der PeakShare-Bedarfssteuerung ermittelt." sobald PeakShare aktiv ist; bei deaktiviertem PeakShare bleibt nur der Standard-Hinweis sichtbar.
 - Button „Wizard nochmal starten" wird jetzt unter jedem Settings-Tab (Morgen-Einspeisung / Abend-Entladung / EEG-Statistik / Erweitert) angezeigt, nicht mehr nur im Erweitert-Tab.
-
-## [1.2.0-dev-33] - 2026-05-05
 
 ### Phase 12: Dual-Window-Toggle entfernt — Slot A/B als einziger Discharge-Pfad
 
@@ -38,10 +40,6 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 - non-SolarEdge: `discharge_start_time` war im Dual-Modus seit v15 dead config — wird einfach entsorgt.
 
 **Tests:** 414 passed, 25 als skipped markiert (Legacy-Pfad-Tests, dokumentieren das alte Single-Window-Verhalten und sind durch Slot-A/B-Tests in `test_dual_window.py` abgedeckt).
-
-## [1.2.0-dev-32] - 2026-05-04
-
-> User selbst macht Releases — dieser Eintrag ist DEV-Repo-only und wird beim Release-Sync übernommen.
 
 ### Phase 11.1: PeakShare-Steuerung der Slot-A/B-Fenster
 
