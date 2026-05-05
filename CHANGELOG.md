@@ -7,6 +7,32 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.2.0-dev-33] - 2026-05-05
+
+### Phase 12: Dual-Window-Toggle entfernt — Slot A/B als einziger Discharge-Pfad
+
+**UI-Vereinfachung Abend-Entladung (Wizard + Settings-Panel):**
+- Master-Toggle „Dual-Window-Entladung" entfernt. Slot A und Slot B sind jetzt zwei direkte Checkboxen mit kurzem Erklärtext (Slot A — Abend / Slot B — Morgen).
+- Default für neue Anlagen: beide Slots aktiv. Per-Slot-Detailfelder (Start-Zeiten, Slot-A-Reserve, Slot-B-Spätestes-Ende) sind nur noch im Expertenmodus sichtbar.
+- Eingabefeld „Frühester Entladestart" entfernt — die Slot-Startzeiten ersetzen es.
+- PeakShare-Bedarfssteuerung + Energiegemeinschaftsauswahl an oberster Stelle der Abend-Entladung-Sektion.
+- Vorlaufzeit vor Sonnenaufgang (Morgen-Einspeisung) in Expertenmodus verschoben.
+- SolarEdge: bleibt XOR-Radio (genau ein Slot pro Tag, NVRAM-Schutz), erweiterte Erklärtexte.
+
+**Backend-Refactor (kein User-sichtbares Verhalten geändert für non-SolarEdge):**
+- Legacy-Single-Window-Pfad (`_evaluate_legacy_window`) komplett entfernt. `_should_discharge` evaluiert direkt Slot A + Slot B.
+- `discharge_start_time` aus Schema entfernt (`CONF_DISCHARGE_START_TIME`/`DEFAULT_DISCHARGE_START_TIME` in `const.py` gelöscht).
+- `enable_dual_discharge` aus Optimizer-Logik entfernt (war `True`-Default für non-SolarEdge ohnehin).
+- SolarEdge-Defense-in-depth: Force schaltet jetzt Slot-XOR statt `enable_dual_discharge=False`.
+
+**Migration v15 → v16:**
+- Entries werden auf Schema-Version 16 gehoben.
+- `discharge_start_time` und `enable_dual_discharge` werden aus der Config entfernt (Optimizer liest sie nicht mehr).
+- SolarEdge-Sonderfall: bisheriger `discharge_start_time` wird auf den passenden Slot übertragen — Start < 12:00 → Slot B (Morgen), sonst Slot A. Damit bleibt das gewohnte Zeitfenster für SolarEdge-Bestände erhalten.
+- non-SolarEdge: `discharge_start_time` war im Dual-Modus seit v15 dead config — wird einfach entsorgt.
+
+**Tests:** 414 passed, 25 als skipped markiert (Legacy-Pfad-Tests, dokumentieren das alte Single-Window-Verhalten und sind durch Slot-A/B-Tests in `test_dual_window.py` abgedeckt).
+
 ## [1.2.0-dev-32] - 2026-05-04
 
 > User selbst macht Releases — dieser Eintrag ist DEV-Repo-only und wird beim Release-Sync übernommen.

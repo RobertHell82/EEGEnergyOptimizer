@@ -874,6 +874,34 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data.setdefault("discharge_a_reserve_pct", DEFAULT_DISCHARGE_A_RESERVE_PCT)
         hass.config_entries.async_update_entry(entry, data=new_data, version=15)
 
+    if entry.version < 16:
+        # v16 — Phase 12: Dual-Window-Master-Toggle entfernt, Slot-A/B sind
+        # die einzige Discharge-Logik. discharge_start_time + enable_dual_discharge
+        # werden aus der Config entfernt (Optimizer-Code liest sie nicht mehr).
+        # SolarEdge-Sonderfall: bisheriger discharge_start_time wird auf den
+        # passenden Slot übertragen, damit das gewohnte Zeitfenster erhalten
+        # bleibt. start < 12:00 → Slot B (Morgen-Entladung), sonst Slot A.
+        new_data = {**entry.data}
+        inv_type = new_data.get("inverter_type", "")
+        is_solaredge = inv_type == "solaredge_storedge"
+        old_start = new_data.get("discharge_start_time", "")
+        if is_solaredge and old_start:
+            try:
+                old_h = int(str(old_start).split(":")[0])
+                if old_h < 12:
+                    new_data["enable_slot_a"] = False
+                    new_data["enable_slot_b"] = True
+                    new_data["discharge_b_start_time"] = old_start
+                else:
+                    new_data["enable_slot_a"] = True
+                    new_data["enable_slot_b"] = False
+                    new_data["discharge_a_start_time"] = old_start
+            except (ValueError, AttributeError):
+                pass
+        new_data.pop("discharge_start_time", None)
+        new_data.pop("enable_dual_discharge", None)
+        hass.config_entries.async_update_entry(entry, data=new_data, version=16)
+
     return True
 
 

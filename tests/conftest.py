@@ -9,7 +9,7 @@ from custom_components.eeg_energy_optimizer.const import (
     CONF_BATTERY_CAPACITY_KWH,
     CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
-    CONF_DISCHARGE_START_TIME,
+    CONF_DISCHARGE_A_START_TIME,
 )
 from custom_components.eeg_energy_optimizer.optimizer import (
     EEGOptimizer,
@@ -29,16 +29,14 @@ from custom_components.eeg_energy_optimizer.optimizer import (
 def _make_config(**overrides):
     """Create a minimal optimizer config dict.
 
-    Test-Default: discharge_start_time="20:00" — die meisten Bestands-Tests
-    wurden gegen diesen alten Wert geschrieben und prüfen Pre-Midnight-
-    Verhalten (z.B. now=21:00 → Fenster offen). Tests, die das neue 01:00-
-    Verhalten verifizieren, überschreiben den Wert explizit.
+    Test-Default: discharge_a_start_time="20:00" (Slot A — Abend). Tests, die
+    Slot B prüfen, überschreiben enable_slot_a/enable_slot_b explizit.
     """
     base = {
         CONF_BATTERY_SOC_SENSOR: "sensor.battery_soc",
         CONF_BATTERY_CAPACITY_SENSOR: "",
         CONF_BATTERY_CAPACITY_KWH: 10.0,
-        CONF_DISCHARGE_START_TIME: "20:00",
+        CONF_DISCHARGE_A_START_TIME: "20:00",
     }
     base.update(overrides)
     return base

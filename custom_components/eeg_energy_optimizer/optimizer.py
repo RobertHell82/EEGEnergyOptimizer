@@ -23,8 +23,6 @@ from .const import (
     CONF_DISCHARGE_B_END_CAP,
     CONF_DISCHARGE_B_START_TIME,
     CONF_DISCHARGE_POWER_KW,
-    CONF_DISCHARGE_START_TIME,
-    CONF_ENABLE_DUAL_DISCHARGE,
     CONF_ENABLE_MORNING_DELAY,
     CONF_ENABLE_NIGHT_DISCHARGE,
     CONF_ENABLE_PEAKSHARE,
@@ -44,7 +42,6 @@ from .const import (
     DEFAULT_DISCHARGE_B_END_CAP,
     DEFAULT_DISCHARGE_B_START_TIME,
     DEFAULT_DISCHARGE_POWER_KW,
-    DEFAULT_DISCHARGE_START_TIME,
     DEFAULT_ENABLE_PEAKSHARE,
     DEFAULT_MIN_SOC,
     DEFAULT_MORNING_END_TIME,
@@ -416,13 +413,6 @@ class EEGOptimizer:
         self._morning_end_hour = int(parts[0])
         self._morning_end_min = int(parts[1]) if len(parts) > 1 else 0
 
-        discharge_start = config.get(
-            CONF_DISCHARGE_START_TIME, DEFAULT_DISCHARGE_START_TIME
-        )
-        parts = discharge_start.split(":")
-        self._discharge_start_h = int(parts[0])
-        self._discharge_start_m = int(parts[1]) if len(parts) > 1 else 0
-
         self._discharge_power_kw = config.get(
             CONF_DISCHARGE_POWER_KW, DEFAULT_DISCHARGE_POWER_KW
         )
@@ -476,16 +466,13 @@ class EEGOptimizer:
         inv_type = config.get(CONF_INVERTER_TYPE, "")
         self._grid_sign = INVERTER_SIGN_CONVENTIONS.get(inv_type, {}).get("grid_sign", 1)
 
-        # Phase 11: Dual-Window Config-Reads
-        # Default für enable_dual_discharge ist False, damit Bestands-Tests
-        # ohne explizit gesetzten Key auf den Legacy-Pfad routen (D-05).
-        # Echte Setups bekommen den Wert via Migration v14→v15 in __init__.py
-        # (DEFAULT_ENABLE_DUAL_DISCHARGE_NON_SOLAREDGE = True für nicht-SolarEdge).
-        self._enable_dual_discharge: bool = bool(
-            config.get(CONF_ENABLE_DUAL_DISCHARGE, False)
-        )
+        # Phase 12: Slot-A/B Config-Reads (Phase-11 Dual-Master entfernt)
+        # SolarEdge erzwingt XOR-Constraint via websocket_api save-path und
+        # Migration — pro Optimizer-Instanz wird hier nur das Pattern gelesen.
         self._enable_slot_a: bool = bool(config.get(CONF_ENABLE_SLOT_A, True))
-        self._enable_slot_b: bool = bool(config.get(CONF_ENABLE_SLOT_B, True))
+        self._enable_slot_b: bool = bool(
+            config.get(CONF_ENABLE_SLOT_B, not (inv_type_cfg == "solaredge_storedge"))
+        )
         self._discharge_a_reserve_pct: int = int(
             config.get(CONF_DISCHARGE_A_RESERVE_PCT, DEFAULT_DISCHARGE_A_RESERVE_PCT)
         )
@@ -506,15 +493,14 @@ class EEGOptimizer:
         self._discharge_b_start_m = int(b_parts[1]) if len(b_parts) > 1 else 0
         self._discharge_b_end_cap: str = b_end_cap_str
 
-        # Defense-in-depth: SolarEdge erzwingt Legacy-Pfad zur Laufzeit.
-        # Phase-11-Migration setzt enable_dual_discharge=False schon beim Schreiben;
-        # diese Runtime-Prüfung schützt vor manuell editierten Configs.
-        if self._is_solaredge and self._enable_dual_discharge:
+        # Defense-in-depth: SolarEdge erzwingt zur Laufzeit XOR (genau ein Slot).
+        # Konflikt-Auflösung: Slot A bevorzugt (Default-Profil Abend-Entladung).
+        if self._is_solaredge and self._enable_slot_a and self._enable_slot_b:
             _LOGGER.warning(
-                "SolarEdge: enable_dual_discharge=True nicht erlaubt — "
-                "auf False gesetzt (NVRAM-Verschleiß-Schutz)"
+                "SolarEdge: nur ein Slot pro Tag erlaubt — Slot B deaktiviert "
+                "(NVRAM-Verschleiß-Schutz)"
             )
-            self._enable_dual_discharge = False
+            self._enable_slot_b = False
 
     # ------------------------------------------------------------------
     # Snapshot gathering
@@ -565,14 +551,20 @@ class EEGOptimizer:
             ).get("verbrauch_kwh", 0.0)
 
         # Overnight consumption for discharge min-SOC calculation
-        # Before discharge start: from discharge_start to sunrise + 1h
-        # After discharge start (incl. past midnight): from now to sunrise + 1h
+        # Phase 12: Nacht-Beginn = Slot-A-Start (Default 20:00). Wenn nur
+        # Slot B aktiv ist (z.B. SolarEdge-Slot-B-only), nutze b_start als
+        # spätere Untergrenze.
         consumption_overnight = 0.0
         if sunrise is not None:
             overnight_end = sunrise + timedelta(hours=1)
+            night_start_h = self._discharge_a_start_h
+            night_start_m = self._discharge_a_start_m
+            if self._enable_slot_b and not self._enable_slot_a:
+                night_start_h = self._discharge_b_start_h
+                night_start_m = self._discharge_b_start_m
             discharge_start = now.replace(
-                hour=self._discharge_start_h,
-                minute=self._discharge_start_m,
+                hour=night_start_h,
+                minute=night_start_m,
                 second=0,
                 microsecond=0,
             )
@@ -896,22 +888,19 @@ class EEGOptimizer:
                 f"{ps_plan[1].strftime('%H:%M')} (PeakShare)"
             )
         else:
-            # Phase 11.1-02: Slot-spezifische Fixzeit-Fallback. Im Dual-Mode
-            # zeigt der Fallback die Slot-Startzeit, sonst Legacy discharge_start.
-            if active_slot == "B":
+            # Slot-spezifische Fixzeit-Fallback. Default ist Slot A (Abend),
+            # nur wenn explizit Slot B aktiv ist, zeigen wir b_start.
+            if active_slot == "B" or (
+                self._enable_slot_b and not self._enable_slot_a
+            ):
                 start_time_str = (
                     f"{self._discharge_b_start_h:02d}:"
                     f"{self._discharge_b_start_m:02d}"
                 )
-            elif active_slot == "A" and self._enable_dual_discharge:
+            else:
                 start_time_str = (
                     f"{self._discharge_a_start_h:02d}:"
                     f"{self._discharge_a_start_m:02d}"
-                )
-            else:
-                start_time_str = (
-                    f"{self._discharge_start_h:02d}:"
-                    f"{self._discharge_start_m:02d}"
                 )
         pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
         overnight_kwh = snap.consumption_overnight_kwh
@@ -1345,23 +1334,17 @@ class EEGOptimizer:
     def _should_discharge(
         self, snap: Snapshot
     ) -> tuple[bool, float, list[str], list[str], bool]:
-        """Phase 11 Dispatcher: wählt Legacy- oder Slot-Pfad (D-01).
+        """Slot-A/B Discharge-Evaluation (Phase 12).
 
-        Schnittstelle bleibt erhalten (D-11):
+        Schnittstelle:
         ``(should_discharge, min_soc, reasons, blocked_by, hysteresis_active)``.
 
-        Routing:
-          - SolarEdge oder ``enable_dual_discharge=False`` → Legacy-Pfad
-            (``_evaluate_legacy_window``) — D-05 byte-identische Garantie.
-          - Sonst → Common-Guards + Slot-A/B-Evaluierung (D-01).
+        Common-Guards einmal vorab (Feature aus / Nachtverbrauch ≥ 100 / PV
+        morgen unzureichend / SolarEdge-Tagesabbruch). Dann Slot A bevorzugt
+        (zeitlich früher), Slot B als Fallback. SolarEdge erzwingt XOR
+        (genau ein Slot pro Tag).
         """
-        # Pfadwahl: SolarEdge (Defense-in-depth, falls Runtime-Force in __init__
-        # umgangen wurde) oder Legacy-Konfig → Single-Slot-Pfad.
-        use_legacy = (not self._enable_dual_discharge) or self._is_solaredge
-        if use_legacy:
-            return self._evaluate_legacy_window(snap)
-
-        # Dual-Mode: Common-Guards einmal vorab
+        # Common-Guards einmal vorab
         common_blocked, min_soc = self._check_common_guards(snap)
         if common_blocked:
             return (False, min_soc, [], common_blocked, False)
@@ -1399,159 +1382,6 @@ class EEGOptimizer:
             # Beide Slots disabled — synthetischer Reason
             combined_blocked = [REASON_NIGHT_DISCHARGE_DISABLED]
         return (False, min_soc, [], combined_blocked, hyst_a or hyst_b)
-
-    def _evaluate_legacy_window(
-        self, snap: Snapshot
-    ) -> tuple[bool, float, list[str], list[str], bool]:
-        """Legacy single-window discharge evaluation (Phase 11, D-05).
-
-        Aktiv wenn ``enable_dual_discharge=False`` oder bei SolarEdge.
-        Body byte-identisch zum heutigen ``_should_discharge`` vor dem
-        Phase-11-Refactor — keine Verhaltensänderung für Setups, die explizit
-        auf Single-Window konfiguriert sind.
-
-        Returns ``(should_discharge, min_soc, reasons, blocked_by, hysteresis_active)``
-        per D-11. Alle Einträge in ``reasons``/``blocked_by`` sind snake_case-Keys
-        aus ALL_REASONS (D-12).
-        """
-        # Guard 1: Feature aus
-        if not self._enable_night_discharge:
-            return (False, float(self._min_soc), [], [REASON_NIGHT_DISCHARGE_DISABLED], False)
-
-        min_soc = self._calc_min_soc(snap)
-
-        # Guard 2: Nachtverbrauch verschlingt komplette Batterie
-        if min_soc >= 100.0:
-            return (False, min_soc, [], [REASON_OVERNIGHT_DEMAND_TOO_HIGH], False)
-
-        blocked_by: list[str] = []
-        passing: list[str] = []
-
-        today_str = snap.now.strftime("%Y-%m-%d")
-        # Hysterese-Status früh bestimmen — wird auch in blocked_by-Liste reflektiert.
-        # Eine Sitzung gilt so lange als „läuft noch", wie das Aktivierungsdatum
-        # gesetzt ist (Reset erfolgt zentral in _evaluate nach dem Sonnenaufgang
-        # des Folgetags). Damit bleibt Hysterese auch bei Oszillation über
-        # Mitternacht innerhalb derselben Abend-Sitzung wirksam.
-        is_reactivation = (
-            self._discharge_activated_date is not None
-            and self._last_eval_zustand != STATE_ABEND_ENTLADUNG
-        )
-
-        # Check time — PeakShare or fixed start time
-        # Pre-init guards so neither branch can leave them unbound (past bug: UnboundLocalError)
-        past_midnight_in_window = False
-        past_midnight = False
-        peakshare_plan = None
-        # Konfigurierte Mindeststart-Uhrzeit als Datetime auflösen — gilt in
-        # beiden Modi als Untergrenze für den Start.
-        # Sonderfall: Wenn die Startzeit in den frühen Morgenstunden liegt
-        # (< 12:00) und wir aktuell nachmittags sind, zeigt sie auf MORGEN —
-        # die Sitzung beginnt also erst nach Mitternacht (z.B. discharge
-        # ab 01:00 → bei now 18:00 ist gemeint: morgen 01:00).
-        discharge_start_today = snap.now.replace(
-            hour=self._discharge_start_h,
-            minute=self._discharge_start_m,
-            second=0,
-            microsecond=0,
-        )
-        if self._discharge_start_h < 12 and snap.now.hour >= 12:
-            discharge_start_resolved = discharge_start_today + timedelta(days=1)
-        else:
-            discharge_start_resolved = discharge_start_today
-
-        if self._enable_peakshare and self._peakshare is not None:
-            # PeakShare mode: compute discharge window based on community demand
-            available_kwh = (snap.battery_soc - min_soc) / 100 * snap.battery_capacity_kwh
-            if available_kwh > 0:
-                peakshare_plan = self._peakshare.get_discharge_plan(
-                    self._peakshare_community,
-                    available_kwh,
-                    self._discharge_power_kw,
-                    snap.sunset_today,
-                    snap.now,
-                    discharge_start_lower_bound=discharge_start_resolved,
-                    next_sunrise=snap.sunrise,
-                )
-
-        if peakshare_plan is not None:
-            plan_start, plan_end = peakshare_plan
-            if snap.now < plan_start:
-                blocked_by.append(REASON_PEAKSHARE_BEFORE_WINDOW)
-            elif snap.now >= plan_end:
-                blocked_by.append(REASON_PEAKSHARE_WINDOW_EXPIRED)
-            else:
-                # Fenster aktiv → Pass-Grund
-                passing.append(REASON_PEAKSHARE_WINDOW_ACTIVE)
-            # Hard-Cutoff dynamisch: min(04:00, sunrise − 1h).
-            cutoff = compute_hard_cutoff(snap.now, snap.sunrise)
-            past_midnight = snap.now.hour < 12 and plan_start.hour >= 12
-            if past_midnight and snap.now >= cutoff:
-                blocked_by.append(REASON_HARD_CUTOFF_AFTER_4AM)
-        else:
-            # Fixed start time check (fallback oder PeakShare disabled)
-            discharge_start = discharge_start_resolved
-            # Past midnight: discharge_start points to a future moment, but we
-            # are already in the discharge window that started the prior evening.
-            # Beispiel: start=21:00, now=03:00 (gleicher Kalendertag) — `now <
-            # start` und sunrise ist nah. Bei einem Morgen-Start (z.B. 01:00,
-            # via discharge_start_resolved auf morgen verschoben) trifft `now
-            # < start` aber AUCH um 18:00 abends zu — daher zusätzlich auf
-            # echte Morgen-Stunden klemmen (now.hour < 12).
-            past_midnight_in_window = (
-                snap.now < discharge_start
-                and snap.now.hour < 12
-                and snap.sunrise is not None
-                and snap.now < snap.sunrise
-                and (snap.sunrise - snap.now).total_seconds() < 12 * 3600
-            )
-            if snap.now < discharge_start and not past_midnight_in_window:
-                blocked_by.append(REASON_BEFORE_DISCHARGE_START)
-
-            # Hard-Cutoff dynamisch — siehe compute_hard_cutoff.
-            cutoff = compute_hard_cutoff(snap.now, snap.sunrise)
-            if past_midnight_in_window and snap.now >= cutoff:
-                blocked_by.append(REASON_HARD_CUTOFF_AFTER_4AM)
-
-        # Hysteresis: SOC-Schwelle anheben falls schon einmal aktiv und deaktiviert.
-        # REASON_HYSTERESIS_STRICT wird nur gemeinsam mit dem SOC-Resultat gesetzt
-        # (begleitende Modifier-Markierung — nicht eigenständig blockierend).
-        effective_min_soc = min_soc + 5 if is_reactivation else min_soc
-
-        if snap.battery_soc <= effective_min_soc:
-            if is_reactivation:
-                blocked_by.append(REASON_HYSTERESIS_STRICT)
-            blocked_by.append(REASON_SOC_BELOW_MIN)
-        else:
-            if is_reactivation:
-                passing.append(REASON_HYSTERESIS_STRICT)
-            passing.append(REASON_SOC_ABOVE_MIN)
-
-        # Tomorrow surplus check (D-09)
-        # Tomorrow demand = daylight consumption (mit Safety-Buffer) + battery charge needed
-        # Nur Tageslicht-Verbrauch konkurriert mit PV; Abendverbrauch deckt die geladene Batterie.
-        consumption_with_buffer = snap.consumption_tomorrow_daylight_kwh * (1 + self._safety_buffer_pct / 100)
-        battery_charge_needed = (
-            (100 - self._min_soc) / 100 * snap.battery_capacity_kwh * snap.sim_factor
-        )
-        tomorrow_demand = consumption_with_buffer + battery_charge_needed
-        pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
-
-        if pv_tomorrow < tomorrow_demand:
-            blocked_by.append(REASON_TOMORROW_PV_INSUFFICIENT)
-        else:
-            passing.append(REASON_TOMORROW_PV_SUFFICIENT)
-
-        # Grid import watchdog (nur SolarEdge): falls Entladung heute abgebrochen wurde
-        if self._is_solaredge:
-            if self._discharge_aborted_date == today_str:
-                blocked_by.append(REASON_DISCHARGE_ABORTED_TODAY)
-
-        # Mutual-Exclusion-Invariante: bei Pass werden passing-Keys reasons,
-        # bei Block bleibt reasons leer und blocked_by führt die Liste.
-        if not blocked_by:
-            return (True, min_soc, passing, [], is_reactivation)
-        return (False, min_soc, [], blocked_by, is_reactivation)
 
     def _evaluate(self, snap: Snapshot, mode: str) -> Decision:
         """Evaluate snapshot and produce a Decision."""
@@ -1693,21 +1523,18 @@ class EEGOptimizer:
                     f"{ps_plan[1].strftime('%H:%M')} (PeakShare)"
                 )
             else:
-                # Slot-spezifische Fixzeit-Fallback (Phase 11.1-02)
-                if active_slot == "B":
+                # Slot-spezifische Fixzeit-Fallback
+                if active_slot == "B" or (
+                    self._enable_slot_b and not self._enable_slot_a
+                ):
                     nächste_aktion = (
                         f"{slot_label} {self._discharge_b_start_h:02d}:"
                         f"{self._discharge_b_start_m:02d}"
                     )
-                elif active_slot == "A" and self._enable_dual_discharge:
+                else:
                     nächste_aktion = (
                         f"{slot_label} {self._discharge_a_start_h:02d}:"
                         f"{self._discharge_a_start_m:02d}"
-                    )
-                else:
-                    nächste_aktion = (
-                        f"{slot_label} {self._discharge_start_h:02d}:"
-                        f"{self._discharge_start_m:02d}"
                     )
         else:
             nächste_aktion = "Normalbetrieb"
@@ -1854,23 +1681,18 @@ class EEGOptimizer:
                     f"{decision.discharge_window_start}-"
                     f"{decision.discharge_window_end}"
                 )
-            # Slot-spezifische Startzeit (Phase 11.1-02): zeige die echte Slot-
-            # Startzeit statt der Legacy `_discharge_start_h/m`-Felder, die im
-            # Dual-Mode irrelevant sind.
-            if decision.discharge_active_slot == "A":
-                lines.append(
-                    f"- Startzeit: {self._discharge_a_start_h:02d}:"
-                    f"{self._discharge_a_start_m:02d}"
-                )
-            elif decision.discharge_active_slot == "B":
+            # Slot-spezifische Startzeit
+            if decision.discharge_active_slot == "B" or (
+                self._enable_slot_b and not self._enable_slot_a
+            ):
                 lines.append(
                     f"- Startzeit: {self._discharge_b_start_h:02d}:"
                     f"{self._discharge_b_start_m:02d}"
                 )
             else:
                 lines.append(
-                    f"- Startzeit: {self._discharge_start_h:02d}:"
-                    f"{self._discharge_start_m:02d}"
+                    f"- Startzeit: {self._discharge_a_start_h:02d}:"
+                    f"{self._discharge_a_start_m:02d}"
                 )
             lines.append(f"- Leistung: {decision.entladeleistung_kw:.1f} kW")
             lines.append(f"- Ziel-SOC: {decision.min_soc_berechnet:.0f}%")
@@ -1883,8 +1705,9 @@ class EEGOptimizer:
             )
             lines.append("")
 
-        # Phase 11: Slot-Konfigurations-Übersicht (nur wenn Dual-Mode aktiv)
-        if self._enable_dual_discharge and not self._is_solaredge:
+        # Slot-Konfigurations-Übersicht (nur non-SolarEdge — bei SolarEdge
+        # ist immer genau ein Slot aktiv, Übersicht wäre redundant).
+        if not self._is_solaredge:
             lines.append("### Slot-Konfiguration")
             lines.append(
                 f"- Slot A: {'aktiv' if self._enable_slot_a else 'deaktiviert'} "

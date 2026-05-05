@@ -100,17 +100,15 @@ const WIZARD_DEFAULTS = {
   morning_start_offset: 0,
   morning_end_time: "11:00",
   enable_night_discharge: true,
-  // Phase 11: Dual-Window-Defaults (nicht-SolarEdge → Dual=ON; SolarEdge wird im Save-Path normalisiert)
-  enable_dual_discharge: true,
+  // Phase 12: Slot-A/B-Defaults (SolarEdge XOR im Save-Path normalisiert)
   enable_slot_a: true,
   enable_slot_b: true,
   discharge_a_start_time: "20:00",
   discharge_b_start_time: "03:00",
   discharge_b_end_cap: "07:00",
-  discharge_a_reserve_pct: 15,
+  discharge_a_reserve_pct: 5,
   enable_peakshare: true,
   peakshare_community: "BEG",
-  discharge_start_time: "01:00",
   discharge_power_kw: 5.0,
   min_soc: 10,
   safety_buffer_pct: 25,
@@ -856,8 +854,6 @@ class EegOptimizerPanel extends HTMLElement {
           target.enable_slot_a = false;
           target.enable_slot_b = true;
         }
-        // SolarEdge: dual_discharge bleibt false (Defense-in-depth). Backend setzt es ohnehin.
-        target.enable_dual_discharge = false;
         return;
       }
       const target = e.target.closest("[data-field]");
@@ -2993,13 +2989,14 @@ class EegOptimizerPanel extends HTMLElement {
     const isExpert = this._wizardData.expert_mode;
     const morningFields = mDelay ? `
       <div class="feature-params">
+        ${isExpert ? `
         <div class="field-group">
           <label>Vorlaufzeit vor Sonnenaufgang (Std.)</label>
           <input type="number" data-field="morning_start_offset"
                  value="${this._wizardData.morning_start_offset ?? 0}"
                  min="0" max="3" step="0.5" style="width:80px">
           <div class="help-text">So viele Stunden vor Sonnenaufgang beginnt die Ladeblockierung. 0 = ab Sonnenaufgang.</div>
-        </div>
+        </div>` : ""}
         <div class="field-group">
           <label>Batterieladung blockiert bis maximal</label>
           <input type="text" data-field="morning_end_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
@@ -3021,23 +3018,10 @@ class EegOptimizerPanel extends HTMLElement {
         </div>`;
     })();
 
-    // Phase 11: Dual-Window-Konfiguration
+    // Phase 12: Slot-A/B-Konfiguration (Dual-Master-Toggle entfernt)
     const isSolarEdge = this._wizardData.inverter_type === "solaredge_storedge";
-    const dualOn = !!this._wizardData.enable_dual_discharge;
     const slotA = !!this._wizardData.enable_slot_a;
     const slotB = !!this._wizardData.enable_slot_b;
-
-    const dualMasterToggle = isSolarEdge ? "" : `
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px">
-        <input type="checkbox" data-field="enable_dual_discharge" ${dualOn ? "checked" : ""}>
-        <div>
-          <div style="font-weight:500">Dual-Window-Entladung</div>
-          <div class="help-text" style="margin-top:2px">
-            Zwei unabh\u00e4ngige Entladefenster: Slot A abends (~20:00 bis nach Mitternacht) und Slot B morgens (~03:00 bis vor Sonnenaufgang). Maximiert EEG-Bedarfsabdeckung in beiden Tagesperioden.
-          </div>
-        </div>
-      </label>
-    `;
 
     const solarEdgeXorRadio = isSolarEdge ? `
       <div class="field-group" title="NVRAM-Verschlei\u00df: nur ein Slot pro Tag m\u00f6glich">
@@ -3047,22 +3031,26 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
         <label style="display:block;margin-bottom:6px">
           <input type="radio" name="solaredge_slot" data-field-radio="slot_a" ${slotA && !slotB ? "checked" : ""}>
-          Slot A \u2014 Abend (Default)
+          Slot A \u2014 Abend (Default): entl\u00e4dt in den EEG-Abendpeak (~20:00 bis Mitternacht).
         </label>
         <label style="display:block">
           <input type="radio" name="solaredge_slot" data-field-radio="slot_b" ${slotB && !slotA ? "checked" : ""}>
-          Slot B \u2014 Morgen
+          Slot B \u2014 Morgen: entl\u00e4dt in den EEG-Morgenpeak (~03:00 bis vor Sonnenaufgang).
         </label>
       </div>
     ` : "";
 
-    const slotAFields = (dualOn && !isSolarEdge) ? `
+    const slotAFields = (!isSolarEdge) ? `
       <div class="feature-params" style="border-left:3px solid var(--primary-color);padding-left:12px;margin-bottom:12px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;margin-bottom:4px">
           <input type="checkbox" data-field="enable_slot_a" ${slotA ? "checked" : ""}>
-          <span style="font-weight:500">Slot A \u2014 Abend</span>
+          <div>
+            <div style="font-weight:500">Slot A \u2014 Abend</div>
+            <div class="help-text" style="margin-top:2px">Entl\u00e4dt in den EEG-Abendpeak (~20:00 bis Mitternacht).</div>
+          </div>
         </label>
-        <div class="field-group">
+        ${isExpert ? `
+        <div class="field-group" style="margin-top:8px">
           <label>Slot-A-Start</label>
           <input type="text" data-field="discharge_a_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${this._wizardData.discharge_a_start_time || "20:00"}" style="width:80px">
@@ -3071,19 +3059,23 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="field-group">
           <label>Reserve f\u00fcr Slot B (%)</label>
           <input type="number" data-field="discharge_a_reserve_pct" min="0" max="50" step="1"
-                 value="${this._wizardData.discharge_a_reserve_pct ?? 15}" style="width:80px">
-          <div class="help-text">SOC-Reserve in Prozent, die Slot A f\u00fcr Slot B aufhebt. Default 15%.</div>
-        </div>
+                 value="${this._wizardData.discharge_a_reserve_pct ?? 5}" style="width:80px">
+          <div class="help-text">SOC-Reserve in Prozent, die Slot A f\u00fcr Slot B aufhebt. Default 5%.</div>
+        </div>` : ""}
       </div>
     ` : "";
 
-    const slotBFields = (dualOn && !isSolarEdge) ? `
+    const slotBFields = (!isSolarEdge) ? `
       <div class="feature-params" style="border-left:3px solid var(--accent-color);padding-left:12px;margin-bottom:12px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;margin-bottom:4px">
           <input type="checkbox" data-field="enable_slot_b" ${slotB ? "checked" : ""}>
-          <span style="font-weight:500">Slot B \u2014 Morgen</span>
+          <div>
+            <div style="font-weight:500">Slot B \u2014 Morgen</div>
+            <div class="help-text" style="margin-top:2px">Entl\u00e4dt in den EEG-Morgenpeak (~03:00 bis vor Sonnenaufgang).</div>
+          </div>
         </label>
-        <div class="field-group">
+        ${isExpert ? `
+        <div class="field-group" style="margin-top:8px">
           <label>Slot-B-Start</label>
           <input type="text" data-field="discharge_b_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${this._wizardData.discharge_b_start_time || "03:00"}" style="width:80px">
@@ -3094,16 +3086,12 @@ class EegOptimizerPanel extends HTMLElement {
           <input type="text" data-field="discharge_b_end_cap" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${this._wizardData.discharge_b_end_cap || "07:00"}" style="width:80px">
           <div class="help-text">Maximales Ende der Morgen-Entladung. Wird automatisch auf Sonnenaufgang\u22125min gek\u00fcrzt, falls SA fr\u00fcher liegt. Default 07:00.</div>
-        </div>
+        </div>` : ""}
       </div>
     ` : "";
 
     const dischargeFields = nDischarge ? `
       <div class="feature-params">
-        ${dualMasterToggle}
-        ${solarEdgeXorRadio}
-        ${slotAFields}
-        ${slotBFields}
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px">
           <input type="checkbox" data-field="enable_peakshare" ${peakshare ? "checked" : ""}>
           <div>
@@ -3112,14 +3100,9 @@ class EegOptimizerPanel extends HTMLElement {
           </div>
         </label>
         ${peakshare ? peakshareCommunitiesHtml : ""}
-        <div class="field-group">
-          <label>Frühester Entladestart</label>
-          <input type="text" data-field="discharge_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
-                 value="${this._wizardData.discharge_start_time}" style="width:80px">
-          <div class="help-text">${peakshare
-            ? "Untergrenze für das automatisch berechnete Fenster — PeakShare darf später starten, aber nie früher. Empfehlung 01:00: je später der Start, desto präziser die Verbrauchsprognose und desto mehr wird eingespeist."
-            : "Genauer Startzeitpunkt der Entladung. Empfehlung 01:00: je später der Start, desto präziser die Verbrauchsprognose und desto mehr wird eingespeist."}</div>
-        </div>
+        ${solarEdgeXorRadio}
+        ${slotAFields}
+        ${slotBFields}
         <div class="field-group">
           <label>Entladeleistung (kW)</label>
           <input type="number" data-field="discharge_power_kw"
@@ -3274,7 +3257,7 @@ class EegOptimizerPanel extends HTMLElement {
       <div class="summary-section">
         <h3>Morgen-Einspeisung</h3>
         ${row("Status", d.enable_morning_delay ? "Aktiv" : "Deaktiviert")}
-        ${d.enable_morning_delay ? row("Vorlaufzeit", (d.morning_start_offset || 0) + " Std. vor Sonnenaufgang") : ""}
+        ${d.enable_morning_delay && (d.morning_start_offset || 0) > 0 ? row("Vorlaufzeit", d.morning_start_offset + " Std. vor Sonnenaufgang") : ""}
         ${d.enable_morning_delay ? row("Blockiert bis", d.morning_end_time) : ""}
       </div>
 
@@ -3282,13 +3265,17 @@ class EegOptimizerPanel extends HTMLElement {
         <h3>Abend-Entladung</h3>
         ${row("Status", d.enable_night_discharge ? "Aktiv" : "Deaktiviert")}
         ${d.enable_night_discharge ? `
+          ${(() => {
+            const slotsActive = [];
+            if (d.enable_slot_a) slotsActive.push("Slot A (Abend)");
+            if (d.enable_slot_b) slotsActive.push("Slot B (Morgen)");
+            return row("Slots", slotsActive.length ? slotsActive.join(" + ") : "—");
+          })()}
           ${d.enable_peakshare !== false ? `
             ${row("Modus", "PeakShare-Bedarfssteuerung")}
             ${row("Deine Energiegemeinschaft", d.peakshare_community || "BEG")}
-          ` : `
-            ${row("Startzeit", d.discharge_start_time)}
-            ${row("Leistung", d.discharge_power_kw + " kW")}
-          `}
+          ` : ""}
+          ${row("Leistung", d.discharge_power_kw + " kW")}
           ${row("Min SOC", d.min_soc + " %")}
         ` : ""}
       </div>
@@ -3311,13 +3298,14 @@ class EegOptimizerPanel extends HTMLElement {
 
     const morningFields = mDelay ? `
       <div class="feature-params">
+        ${isExpert ? `
         <div class="field-group">
           <label>Vorlaufzeit vor Sonnenaufgang (Std.)</label>
           <input type="number" data-field="settings_morning_start_offset"
                  value="${d.morning_start_offset ?? 0}"
                  min="0" max="3" step="0.5" style="width:80px">
           <div class="help-text">So viele Stunden vor Sonnenaufgang beginnt die Ladeblockierung. 0 = ab Sonnenaufgang.</div>
-        </div>
+        </div>` : ""}
         <div class="field-group">
           <label>Batterieladung blockiert bis maximal</label>
           <input type="text" data-field="settings_morning_end_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
@@ -3339,23 +3327,10 @@ class EegOptimizerPanel extends HTMLElement {
         </div>`;
     })();
 
-    // Phase 11: Dual-Window-Konfiguration (Settings-Tab evening, settings_*-Präfix)
+    // Phase 12: Slot-A/B-Konfiguration (Settings-Tab evening, settings_*-Präfix)
     const settingsIsSolarEdge = d.inverter_type === "solaredge_storedge";
-    const settingsDualOn = !!d.enable_dual_discharge;
     const settingsSlotA = !!d.enable_slot_a;
     const settingsSlotB = !!d.enable_slot_b;
-
-    const settingsDualMasterToggle = settingsIsSolarEdge ? "" : `
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px">
-        <input type="checkbox" data-field="settings_enable_dual_discharge" ${settingsDualOn ? "checked" : ""}>
-        <div>
-          <div style="font-weight:500">Dual-Window-Entladung</div>
-          <div class="help-text" style="margin-top:2px">
-            Zwei unabhängige Entladefenster: Slot A abends (~20:00 bis nach Mitternacht) und Slot B morgens (~03:00 bis vor Sonnenaufgang). Maximiert EEG-Bedarfsabdeckung in beiden Tagesperioden.
-          </div>
-        </div>
-      </label>
-    `;
 
     const settingsSolarEdgeXorRadio = settingsIsSolarEdge ? `
       <div class="field-group" title="NVRAM-Verschleiß: nur ein Slot pro Tag möglich">
@@ -3365,22 +3340,26 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
         <label style="display:block;margin-bottom:6px">
           <input type="radio" name="solaredge_slot" data-field-radio="settings_slot_a" ${settingsSlotA && !settingsSlotB ? "checked" : ""}>
-          Slot A — Abend (Default)
+          Slot A — Abend (Default): entlädt in den EEG-Abendpeak (~20:00 bis Mitternacht).
         </label>
         <label style="display:block">
           <input type="radio" name="solaredge_slot" data-field-radio="settings_slot_b" ${settingsSlotB && !settingsSlotA ? "checked" : ""}>
-          Slot B — Morgen
+          Slot B — Morgen: entlädt in den EEG-Morgenpeak (~03:00 bis vor Sonnenaufgang).
         </label>
       </div>
     ` : "";
 
-    const settingsSlotAFields = (settingsDualOn && !settingsIsSolarEdge) ? `
+    const settingsSlotAFields = (!settingsIsSolarEdge) ? `
       <div class="feature-params" style="border-left:3px solid var(--primary-color);padding-left:12px;margin-bottom:12px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;margin-bottom:4px">
           <input type="checkbox" data-field="settings_enable_slot_a" ${settingsSlotA ? "checked" : ""}>
-          <span style="font-weight:500">Slot A — Abend</span>
+          <div>
+            <div style="font-weight:500">Slot A — Abend</div>
+            <div class="help-text" style="margin-top:2px">Entlädt in den EEG-Abendpeak (~20:00 bis Mitternacht).</div>
+          </div>
         </label>
-        <div class="field-group">
+        ${isExpert ? `
+        <div class="field-group" style="margin-top:8px">
           <label>Slot-A-Start</label>
           <input type="text" data-field="settings_discharge_a_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${d.discharge_a_start_time || "20:00"}" style="width:80px">
@@ -3389,19 +3368,23 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="field-group">
           <label>Reserve für Slot B (%)</label>
           <input type="number" data-field="settings_discharge_a_reserve_pct" min="0" max="50" step="1"
-                 value="${d.discharge_a_reserve_pct ?? 15}" style="width:80px">
-          <div class="help-text">SOC-Reserve in Prozent, die Slot A für Slot B aufhebt. Default 15%.</div>
-        </div>
+                 value="${d.discharge_a_reserve_pct ?? 5}" style="width:80px">
+          <div class="help-text">SOC-Reserve in Prozent, die Slot A für Slot B aufhebt. Default 5%.</div>
+        </div>` : ""}
       </div>
     ` : "";
 
-    const settingsSlotBFields = (settingsDualOn && !settingsIsSolarEdge) ? `
+    const settingsSlotBFields = (!settingsIsSolarEdge) ? `
       <div class="feature-params" style="border-left:3px solid var(--accent-color);padding-left:12px;margin-bottom:12px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;margin-bottom:4px">
           <input type="checkbox" data-field="settings_enable_slot_b" ${settingsSlotB ? "checked" : ""}>
-          <span style="font-weight:500">Slot B — Morgen</span>
+          <div>
+            <div style="font-weight:500">Slot B — Morgen</div>
+            <div class="help-text" style="margin-top:2px">Entlädt in den EEG-Morgenpeak (~03:00 bis vor Sonnenaufgang).</div>
+          </div>
         </label>
-        <div class="field-group">
+        ${isExpert ? `
+        <div class="field-group" style="margin-top:8px">
           <label>Slot-B-Start</label>
           <input type="text" data-field="settings_discharge_b_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${d.discharge_b_start_time || "03:00"}" style="width:80px">
@@ -3412,16 +3395,12 @@ class EegOptimizerPanel extends HTMLElement {
           <input type="text" data-field="settings_discharge_b_end_cap" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${d.discharge_b_end_cap || "07:00"}" style="width:80px">
           <div class="help-text">Maximales Ende der Morgen-Entladung. Wird automatisch auf Sonnenaufgang−5min gekürzt, falls SA früher liegt. Default 07:00.</div>
-        </div>
+        </div>` : ""}
       </div>
     ` : "";
 
     const dischargeFields = nDischarge ? `
       <div class="feature-params">
-        ${settingsDualMasterToggle}
-        ${settingsSolarEdgeXorRadio}
-        ${settingsSlotAFields}
-        ${settingsSlotBFields}
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px">
           <input type="checkbox" data-field="settings_enable_peakshare" ${settingsPeakshare ? "checked" : ""}>
           <div>
@@ -3430,14 +3409,9 @@ class EegOptimizerPanel extends HTMLElement {
           </div>
         </label>
         ${settingsPeakshare ? settingsPeakshareCommunitiesHtml : ""}
-        <div class="field-group">
-          <label>Frühester Entladestart</label>
-          <input type="text" data-field="settings_discharge_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
-                 value="${d.discharge_start_time || "01:00"}" style="width:80px">
-          <div class="help-text">${settingsPeakshare
-            ? "Untergrenze für das automatisch berechnete Fenster — PeakShare darf später starten, aber nie früher. Empfehlung 01:00: je später der Start, desto präziser die Verbrauchsprognose und desto mehr wird eingespeist."
-            : "Genauer Startzeitpunkt der Entladung. Empfehlung 01:00: je später der Start, desto präziser die Verbrauchsprognose und desto mehr wird eingespeist."}</div>
-        </div>
+        ${settingsSolarEdgeXorRadio}
+        ${settingsSlotAFields}
+        ${settingsSlotBFields}
         <div class="field-group">
           <label>Entladeleistung (kW)</label>
           <input type="number" data-field="settings_discharge_power_kw"
@@ -5094,8 +5068,8 @@ class EegOptimizerPanel extends HTMLElement {
     const sunriseHour = Number(profilState?.attributes?.sunrise_hour ?? 6);
     const sunsetHour = Number(profilState?.attributes?.sunset_hour ?? 20);
     const dischargeStartHour = Number(profilState?.attributes?.discharge_start_hour
-      ?? (this._config?.discharge_start_time
-        ? parseInt(String(this._config.discharge_start_time).split(":")[0], 10)
+      ?? (this._config?.discharge_a_start_time
+        ? parseInt(String(this._config.discharge_a_start_time).split(":")[0], 10)
         : 20));
     const nightEndDecimal = Number(profilState?.attributes?.night_end_decimal
       ?? (sunriseHour + 1));

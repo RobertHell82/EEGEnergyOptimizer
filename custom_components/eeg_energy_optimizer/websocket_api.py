@@ -423,15 +423,9 @@ async def ws_save_config(
         discharge_kw = new_data.get("discharge_power_kw")
         if discharge_kw is not None and float(discharge_kw) < 5.0:
             new_data["discharge_power_kw"] = 5.0
-        # Phase 11: SolarEdge bleibt Single-Slot (NVRAM-Verschleiß).
-        # Defense-in-depth Layer 2: Save-Path normalisiert die Konfiguration,
-        # auch wenn Migration (Layer 1) und Runtime-Force im Optimizer
-        # (Layer 3) bereits greifen.
-        if new_data.get("enable_dual_discharge"):
-            _LOGGER.warning(
-                "SolarEdge: enable_dual_discharge=True nicht erlaubt — auf False gesetzt"
-            )
-            new_data["enable_dual_discharge"] = False
+        # SolarEdge: NVRAM-Verschleiß-Schutz — XOR Slot A oder B.
+        # Defense-in-depth Layer 2 (Save-Path); Optimizer-__init__ wiederholt
+        # die Normalisierung als Runtime-Force.
         if new_data.get("enable_slot_a") and new_data.get("enable_slot_b"):
             _LOGGER.warning(
                 "SolarEdge: nur ein Slot erlaubt — Slot A bevorzugt"
@@ -481,15 +475,10 @@ async def ws_save_config(
             and new_data.get(CONF_GRID_POWER_IMPORT_SENSOR)):
         new_data[CONF_GRID_POWER_SENSOR] = COMBINED_GRID_POWER_SENSOR_ID
 
-    # Phase 11: Inverter-Race-Schutz (≥5min zwischen Slot-A-Min-Ende und
-    # Slot-B-Start). Auto-Korrektur (NICHT Hard-Reject) — konsistent mit
-    # SolarEdge-5kW-Clamp-Pattern weiter oben. Nur aktiv im Dual-Mode mit
-    # beiden Slots an. SolarEdge ist hier nicht relevant (XOR oben greift).
-    if (
-        new_data.get("enable_dual_discharge")
-        and new_data.get("enable_slot_a")
-        and new_data.get("enable_slot_b")
-    ):
+    # Inverter-Race-Schutz (≥5min zwischen Slot-A-Min-Ende und Slot-B-Start).
+    # Auto-Korrektur (NICHT Hard-Reject) — konsistent mit SolarEdge-5kW-Clamp.
+    # Nur relevant wenn beide Slots aktiv (SolarEdge XOR oben greift davor).
+    if new_data.get("enable_slot_a") and new_data.get("enable_slot_b"):
         try:
             a_start_min = _parse_hhmm(
                 new_data.get("discharge_a_start_time", "20:00")

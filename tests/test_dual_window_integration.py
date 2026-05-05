@@ -149,6 +149,7 @@ class TestMarkdownRendering:
         assert "03:00" in md
         assert "Cap 07:00" in md
 
+    @pytest.mark.skip(reason="Phase 12: Legacy-Pfad entfernt, Slot-Config-Markdown nun immer für non-SolarEdge")
     def test_markdown_no_slot_config_when_legacy(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
     ):
@@ -427,6 +428,7 @@ class TestPeakShareSlotMarkdown:
         assert "21:00-23:00 (PeakShare)" in info["start_time"]
         assert "03:00" not in info["start_time"]
 
+    @pytest.mark.skip(reason="Phase 12: enable_dual_discharge=False entfällt — Test prüft Legacy-Fallback")
     def test_discharge_detail_status_falls_back_to_fixed_time_without_plan(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
     ):

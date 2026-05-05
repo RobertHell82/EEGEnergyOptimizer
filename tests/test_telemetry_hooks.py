@@ -303,6 +303,7 @@ async def test_v12_to_v13_migration_adds_telemetry_enabled():
     assert entry.version >= 13
 
 
+@pytest.mark.skip(reason="Phase 12: discharge_start_time aus Schema entfernt; v16-Migration entfernt es")
 @pytest.mark.asyncio
 async def test_v13_to_v14_migration_hard_sets_discharge_start_to_01_00():
     from custom_components.eeg_energy_optimizer import async_migrate_entry
@@ -331,6 +332,7 @@ async def test_v13_to_v14_migration_hard_sets_discharge_start_to_01_00():
     assert entry.data["telemetry_enabled"] is True
 
 
+@pytest.mark.skip(reason="Phase 12: discharge_start_time aus Schema entfernt; v16-Migration entfernt es")
 @pytest.mark.asyncio
 async def test_v13_to_v14_migration_overrides_old_default_too():
     """Auch User mit altem Default 20:00 werden auf 01:00 gehoben."""
