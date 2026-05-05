@@ -10,10 +10,15 @@ Adressiert:
 - D-10: Decision.discharge_active_slot durchgereicht
 - SPEC §7 (Telemetry-Reasons im Activity-Log konsistent)
 - SPEC §8 (Independent Slot-Aktivierung im _evaluate-Pfad)
+
+Phase 11.1-02 ergänzt:
+- TestPeakShareSlotMarkdown: Slot-aware UI-Output (Status-Card-Startzeit,
+  naechste_aktion-Text, Markdown-PeakShare-Marker)
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -326,3 +331,334 @@ class TestActivityLogSlotContext:
             }
             assert "discharge_active_slot" in entry_data
             assert entry_data["discharge_active_slot"] == slot
+
+
+# ---------------------------------------------------------------------------
+# TestPeakShareSlotMarkdown — Phase 11.1-02
+# ---------------------------------------------------------------------------
+
+class TestPeakShareSlotMarkdown:
+    """Phase 11.1-02: End-to-End-Test für Slot-aware PeakShare-UI-Output.
+
+    Drei Stellen werden geprüft:
+      (A) `_discharge_detail_status` liest den passenden Slot-Plan
+          (`a` vs `b`), nicht mehr hartkodiert "a".
+      (B) `naechste_aktion`-Text zeigt slot-spezifische PeakShare-Times mit
+          dem korrekten Slot-Label (Abend-Entladung vs Morgen-Entladung).
+      (C) `_build_markdown` enthält einen `PeakShare-Fenster: HH:MM-HH:MM`-
+          Marker im Slot-Header, wenn Plan aktiv ist.
+    """
+
+    # ----- (A) _discharge_detail_status -----
+
+    def test_discharge_detail_status_shows_slot_b_plan_when_b_active(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Mit `active_slot='B'` zeigt `start_time` Slot-B-Plan-Times.
+
+        Plan-Lookup muss `slot_key = "b"` benutzen, nicht hartkodiert "a".
+        """
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True, enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+            enable_peakshare=True,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        now = datetime(2026, 12, 22, 3, 30, tzinfo=timezone.utc)
+        plan_a = (
+            datetime(2026, 12, 21, 21, 0, tzinfo=timezone.utc),
+            datetime(2026, 12, 21, 23, 0, tzinfo=timezone.utc),
+        )
+        plan_b = (
+            datetime(2026, 12, 22, 3, 0, tzinfo=timezone.utc),
+            datetime(2026, 12, 22, 4, 0, tzinfo=timezone.utc),
+        )
+        ps = MagicMock()
+        ps._discharge_plan = {"a": plan_a, "b": plan_b}
+        ps._discharge_plan_date = "2026-12-22"
+        opt._peakshare = ps
+        opt._enable_peakshare = True
+        snap = _make_snapshot(now=now, battery_soc=70.0)
+        info = opt._discharge_detail_status(
+            snap, should_discharge=True, min_soc=20.0,
+            discharge_blocked_by=[], active_slot="B",
+        )
+        assert "03:00-04:00 (PeakShare)" in info["start_time"]
+        # Sicherheitscheck: keine Verwechslung mit Slot-A-Plan
+        assert "21:00" not in info["start_time"]
+
+    def test_discharge_detail_status_shows_slot_a_plan_when_a_active(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Mit `active_slot='A'` zeigt `start_time` Slot-A-Plan-Times."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True, enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+            enable_peakshare=True,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        now = datetime(2026, 12, 21, 21, 30, tzinfo=timezone.utc)
+        plan_a = (
+            datetime(2026, 12, 21, 21, 0, tzinfo=timezone.utc),
+            datetime(2026, 12, 21, 23, 0, tzinfo=timezone.utc),
+        )
+        plan_b = (
+            datetime(2026, 12, 22, 3, 0, tzinfo=timezone.utc),
+            datetime(2026, 12, 22, 4, 0, tzinfo=timezone.utc),
+        )
+        ps = MagicMock()
+        ps._discharge_plan = {"a": plan_a, "b": plan_b}
+        ps._discharge_plan_date = "2026-12-21"
+        opt._peakshare = ps
+        opt._enable_peakshare = True
+        snap = _make_snapshot(now=now, battery_soc=80.0)
+        info = opt._discharge_detail_status(
+            snap, should_discharge=True, min_soc=20.0,
+            discharge_blocked_by=[], active_slot="A",
+        )
+        assert "21:00-23:00 (PeakShare)" in info["start_time"]
+        assert "03:00" not in info["start_time"]
+
+    def test_discharge_detail_status_falls_back_to_fixed_time_without_plan(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Ohne Plan → `start_time` zeigt Fixzeit, kein `(PeakShare)`-Marker."""
+        cfg = _make_config(
+            enable_dual_discharge=False,
+            enable_peakshare=False,
+            discharge_start_time="22:15",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc),
+            battery_soc=70.0,
+        )
+        info = opt._discharge_detail_status(
+            snap, should_discharge=False, min_soc=20.0,
+            discharge_blocked_by=[], active_slot=None,
+        )
+        assert info["start_time"] == "22:15"
+        assert "PeakShare" not in info["start_time"]
+
+    def test_discharge_detail_status_slot_b_fallback_uses_b_start_time(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Im Dual-Mode ohne Plan zeigt der Fallback bei Slot B die Slot-B-Startzeit
+        (nicht den Legacy `_discharge_start_h/m`-Wert, der irrelevant ist)."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True, enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:30",
+            enable_peakshare=False,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 22, 3, 45, tzinfo=timezone.utc),
+            battery_soc=70.0,
+        )
+        info = opt._discharge_detail_status(
+            snap, should_discharge=True, min_soc=20.0,
+            discharge_blocked_by=[], active_slot="B",
+        )
+        assert info["start_time"] == "03:30"
+
+    # ----- (B) naechste_aktion-Text -----
+
+    def test_naechste_aktion_text_shows_slot_b_peakshare_window(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider, real_now,
+    ):
+        """`naechste_aktion` bei aktivem Slot B zeigt 'Morgen-Entladung HH:MM-HH:MM (PeakShare)'."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=False, enable_slot_b=True,
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+            enable_peakshare=True,
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        opt._startup_time = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        now = datetime(2026, 12, 22, 3, 30, tzinfo=timezone.utc)
+        plan_b = (
+            datetime(2026, 12, 22, 3, 0, tzinfo=timezone.utc),
+            datetime(2026, 12, 22, 4, 0, tzinfo=timezone.utc),
+        )
+        ps = MagicMock()
+        ps._discharge_plan = {"a": None, "b": plan_b}
+        ps._discharge_plan_date = "2026-12-22"
+        ps.get_discharge_plan = MagicMock(return_value=plan_b)
+        opt._peakshare = ps
+        opt._enable_peakshare = True
+        opt._peakshare_community = "Testgemeinde"
+        opt._slot_b_activated_date = None
+
+        snap = _make_snapshot(
+            now=now, battery_soc=80.0, battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 22, 7, 30, tzinfo=timezone.utc),
+            consumption_overnight_kwh=1.0,
+            consumption_tomorrow_daylight_kwh=5.0,
+            pv_tomorrow_kwh=40.0,
+        )
+        decision = opt._evaluate(snap, mode="Test")
+
+        assert decision.discharge_active_slot == "B"
+        assert "Morgen-Entladung" in decision.nächste_aktion
+        assert "03:00-04:00 (PeakShare)" in decision.nächste_aktion
+
+    def test_naechste_aktion_text_shows_slot_a_peakshare_window(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider, real_now,
+    ):
+        """`naechste_aktion` bei aktivem Slot A zeigt 'Abend-Entladung HH:MM-HH:MM (PeakShare)'."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True, enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+            enable_peakshare=True,
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        opt._startup_time = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, 21, 30, tzinfo=timezone.utc)
+        plan_a = (
+            datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            datetime(2026, 6, 15, 23, 0, tzinfo=timezone.utc),
+        )
+        ps = MagicMock()
+        ps._discharge_plan = {"a": plan_a, "b": None}
+        ps._discharge_plan_date = "2026-06-15"
+        ps.get_discharge_plan = MagicMock(return_value=plan_a)
+        opt._peakshare = ps
+        opt._enable_peakshare = True
+        opt._peakshare_community = "Testgemeinde"
+        opt._slot_a_activated_date = None
+
+        snap = _make_snapshot(
+            now=now, battery_soc=80.0, battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 6, 15, 4, 52, tzinfo=timezone.utc),
+            consumption_overnight_kwh=1.0,
+            consumption_tomorrow_daylight_kwh=5.0,
+            pv_tomorrow_kwh=40.0,
+        )
+        decision = opt._evaluate(snap, mode="Test")
+
+        assert decision.discharge_active_slot == "A"
+        assert "Abend-Entladung" in decision.nächste_aktion
+        assert "21:00-23:00 (PeakShare)" in decision.nächste_aktion
+
+    # ----- (C) Markdown-PeakShare-Marker -----
+
+    def test_markdown_includes_peakshare_marker_when_slot_a_active(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Markdown enthält `PeakShare-Fenster: HH:MM-HH:MM` wenn Slot A
+        aktiv ist und ein Plan vorhanden ist."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True, enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 30, tzinfo=timezone.utc),
+            battery_soc=80.0,
+        )
+        decision = Decision()
+        decision.zustand = "Abend-Entladung"
+        decision.entladung_aktiv = True
+        decision.discharge_active_slot = "A"
+        decision.entladeleistung_kw = 5.0
+        decision.min_soc_berechnet = 25.0
+        decision.discharge_peakshare_active = True
+        decision.discharge_window_start = "21:00"
+        decision.discharge_window_end = "23:00"
+
+        md = opt._build_markdown(snap, decision)
+        assert "PeakShare-Fenster: 21:00-23:00" in md
+        assert "Aktiver Slot: A" in md
+        # Slot-spezifische Startzeit (a_start_time = 20:00) statt Legacy
+        assert "Startzeit: 20:00" in md
+
+    def test_markdown_includes_peakshare_marker_when_slot_b_active(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Markdown bei aktivem Slot B zeigt PeakShare-Marker + Slot-B-Startzeit."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True, enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 22, 3, 30, tzinfo=timezone.utc),
+            battery_soc=70.0,
+        )
+        decision = Decision()
+        decision.zustand = "Abend-Entladung"
+        decision.entladung_aktiv = True
+        decision.discharge_active_slot = "B"
+        decision.entladeleistung_kw = 5.0
+        decision.min_soc_berechnet = 25.0
+        decision.discharge_peakshare_active = True
+        decision.discharge_window_start = "03:00"
+        decision.discharge_window_end = "04:00"
+
+        md = opt._build_markdown(snap, decision)
+        assert "PeakShare-Fenster: 03:00-04:00" in md
+        assert "Aktiver Slot: B" in md
+        # Slot-B-Startzeit (b_start_time = 03:00)
+        assert "Startzeit: 03:00" in md
+
+    def test_markdown_no_peakshare_marker_when_no_plan(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Ohne Plan kein PeakShare-Marker — Slot-Marker bleibt unverändert."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True, enable_slot_b=True,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 30, tzinfo=timezone.utc),
+            battery_soc=80.0,
+        )
+        decision = Decision()
+        decision.zustand = "Abend-Entladung"
+        decision.entladung_aktiv = True
+        decision.discharge_active_slot = "A"
+        decision.entladeleistung_kw = 5.0
+        decision.min_soc_berechnet = 25.0
+        decision.discharge_peakshare_active = False
+        decision.discharge_window_start = ""
+        decision.discharge_window_end = ""
+
+        md = opt._build_markdown(snap, decision)
+        assert "PeakShare-Fenster" not in md
+        assert "Aktiver Slot: A" in md
