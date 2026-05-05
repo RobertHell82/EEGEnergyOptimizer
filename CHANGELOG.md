@@ -11,6 +11,29 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > User selbst macht Releases — dieser Eintrag ist DEV-Repo-only und wird beim Release-Sync übernommen.
 
+### Phase 11.1: PeakShare-Steuerung der Slot-A/B-Fenster
+
+**Neu:**
+- PeakShare optimiert jetzt auch im Dual-Window-Modus (Slot A + Slot B) das Entlade-Sub-Fenster INNERHALB der konfigurierten Slot-Zeiten. Beispiel: Slot A 20:00–03:00 → PeakShare findet automatisch das beste Sub-Fenster (z.B. 22:00–00:00), wenn der EEG-Bedarf dort am höchsten ist.
+- Slot A wird immer bevorzugt; Slot B nutzt die Reserve-Energie (siehe Default-Wechsel unten).
+- Pro Slot getrennt entscheidbar: Wenn PeakShare-Daten den Slot-Zeitraum nicht abdecken, fällt der betroffene Slot auf das Fixzeit-Verhalten zurück. Der andere Slot kann separat PeakShare-gesteuert laufen.
+
+**Verhaltensänderung beim Update:**
+- **Default für `discharge_a_reserve_pct` (Slot-A-Reserve für Slot B) wurde von 15 % auf 5 % gesenkt.** Bei aktiver PeakShare-Steuerung pro Slot bekommt Slot A das Hauptenergie-Budget; Slot B wird nur als kleine Morgen-Spitze bedient.
+- **Bestands-Setups behalten ihren bisher konfigurierten Wert** (kein Auto-Override; setdefault-Migration ändert nur Setups, die den Wert noch nicht explizit gesetzt haben).
+- User, die bewusst eine größere Slot-B-Energiereserve wollen, können `discharge_a_reserve_pct` weiterhin im Panel auf bis zu 50 % setzen (Voluptuous-Range unverändert).
+
+**Bug-Fix:**
+- PeakShare-Cache-Tageslock blockierte zuvor den zweiten Slot-Plan-Compute am selben Tag. Slot A und Slot B können jetzt unabhängig PeakShare-Pläne berechnen (Per-Slot-Compute-Tracking via `_discharge_plan_computed_dates`).
+
+**Schließt Spec-Lücke aus Phase 11:**
+- Phase 11 SPEC §"In scope" Z. 75 hatte "PeakShare-Integration für Dual-Mode (zwei separate Sliding-Window-Suchen, eine pro Slot, mit slot-spezifischem `available_kwh`)" zugesagt. Plan 11-02 hatte das Cache-Schema (dict[a/b]) vorbereitet, aber den eigentlichen PeakShare-Aufruf nie nachgereicht. Phase 11.1 schließt diese Lücke.
+
+**UI-Anzeige:**
+- Decision-Markdown zeigt im aktiven Slot den PeakShare-Window-Marker (z.B. „- PeakShare-Fenster: 22:00-00:00").
+- „Nächste Aktion"-Text zeigt slot-spezifische PeakShare-Window-Times (Slot A: „Abend-Entladung HH:MM-HH:MM (PeakShare)", Slot B: „Morgen-Entladung HH:MM-HH:MM (PeakShare)").
+- Status-Card-Startzeit ist slot-aware (Slot-A-Plan vs Slot-B-Plan abhängig vom aktiven Slot); Fixzeit-Fallback nutzt die Slot-spezifische Startzeit statt Legacy `discharge_start_time` im Dual-Mode.
+
 ### Verhaltensänderung beim Update
 
 Mit Phase 11 wird die **Dual-Window-Entladung** zum Standard für alle Wechselrichter außer SolarEdge. Bestands-Anlagen werden beim Update automatisch auf das neue Modell migriert (Config-Entry-Version-Bump v14 → v15).
