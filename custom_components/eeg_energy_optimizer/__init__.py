@@ -34,6 +34,7 @@ from .const import (
     COMBINED_BATTERY_POWER_SENSOR_ID,
     COMBINED_GRID_POWER_SENSOR_ID,
     CONSUMPTION_SENSOR,
+    DEFAULT_DISCHARGE_A_RESERVE_PCT,
     DEFAULT_LOOKBACK_WEEKS,
     FAILURE_DEDUP_WINDOW_S,
     FORECAST_NONE_STREAK_THRESHOLD,
@@ -870,7 +871,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data.setdefault("discharge_a_start_time", "20:00")
         new_data.setdefault("discharge_b_start_time", "03:00")
         new_data.setdefault("discharge_b_end_cap", "07:00")
-        new_data.setdefault("discharge_a_reserve_pct", 15)
+        new_data.setdefault("discharge_a_reserve_pct", DEFAULT_DISCHARGE_A_RESERVE_PCT)
         hass.config_entries.async_update_entry(entry, data=new_data, version=15)
 
     return True

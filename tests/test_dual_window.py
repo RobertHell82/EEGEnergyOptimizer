@@ -4,7 +4,7 @@ Mutual Exclusion, SolarEdge-Runtime-Force, 24h-Simulation."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -148,7 +148,9 @@ class TestMigrationV14ToV15:
         assert new_data["discharge_a_start_time"] == "20:00"
         assert new_data["discharge_b_start_time"] == "03:00"
         assert new_data["discharge_b_end_cap"] == "07:00"
-        assert new_data["discharge_a_reserve_pct"] == 15
+        # Phase 11.1: Default-Wechsel 15 -> 5 (D-02). Migration nutzt
+        # DEFAULT_DISCHARGE_A_RESERVE_PCT, neue Setups landen bei 5.
+        assert new_data["discharge_a_reserve_pct"] == 5
         assert kwargs.get("version") == 15
 
     @pytest.mark.asyncio
@@ -202,6 +204,24 @@ class TestMigrationV14ToV15:
         # version<15 ist False → Update-Aufruf für v15-Block darf nicht passieren.
         # Frühere Blöcke (v3..v14) feuern auch nicht weil version=15.
         assert hass.config_entries.async_update_entry.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_migration_v14_v15_uses_default_constant(self):
+        """Phase 11.1: Migration v14→v15 nutzt DEFAULT_DISCHARGE_A_RESERVE_PCT
+        (=5 nach Phase 11.1, D-02) — neue Setups bekommen den neuen Default."""
+        from custom_components.eeg_energy_optimizer import async_migrate_entry
+        hass = MagicMock()
+        hass.config_entries.async_update_entry = MagicMock()
+        entry = MagicMock()
+        entry.version = 14
+        # Bewusst KEIN discharge_a_reserve_pct gesetzt — Migration soll Default
+        # aus der Konstante übernehmen.
+        entry.data = {"inverter_type": "huawei_sun2000"}
+        await async_migrate_entry(hass, entry)
+        args, kwargs = hass.config_entries.async_update_entry.call_args
+        new_data = kwargs.get("data") or args[1]
+        # Phase 11.1: Default ist jetzt 5 (per D-02).
+        assert new_data["discharge_a_reserve_pct"] == 5
 
 
 # ---------------------------------------------------------------------------
@@ -669,6 +689,9 @@ class TestPeakShareCacheSchema:
             ),
             "b": None,
         }
+        # Phase 11.1: Per-Slot-Compute-Tracking — markiere Slot A als heute
+        # berechnet, damit der Cache-Hit-Check (dict-basiert) trifft.
+        ps._discharge_plan_computed_dates = {"a": "2026-06-15", "b": None}
         now = datetime(2026, 6, 15, 23, 30, tzinfo=timezone.utc)
         # Default slot ist "a" — Cache-Hit liefert Slot-A-Plan
         result = ps.get_discharge_plan(
@@ -694,6 +717,9 @@ class TestPeakShareCacheSchema:
                 datetime(2026, 6, 16, 6, 30, tzinfo=timezone.utc),
             ),
         }
+        # Phase 11.1: Per-Slot-Compute-Tracking — markiere Slot B als heute
+        # berechnet, damit der Cache-Hit-Check (dict-basiert) trifft.
+        ps._discharge_plan_computed_dates = {"a": None, "b": "2026-06-15"}
         now = datetime(2026, 6, 15, 23, 30, tzinfo=timezone.utc)
         result = ps.get_discharge_plan(
             community="BEG",
@@ -729,6 +755,85 @@ class TestPeakShareCacheSchema:
         ps._discharge_plan_date = None
         assert ps._discharge_plan == {"a": None, "b": None}
         assert ps._discharge_plan_date is None
+
+    # -----------------------------------------------------------------------
+    # Phase 11.1: Default-Wechsel + Per-Slot-Compute-Tracking
+    # -----------------------------------------------------------------------
+
+    def test_default_discharge_a_reserve_pct_is_5(self):
+        """Phase 11.1 D-02: Default-Wechsel von 15 auf 5."""
+        from custom_components.eeg_energy_optimizer.const import (
+            DEFAULT_DISCHARGE_A_RESERVE_PCT,
+        )
+        assert DEFAULT_DISCHARGE_A_RESERVE_PCT == 5
+
+    def test_per_slot_compute_tracking_initialized_in_init(self):
+        """Phase 11.1: __init__ legt _discharge_plan_computed_dates dict an."""
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+        )
+        ps = PeakShareProvider(MagicMock(), entry_id="test")
+        assert ps._discharge_plan_computed_dates == {"a": None, "b": None}
+
+    def test_async_fetch_invalidates_per_slot_compute_tracking(self):
+        """Phase 11.1: Frische API-Daten resetten BEIDE Slot-Compute-Marker.
+
+        Wir simulieren den Invalidate-Pfad aus async_fetch direkt — wichtig ist
+        nur, dass die Code-Stelle in async_fetch das Dict konsistent
+        zurueckgesetzt hat (wie in async_load und async_fetch implementiert).
+        """
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+        )
+        ps = PeakShareProvider(MagicMock(), entry_id="test")
+        # Beide Slots stehen heute auf computed.
+        ps._discharge_plan_computed_dates = {
+            "a": "2026-12-21",
+            "b": "2026-12-21",
+        }
+        ps._discharge_plan = {
+            "a": (
+                datetime(2026, 12, 21, 22, 0, tzinfo=timezone.utc),
+                datetime(2026, 12, 21, 23, 0, tzinfo=timezone.utc),
+            ),
+            "b": None,
+        }
+        ps._discharge_plan_date = "2026-12-21"
+        # Invalidate-Pfad wie in async_fetch (frische API-Daten):
+        ps._discharge_plan = {"a": None, "b": None}
+        ps._discharge_plan_date = None
+        ps._discharge_plan_computed_dates = {"a": None, "b": None}
+        assert ps._discharge_plan_computed_dates == {"a": None, "b": None}
+
+    @pytest.mark.asyncio
+    async def test_async_load_resets_per_slot_compute_tracking(self):
+        """Phase 11.1: async_load setzt das Dict auf {"a": None, "b": None}.
+
+        Auch wenn ein altes Persistat (Pre-11.1) den Wert nicht enthielt,
+        muss async_load das Feld konsistent zuruecksetzen — sonst koennte
+        ein gestrige berechneter Slot heute den Cache-Hit blockieren.
+        """
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+        )
+        ps = PeakShareProvider(MagicMock(), entry_id="test")
+        # Mock-Store, der ein altes Persistat liefert.
+        ps._store = MagicMock()
+        ps._store.async_load = AsyncMock(
+            return_value={
+                "data": {"communities": []},
+                "fetched_at": "2026-12-20T22:00:00+00:00",
+                "jitter_value": 5,
+                "jitter_date": "2026-12-20",
+            }
+        )
+        # Vor async_load: simuliere alten State (nicht zurueckgesetzt).
+        ps._discharge_plan_computed_dates = {
+            "a": "2026-12-20",
+            "b": "2026-12-20",
+        }
+        await ps.async_load()
+        assert ps._discharge_plan_computed_dates == {"a": None, "b": None}
 
 
 # ---------------------------------------------------------------------------

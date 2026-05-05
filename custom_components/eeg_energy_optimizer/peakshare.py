@@ -176,6 +176,14 @@ class PeakShareProvider:
             "b": None,
         }
         self._discharge_plan_date: str | None = None
+        # Phase 11.1: Per-Slot-Compute-Tracking — der gemeinsame Tageslock
+        # _discharge_plan_date verhinderte vorher, dass der zweite Slot am
+        # selben Tag berechnet wird (Tageslock-Bug). Mit dem dict-basierten
+        # Tracking kann jeder Slot unabhängig invalidiert / berechnet werden.
+        self._discharge_plan_computed_dates: dict[str, str | None] = {
+            "a": None,
+            "b": None,
+        }
 
     async def async_load(self) -> None:
         """Load persisted cache from Store on startup."""
@@ -203,6 +211,8 @@ class PeakShareProvider:
                 # vergiften (T-11-02-03 mitigation).
                 self._discharge_plan = {"a": None, "b": None}
                 self._discharge_plan_date = None
+                # Phase 11.1: Per-Slot-Compute-Tracking konsistent zurücksetzen.
+                self._discharge_plan_computed_dates = {"a": None, "b": None}
         except Exception:
             _LOGGER.debug("PeakShare: no persisted cache found")
 
@@ -248,6 +258,13 @@ class PeakShareProvider:
                             # Phase 11: dict-Schema (beide Slots werden neu berechnet).
                             self._discharge_plan = {"a": None, "b": None}
                             self._discharge_plan_date = None
+                            # Phase 11.1: Per-Slot-Compute-Tracking konsistent
+                            # zurücksetzen — sonst trifft der dict-Cache-Hit
+                            # auf einen veralteten "berechnet"-Marker.
+                            self._discharge_plan_computed_dates = {
+                                "a": None,
+                                "b": None,
+                            }
                             if self._store is not None:
                                 await self._store.async_save(
                                     {
@@ -343,9 +360,11 @@ class PeakShareProvider:
         """
         today_str = now.strftime("%Y-%m-%d")
 
-        # Already computed today (and not invalidated by fresh fetch):
-        # return cached plan für den jeweiligen Slot.
-        if self._discharge_plan_date == today_str:
+        # Phase 11.1: Per-Slot-Compute-Hit. Wenn DIESER Slot heute schon
+        # berechnet wurde (auch None-Resultat), liefere den gecachten Wert
+        # zurück. Wenn ein ANDERER Slot heute berechnet wurde, blockiert das
+        # diesen Slot nicht mehr (vorher: gemeinsamer Tageslock-Bug).
+        if self._discharge_plan_computed_dates.get(slot) == today_str:
             return self._discharge_plan.get(slot)
 
         # Find community data
@@ -398,6 +417,9 @@ class PeakShareProvider:
             )
             self._discharge_plan[slot] = None
             self._discharge_plan_date = today_str
+            # Phase 11.1: Per-Slot-Compute-Tracking auch im Edge-Case setzen,
+            # damit der Slot heute nicht erneut neu berechnet wird.
+            self._discharge_plan_computed_dates[slot] = today_str
             return None
 
         jitter = self.get_jitter_today()
@@ -411,9 +433,12 @@ class PeakShareProvider:
             jitter,
         )
 
-        # Lock computation for today (slot-spezifisch).
+        # Lock computation for today (slot-spezifisch). Phase 11.1: zusätzlich
+        # Per-Slot-Tracking, damit der zweite Slot am selben Tag NICHT vom
+        # Tageslock blockiert wird (vorher: _discharge_plan_date war gemeinsam).
         self._discharge_plan[slot] = plan
         self._discharge_plan_date = today_str
+        self._discharge_plan_computed_dates[slot] = today_str
 
         if plan:
             _LOGGER.info(
