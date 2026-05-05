@@ -7,6 +7,12 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.2.0-dev-34] - 2026-05-05
+
+**UI-Feinschliff:**
+- Slot A / Slot B Erklärtexte (Wizard + Settings + SolarEdge-XOR-Radio) ergänzen sich dynamisch um „Genaue Uhrzeit wird auf Basis der PeakShare-Bedarfssteuerung ermittelt." sobald PeakShare aktiv ist; bei deaktiviertem PeakShare bleibt nur der Standard-Hinweis sichtbar.
+- Button „Wizard nochmal starten" wird jetzt unter jedem Settings-Tab (Morgen-Einspeisung / Abend-Entladung / EEG-Statistik / Erweitert) angezeigt, nicht mehr nur im Erweitert-Tab.
+
 ## [1.2.0-dev-33] - 2026-05-05
 
 ### Phase 12: Dual-Window-Toggle entfernt — Slot A/B als einziger Discharge-Pfad

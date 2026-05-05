@@ -3031,11 +3031,11 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
         <label style="display:block;margin-bottom:6px">
           <input type="radio" name="solaredge_slot" data-field-radio="slot_a" ${slotA && !slotB ? "checked" : ""}>
-          Slot A \u2014 Abend (Default): entl\u00e4dt in den EEG-Abendpeak (~20:00 bis Mitternacht).
+          Slot A \u2014 Abend (Default): entl\u00e4dt in den EEG-Abendpeak (~20:00 bis Mitternacht).${peakshare ? " Genaue Uhrzeit wird auf Basis der PeakShare-Bedarfssteuerung ermittelt." : ""}
         </label>
         <label style="display:block">
           <input type="radio" name="solaredge_slot" data-field-radio="slot_b" ${slotB && !slotA ? "checked" : ""}>
-          Slot B \u2014 Morgen: entl\u00e4dt in den EEG-Morgenpeak (~03:00 bis vor Sonnenaufgang).
+          Slot B \u2014 Morgen: entl\u00e4dt in den EEG-Morgenpeak (~03:00 bis vor Sonnenaufgang).${peakshare ? " Genaue Uhrzeit wird auf Basis der PeakShare-Bedarfssteuerung ermittelt." : ""}
         </label>
       </div>
     ` : "";
@@ -3046,7 +3046,7 @@ class EegOptimizerPanel extends HTMLElement {
           <input type="checkbox" data-field="enable_slot_a" ${slotA ? "checked" : ""}>
           <div>
             <div style="font-weight:500">Slot A \u2014 Abend</div>
-            <div class="help-text" style="margin-top:2px">Entl\u00e4dt in den EEG-Abendpeak (~20:00 bis Mitternacht).</div>
+            <div class="help-text" style="margin-top:2px">Entl\u00e4dt in den EEG-Abendpeak (~20:00 bis Mitternacht).${peakshare ? " Genaue Uhrzeit wird auf Basis der PeakShare-Bedarfssteuerung ermittelt." : ""}</div>
           </div>
         </label>
         ${isExpert ? `
@@ -3071,7 +3071,7 @@ class EegOptimizerPanel extends HTMLElement {
           <input type="checkbox" data-field="enable_slot_b" ${slotB ? "checked" : ""}>
           <div>
             <div style="font-weight:500">Slot B \u2014 Morgen</div>
-            <div class="help-text" style="margin-top:2px">Entl\u00e4dt in den EEG-Morgenpeak (~03:00 bis vor Sonnenaufgang).</div>
+            <div class="help-text" style="margin-top:2px">Entl\u00e4dt in den EEG-Morgenpeak (~03:00 bis vor Sonnenaufgang).${peakshare ? " Genaue Uhrzeit wird auf Basis der PeakShare-Bedarfssteuerung ermittelt." : ""}</div>
           </div>
         </label>
         ${isExpert ? `
@@ -3340,11 +3340,11 @@ class EegOptimizerPanel extends HTMLElement {
         </div>
         <label style="display:block;margin-bottom:6px">
           <input type="radio" name="solaredge_slot" data-field-radio="settings_slot_a" ${settingsSlotA && !settingsSlotB ? "checked" : ""}>
-          Slot A — Abend (Default): entlädt in den EEG-Abendpeak (~20:00 bis Mitternacht).
+          Slot A — Abend (Default): entlädt in den EEG-Abendpeak (~20:00 bis Mitternacht).${settingsPeakshare ? " Genaue Uhrzeit wird auf Basis der PeakShare-Bedarfssteuerung ermittelt." : ""}
         </label>
         <label style="display:block">
           <input type="radio" name="solaredge_slot" data-field-radio="settings_slot_b" ${settingsSlotB && !settingsSlotA ? "checked" : ""}>
-          Slot B — Morgen: entlädt in den EEG-Morgenpeak (~03:00 bis vor Sonnenaufgang).
+          Slot B — Morgen: entlädt in den EEG-Morgenpeak (~03:00 bis vor Sonnenaufgang).${settingsPeakshare ? " Genaue Uhrzeit wird auf Basis der PeakShare-Bedarfssteuerung ermittelt." : ""}
         </label>
       </div>
     ` : "";
@@ -3355,7 +3355,7 @@ class EegOptimizerPanel extends HTMLElement {
           <input type="checkbox" data-field="settings_enable_slot_a" ${settingsSlotA ? "checked" : ""}>
           <div>
             <div style="font-weight:500">Slot A — Abend</div>
-            <div class="help-text" style="margin-top:2px">Entlädt in den EEG-Abendpeak (~20:00 bis Mitternacht).</div>
+            <div class="help-text" style="margin-top:2px">Entlädt in den EEG-Abendpeak (~20:00 bis Mitternacht).${settingsPeakshare ? " Genaue Uhrzeit wird auf Basis der PeakShare-Bedarfssteuerung ermittelt." : ""}</div>
           </div>
         </label>
         ${isExpert ? `
@@ -3380,7 +3380,7 @@ class EegOptimizerPanel extends HTMLElement {
           <input type="checkbox" data-field="settings_enable_slot_b" ${settingsSlotB ? "checked" : ""}>
           <div>
             <div style="font-weight:500">Slot B — Morgen</div>
-            <div class="help-text" style="margin-top:2px">Entlädt in den EEG-Morgenpeak (~03:00 bis vor Sonnenaufgang).</div>
+            <div class="help-text" style="margin-top:2px">Entlädt in den EEG-Morgenpeak (~03:00 bis vor Sonnenaufgang).${settingsPeakshare ? " Genaue Uhrzeit wird auf Basis der PeakShare-Bedarfssteuerung ermittelt." : ""}</div>
           </div>
         </label>
         ${isExpert ? `
@@ -3538,11 +3538,7 @@ class EegOptimizerPanel extends HTMLElement {
         </div>` : ""}
       </div>
 
-      <div class="card" style="margin-bottom:16px">
-        <button class="btn-secondary" data-action="restart-wizard" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px">
-          <ha-icon icon="mdi:refresh" style="--mdc-icon-size:20px"></ha-icon> Wizard nochmal starten
-        </button>
-      </div>`;
+      `;
 
     let tabContent;
     switch (activeTab) {
@@ -3553,10 +3549,18 @@ class EegOptimizerPanel extends HTMLElement {
       default:          tabContent = morningTab; break;
     }
 
+    const restartWizardCard = `
+      <div class="card" style="margin-bottom:16px">
+        <button class="btn-secondary" data-action="restart-wizard" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px">
+          <ha-icon icon="mdi:refresh" style="--mdc-icon-size:20px"></ha-icon> Wizard nochmal starten
+        </button>
+      </div>`;
+
     return `
       <div style="max-width:600px;margin:0 auto">
         ${tabBar}
         ${tabContent}
+        ${restartWizardCard}
         <button class="btn-primary" data-action="save-settings" style="width:100%;padding:12px">Speichern</button>
       </div>`;
   }
