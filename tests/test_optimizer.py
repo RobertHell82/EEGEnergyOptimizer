@@ -1854,7 +1854,7 @@ class TestDecisionSnapshotFullShape:
 
 
 class TestComputeHardCutoff:
-    """Pin der dynamischen Hard-Cutoff-Berechnung für die Abend-Entladung."""
+    """Pin der dynamischen Hard-Cutoff-Berechnung für die Nacht-Entladung."""
 
     def test_summer_sunrise_before_4am_uses_pre_sunrise(self):
         from custom_components.eeg_energy_optimizer.optimizer import compute_hard_cutoff

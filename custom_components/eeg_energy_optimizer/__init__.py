@@ -85,6 +85,14 @@ except ImportError:  # pragma: no cover — only triggered outside HA
 # ---------------------------------------------------------------------------
 
 
+# Stabile Telemetrie-event_types für umbenannte UI-Zustände.
+# Das UI-Label "Nacht-Entladung" muss am Backend weiterhin als "abend_entladung"
+# erscheinen, damit Auswertungen über die Umbenennung hinweg konsistent bleiben.
+_TELEMETRY_EVENT_TYPE_OVERRIDES = {
+    "Nacht-Entladung": "abend_entladung",
+}
+
+
 def _normalize_state(zustand):
     """W-2 / W-6 — kanonisiert Decision.zustand-Labels in lowercase snake_case.
 
@@ -97,10 +105,12 @@ def _normalize_state(zustand):
     Beispiele:
       "Normal"             -> "normal"
       "Morgen-Einspeisung" -> "morgen_einspeisung"
-      "Abend-Entladung"    -> "abend_entladung"
+      "Nacht-Entladung"    -> "abend_entladung"  (Override für Backend-Stabilität)
     """
     if zustand is None:
         return None
+    if zustand in _TELEMETRY_EVENT_TYPE_OVERRIDES:
+        return _TELEMETRY_EVENT_TYPE_OVERRIDES[zustand]
     return zustand.lower().replace(" ", "_").replace("-", "_")
 
 
@@ -1514,7 +1524,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     # Watchdog: Begründung anhängen wenn Entladung wegen Netzbezug
                     # abgebrochen — Detektion über kanonischen Katalog-Key (D-09)
                     # statt String-Suche in der deutschen Freitext-Liste.
-                    if (prev_zustand[0] == "Abend-Entladung"
+                    if (prev_zustand[0] == STATE_ABEND_ENTLADUNG
                             and REASON_DISCHARGE_ABORTED_TODAY in decision.blocked_by):
                         reason = "Normal — Netzbezug > 1 kW für > 5 Min, Entladung für heute abgebrochen"
                     _log_activity(decision, reason)

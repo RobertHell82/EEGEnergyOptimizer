@@ -638,7 +638,7 @@ class EegOptimizerPanel extends HTMLElement {
     this._activityHasMore = false;
     this._activityLoadingMore = false;
     this._activityShowAll = false;
-    this._activityFilter = ""; // "" = alle, "Morgen-Einspeisung", "Abend-Entladung"
+    this._activityFilter = ""; // "" = alle, "Morgen-Einspeisung", "Nacht-Entladung"
     this._activityLogOpen = this._loadPref("activity_log_open", "0", ["0", "1"]) === "1";
     this._loadConfigPending = false;
     this._connectionLostSeen = false;
@@ -1744,7 +1744,7 @@ class EegOptimizerPanel extends HTMLElement {
     if (plan) {
       planHtml = `<div style="background:var(--primary-color);color:#fff;padding:10px 14px;border-radius:10px;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <ha-icon icon="mdi:battery-arrow-down" style="--mdc-icon-size:20px"></ha-icon>
-        <strong>Abend-Entladung: ${plan.start}\u2013${plan.end}</strong>
+        <strong>Nacht-Entladung: ${plan.start}\u2013${plan.end}</strong>
         <span style="opacity:0.8;font-size:13px">(Jitter: ${plan.jitter >= 0 ? "+" : ""}${plan.jitter} Min)</span>
       </div>`;
     } else {
@@ -3054,7 +3054,7 @@ class EegOptimizerPanel extends HTMLElement {
           <label>Slot-A-Start</label>
           <input type="text" data-field="discharge_a_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${this._wizardData.discharge_a_start_time || "20:00"}" style="width:80px">
-          <div class="help-text">Startzeit der Abend-Entladung. Empfehlung 20:00 (EEG-Abendpeak 18:00\u201323:00).</div>
+          <div class="help-text">Startzeit der Nacht-Entladung. Empfehlung 20:00 (EEG-Abendpeak 18:00\u201323:00).</div>
         </div>
         <div class="field-group">
           <label>Reserve f\u00fcr Slot B (%)</label>
@@ -3143,8 +3143,8 @@ class EegOptimizerPanel extends HTMLElement {
           <div class="feature-card-header">
             <ha-icon icon="mdi:battery-arrow-down-outline"></ha-icon>
             <div class="feature-card-text">
-              <span class="feature-title">Abend-Entladung</span>
-              <span class="feature-desc">Abends wird \u00fcbersch\u00fcssige Energie aus der Batterie ins Netz entladen. Jedoch nur wenn die Prognose des morgigen Tags so gut ist, dass die Batterie morgen wieder vollgeladen werden kann. Und nur so viel, dass man die Nacht auf Basis der bekannten Verbrauchsdaten trotzdem mit dem eigenen Strom auskommt.</span>
+              <span class="feature-title">Nacht-Entladung</span>
+              <span class="feature-desc">Abends und nachts wird \u00fcbersch\u00fcssige Energie aus der Batterie ins Netz entladen. Jedoch nur wenn die Prognose des morgigen Tags so gut ist, dass die Batterie morgen wieder vollgeladen werden kann. Und nur so viel, dass man die Nacht auf Basis der bekannten Verbrauchsdaten trotzdem mit dem eigenen Strom auskommt.</span>
             </div>
             <div class="feature-badge ${nDischarge ? "on" : "off"}">${nDischarge ? "Aktiv" : "Aus"}</div>
           </div>
@@ -3262,7 +3262,7 @@ class EegOptimizerPanel extends HTMLElement {
       </div>
 
       <div class="summary-section">
-        <h3>Abend-Entladung</h3>
+        <h3>Nacht-Entladung</h3>
         ${row("Status", d.enable_night_discharge ? "Aktiv" : "Deaktiviert")}
         ${d.enable_night_discharge ? `
           ${(() => {
@@ -3363,7 +3363,7 @@ class EegOptimizerPanel extends HTMLElement {
           <label>Slot-A-Start</label>
           <input type="text" data-field="settings_discharge_a_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${d.discharge_a_start_time || "20:00"}" style="width:80px">
-          <div class="help-text">Startzeit der Abend-Entladung. Empfehlung 20:00 (EEG-Abendpeak 18:00–23:00).</div>
+          <div class="help-text">Startzeit der Nacht-Entladung. Empfehlung 20:00 (EEG-Abendpeak 18:00–23:00).</div>
         </div>
         <div class="field-group">
           <label>Reserve für Slot B (%)</label>
@@ -3438,7 +3438,7 @@ class EegOptimizerPanel extends HTMLElement {
         </button>
         <button class="settings-tab ${activeTab === "evening" ? "active" : ""}" data-action="set-settings-tab" data-tab="evening" role="tab">
           <ha-icon icon="mdi:battery-arrow-down-outline" style="--mdc-icon-size:18px"></ha-icon>
-          <span>Abend-Entladung</span>
+          <span>Nacht-Entladung</span>
         </button>
         <button class="settings-tab ${activeTab === "telemetry" ? "active" : ""}" data-action="set-settings-tab" data-tab="telemetry" role="tab">
           <ha-icon icon="mdi:chart-line" style="--mdc-icon-size:18px"></ha-icon>
@@ -3474,8 +3474,8 @@ class EegOptimizerPanel extends HTMLElement {
             <div class="feature-card-header">
               <ha-icon icon="mdi:battery-arrow-down-outline"></ha-icon>
               <div class="feature-card-text">
-                <span class="feature-title">Abend-Entladung</span>
-                <span class="feature-desc">Abends wird \u00fcbersch\u00fcssige Energie aus der Batterie ins Netz entladen.</span>
+                <span class="feature-title">Nacht-Entladung</span>
+                <span class="feature-desc">Abends und nachts wird \u00fcbersch\u00fcssige Energie aus der Batterie ins Netz entladen.</span>
               </div>
               <div class="feature-badge ${nDischarge ? "on" : "off"}">${nDischarge ? "Aktiv" : "Aus"}</div>
             </div>
@@ -3727,7 +3727,7 @@ class EegOptimizerPanel extends HTMLElement {
         <p>Der Stromverbrauch wird anhand des durchschnittlichen Verbrauchs desselben Wochentags der letzten Wochen berechnet (konfigurierbar, Standard: 2 Wochen).</p>
         <p>Reicht die PV-Prognose nicht aus, um den Gesamtbedarf zu decken, wird die Batterie sofort geladen \u2014 damit der Haushalt bis zum Abend versorgt ist.</p>`
     } : {
-      title: "Abend-Entladung",
+      title: "Nacht-Entladung",
       image: "/eeg_optimizer_panel/evening-discharge.svg",
       content: `
         <p>Speist unter Tags gewonnene Energie, die der eigene Haushalt nicht ben\u00f6tigt, um \u00fcber die Nacht zu kommen, in die Energiegemeinschaft ein. So steht Strom zu einem Zeitpunkt zur Verf\u00fcgung, an dem ansonsten keine PV-Erzeugung im Netz vorhanden ist.</p>
@@ -3864,7 +3864,7 @@ class EegOptimizerPanel extends HTMLElement {
       mConditionsHtml = this._renderMorningConditions(ma, mStatus);
     }
 
-    // --- Right card: Abend-Entladung ---
+    // --- Right card: Nacht-Entladung ---
     let dIndicator = "";
     let dColorClass = "gray";
     let dConditionsHtml = "";
@@ -3927,7 +3927,7 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="card">
           <h3 class="status-card-title" style="margin-top:0">
             <ha-icon icon="mdi:weather-night" style="--mdc-icon-size:20px;color:var(--info-color,#2196f3)"></ha-icon>
-            Abend-Entladung
+            Nacht-Entladung
             <span data-action="show-info" data-info="discharge" style="cursor:pointer;display:inline-flex;align-items:center" title="Mehr erfahren">
               <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color)"></ha-icon>
             </span>
@@ -3980,7 +3980,7 @@ class EegOptimizerPanel extends HTMLElement {
         <div style="background:var(--card-background-color,#fff);border:1px solid var(--divider-color);border-radius:12px;padding:14px">
           <div style="font-size:13px;color:var(--secondary-text-color);margin-bottom:6px">
             <ha-icon icon="mdi:weather-night" style="--mdc-icon-size:16px;color:#2196F3;vertical-align:middle"></ha-icon>
-            Abend-Entladung
+            Nacht-Entladung
           </div>
           <div style="font-size:24px;font-weight:600;color:var(--primary-text-color)">${fmtDe(e.kwh, 1)} <span style="font-size:14px;font-weight:400">kWh</span></div>
           <div style="font-size:12px;color:var(--secondary-text-color);margin-top:4px">${e.count}\u00d7 aktiv \u00b7 ${fmtDur(e.duration_min)}</div>
@@ -4090,7 +4090,7 @@ class EegOptimizerPanel extends HTMLElement {
       if (d.evening > 0) {
         const barH2 = (d.evening / maxVal) * chartH;
         const y2 = padding.top + chartH - barH2;
-        const eTip = `${d.label} Abend-Entladung\nEnergie: ${fmtDe(d.evening, 2)} kWh\nDauer: ${fmtDur(d.eveningDur || 0)}`;
+        const eTip = `${d.label} Nacht-Entladung\nEnergie: ${fmtDe(d.evening, 2)} kWh\nDauer: ${fmtDur(d.eveningDur || 0)}`;
         bars += `<rect x="${x2}" y="${y2}" width="${barW}" height="${barH2}" fill="#2196F3" rx="3" style="cursor:pointer"><title>${eTip}</title></rect>`;
         if (entries.length <= 14) bars += `<text x="${x2 + barW/2}" y="${y2 - 4}" text-anchor="middle" font-size="10" fill="var(--primary-text-color)" style="pointer-events:none">${fmtDe(d.evening, 1)}</text>`;
       }
@@ -4118,7 +4118,7 @@ class EegOptimizerPanel extends HTMLElement {
       <rect x="${lx}" y="${ly - 8}" width="10" height="10" fill="#FF9800" rx="2"/>
       <text x="${lx + 14}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Morgen-Einspeisung</text>
       <rect x="${lx + 135}" y="${ly - 8}" width="10" height="10" fill="#2196F3" rx="2"/>
-      <text x="${lx + 149}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Abend-Entladung</text>`;
+      <text x="${lx + 149}" y="${ly}" font-size="11" fill="var(--primary-text-color)">Nacht-Entladung</text>`;
 
     const mobileStyle = `<style>@media (max-width: 600px) { text { font-size: 13px !important; } }</style>`;
     return `<div class="chart-card" style="margin-top:4px"><svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${mobileStyle}${yLines}${bars}${legend}</svg></div>`;
@@ -4131,14 +4131,17 @@ class EegOptimizerPanel extends HTMLElement {
       </p>`;
     }
 
+    // "Abend-Entladung" wird in Legacy-Activity-Log-Eintr\u00E4gen weiter erkannt
+    // (wurde im UI in "Nacht-Entladung" umbenannt; Storage bleibt unver\u00E4ndert).
+    const isNightDischarge = (z) => z === "Nacht-Entladung" || z === "Abend-Entladung";
     const zustandIcon = (z) => {
       if (z === "Morgen-Einspeisung") return "\u2600\uFE0F";
-      if (z === "Abend-Entladung") return "\uD83C\uDF19";
+      if (isNightDischarge(z)) return "\uD83C\uDF19";
       return "\u26A1";
     };
     const zustandColor = (z) => {
       if (z === "Morgen-Einspeisung") return "var(--info-color, #2196F3)";
-      if (z === "Abend-Entladung") return "#FF9800";
+      if (isNightDischarge(z)) return "#FF9800";
       return "var(--success-color, #4CAF50)";
     };
 
@@ -4150,10 +4153,16 @@ class EegOptimizerPanel extends HTMLElement {
     // Optional state filter: show entries of the chosen state plus the
     // "Normal" entry that follows it (i.e. the return to normal mode).
     // Newest-first array \u2192 "follower" entry sits at index i, predecessor at i+1.
+    // Legacy-Match: Filter "Nacht-Entladung" matched auch alte "Abend-Entladung"-Eintr\u00e4ge.
+    const matchesFilter = (zustand) => {
+      if (zustand === this._activityFilter) return true;
+      if (this._activityFilter === "Nacht-Entladung" && zustand === "Abend-Entladung") return true;
+      return false;
+    };
     const entries = this._activityFilter
       ? baseEntries.filter((e, i, arr) => {
-          if (e.zustand === this._activityFilter) return true;
-          if (e.zustand === "Normal" && i + 1 < arr.length && arr[i + 1].zustand === this._activityFilter) return true;
+          if (matchesFilter(e.zustand)) return true;
+          if (e.zustand === "Normal" && i + 1 < arr.length && matchesFilter(arr[i + 1].zustand)) return true;
           return false;
         })
       : baseEntries;
@@ -4171,9 +4180,9 @@ class EegOptimizerPanel extends HTMLElement {
       const dateStr = ts ? `${String(ts.getDate()).padStart(2,"0")}.${String(ts.getMonth()+1).padStart(2,"0")}` : "";
       const icon = zustandIcon(e.zustand);
       const color = zustandColor(e.zustand);
-      // Phase 11 (D-09): Slot-Suffix bei Abend-Entladung. Defensiv für Legacy-Storage-Einträge:
+      // Phase 11 (D-09): Slot-Suffix bei Nacht-Entladung. Defensiv für Legacy-Storage-Einträge:
       // bei e.discharge_active_slot=null/undefined ist slotMarker = "" → Render bleibt rückwärtskompatibel.
-      const slotMarker = (e.zustand === "Abend-Entladung" && (e.discharge_active_slot === "A" || e.discharge_active_slot === "B"))
+      const slotMarker = (isNightDischarge(e.zustand) && (e.discharge_active_slot === "A" || e.discharge_active_slot === "B"))
         ? ` (Slot ${e.discharge_active_slot})`
         : "";
       const zustandLabel = `${e.zustand}${slotMarker}`;
@@ -4185,7 +4194,7 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="activity-dot" style="background:${color}">${icon}</div>
         <div class="activity-content">
           <div class="activity-header">${reason} ${changeBadge} ${testBadge}</div>
-          <div class="activity-details">SOC ${e.soc != null ? e.soc + "%" : "—"}${e.zustand === "Abend-Entladung" ? ` &rarr; Ziel-SOC ${fmtDe(e.min_soc, 0)}%` : ""} &middot; ${e.zustand === "Abend-Entladung" ? `PV morgen ${fmtDe(e.discharge_pv != null ? e.discharge_pv : e.pv_tomorrow, 1)} kWh &middot; Gesamtbedarf ${fmtDe(e.discharge_bedarf != null ? e.discharge_bedarf : e.bedarf, 1)} kWh` : `PV-Prognose (Rest) ${fmtDe(e.pv_today, 1)} kWh &middot; Gesamtbedarf ${fmtDe(e.bedarf, 1)} kWh`}</div>
+          <div class="activity-details">SOC ${e.soc != null ? e.soc + "%" : "—"}${isNightDischarge(e.zustand) ? ` &rarr; Ziel-SOC ${fmtDe(e.min_soc, 0)}%` : ""} &middot; ${isNightDischarge(e.zustand) ? `PV morgen ${fmtDe(e.discharge_pv != null ? e.discharge_pv : e.pv_tomorrow, 1)} kWh &middot; Gesamtbedarf ${fmtDe(e.discharge_bedarf != null ? e.discharge_bedarf : e.bedarf, 1)} kWh` : `PV-Prognose (Rest) ${fmtDe(e.pv_today, 1)} kWh &middot; Gesamtbedarf ${fmtDe(e.bedarf, 1)} kWh`}</div>
         </div>
       </div>`;
     }).join("");
@@ -4499,7 +4508,7 @@ class EegOptimizerPanel extends HTMLElement {
       const y2 = padding.top + chartH - barH2;
       const overThreshold = thresholdKwh != null && d.nacht > thresholdKwh;
       const nightColor = overThreshold ? "#F44336" : "#2196F3";
-      const tooltipExtra = overThreshold ? "\n⚠ Über Limit für Abend-Entladung" : "";
+      const tooltipExtra = overThreshold ? "\n⚠ Über Limit für Nacht-Entladung" : "";
       bars += `<rect x="${x2}" y="${y2}" width="${barW}" height="${barH2}" fill="${nightColor}" rx="3">
         <title>${d.label} Nacht-Verbrauch (${nightStart} → ${nightEnd} Folgetag): ${fmtDe(d.nacht, 2)} kWh${tooltipExtra}</title>
       </rect>`;
@@ -4558,7 +4567,7 @@ class EegOptimizerPanel extends HTMLElement {
 
     const hint = thresholdKwh != null
       ? `<p style="margin:8px 4px 0;font-size:12px;color:var(--secondary-text-color);line-height:1.4">
-           Die rote Linie zeigt den maximalen Nachtverbrauch, bis zu dem die Abend-Entladung &uuml;berhaupt m&ouml;glich ist
+           Die rote Linie zeigt den maximalen Nachtverbrauch, bis zu dem die Nacht-Entladung &uuml;berhaupt m&ouml;glich ist
            (${fmtDe(capKwh, 0)}&nbsp;kWh Batterie, Mindest-SOC ${baseMinSoc}&nbsp;%, Sicherheitspuffer ${buffer}&nbsp;%).
            Wochentage mit Nachtverbrauch dar&uuml;ber sind rot eingef&auml;rbt &mdash; an diesen Tagen blockiert der dynamische Mindest-SOC die Entladung.
          </p>`
@@ -4939,7 +4948,7 @@ class EegOptimizerPanel extends HTMLElement {
     const zustandBadgeClass =
       zustand === "Morgen-Einspeisung" ? "blue" :
       zustand === "Normal" ? "green" :
-      zustand === "Abend-Entladung" ? "orange" : "gray";
+      zustand === "Nacht-Entladung" ? "orange" : "gray";
 
     const nächsteAktion = decisionState?.attributes?.nächste_aktion || decisionState?.state || "---";
     const energiebedarf = decisionState?.attributes?.energiebedarf_kwh;
@@ -5296,7 +5305,7 @@ class EegOptimizerPanel extends HTMLElement {
             <select data-field="activity_filter" style="font-size:12px;padding:2px 4px;background:var(--card-background-color);color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:4px">
               <option value="" ${this._activityFilter === "" ? "selected" : ""}>Alle Zust\u00e4nde</option>
               <option value="Morgen-Einspeisung" ${this._activityFilter === "Morgen-Einspeisung" ? "selected" : ""}>Morgen-Einspeisung</option>
-              <option value="Abend-Entladung" ${this._activityFilter === "Abend-Entladung" ? "selected" : ""}>Abend-Entladung</option>
+              <option value="Nacht-Entladung" ${this._activityFilter === "Nacht-Entladung" ? "selected" : ""}>Nacht-Entladung</option>
             </select>
             <label data-action="toggle-activity-show-all" style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--secondary-text-color);cursor:pointer;user-select:none">
               <input type="checkbox" ${this._activityShowAll ? "checked" : ""} style="pointer-events:none;margin:0"> Alle Eintr\u00e4ge

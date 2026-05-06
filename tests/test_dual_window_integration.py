@@ -68,14 +68,14 @@ class TestMarkdownRendering:
             battery_soc=80.0,
         )
         decision = Decision()
-        decision.zustand = "Abend-Entladung"
+        decision.zustand = "Nacht-Entladung"
         decision.entladung_aktiv = True
         decision.discharge_active_slot = "A"
         decision.entladeleistung_kw = 5.0
         decision.min_soc_berechnet = 25.0
         md = opt._build_markdown(snap, decision)
         assert "Aktiver Slot: A" in md
-        assert "### Abend-Entladung" in md
+        assert "### Nacht-Entladung" in md
 
     def test_markdown_shows_slot_b_marker(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
@@ -93,7 +93,7 @@ class TestMarkdownRendering:
             battery_soc=70.0,
         )
         decision = Decision()
-        decision.zustand = "Abend-Entladung"
+        decision.zustand = "Nacht-Entladung"
         decision.entladung_aktiv = True
         decision.discharge_active_slot = "B"
         decision.entladeleistung_kw = 5.0
@@ -114,14 +114,14 @@ class TestMarkdownRendering:
             battery_soc=80.0,
         )
         decision = Decision()
-        decision.zustand = "Abend-Entladung"
+        decision.zustand = "Nacht-Entladung"
         decision.entladung_aktiv = True
         decision.discharge_active_slot = None  # Legacy
         decision.entladeleistung_kw = 5.0
         decision.min_soc_berechnet = 25.0
         md = opt._build_markdown(snap, decision)
         assert "Aktiver Slot:" not in md
-        assert "### Abend-Entladung" in md
+        assert "### Nacht-Entladung" in md
 
     def test_markdown_shows_slot_config_when_dual_enabled(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
@@ -302,7 +302,7 @@ class TestActivityLogSlotContext:
         """
         for slot in ("A", "B", None):
             decision = Decision()
-            decision.zustand = "Abend-Entladung"
+            decision.zustand = "Nacht-Entladung"
             decision.discharge_active_slot = slot
             decision.timestamp = "2026-06-15T20:00:00+00:00"
             decision.min_soc_berechnet = 25.0
@@ -345,7 +345,7 @@ class TestPeakShareSlotMarkdown:
       (A) `_discharge_detail_status` liest den passenden Slot-Plan
           (`a` vs `b`), nicht mehr hartkodiert "a".
       (B) `naechste_aktion`-Text zeigt slot-spezifische PeakShare-Times mit
-          dem korrekten Slot-Label (Abend-Entladung vs Morgen-Entladung).
+          dem korrekten Slot-Label (Nacht-Entladung vs Morgen-Entladung).
       (C) `_build_markdown` enthält einen `PeakShare-Fenster: HH:MM-HH:MM`-
           Marker im Slot-Header, wenn Plan aktiv ist.
     """
@@ -526,7 +526,7 @@ class TestPeakShareSlotMarkdown:
     def test_naechste_aktion_text_shows_slot_a_peakshare_window(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider, real_now,
     ):
-        """`naechste_aktion` bei aktivem Slot A zeigt 'Abend-Entladung HH:MM-HH:MM (PeakShare)'."""
+        """`naechste_aktion` bei aktivem Slot A zeigt 'Nacht-Entladung HH:MM-HH:MM (PeakShare)'."""
         cfg = _make_config(
             enable_dual_discharge=True,
             enable_slot_a=True, enable_slot_b=True,
@@ -564,7 +564,7 @@ class TestPeakShareSlotMarkdown:
         decision = opt._evaluate(snap, mode="Test")
 
         assert decision.discharge_active_slot == "A"
-        assert "Abend-Entladung" in decision.nächste_aktion
+        assert "Nacht-Entladung" in decision.nächste_aktion
         assert "21:00-23:00 (PeakShare)" in decision.nächste_aktion
 
     # ----- (C) Markdown-PeakShare-Marker -----
@@ -588,7 +588,7 @@ class TestPeakShareSlotMarkdown:
             battery_soc=80.0,
         )
         decision = Decision()
-        decision.zustand = "Abend-Entladung"
+        decision.zustand = "Nacht-Entladung"
         decision.entladung_aktiv = True
         decision.discharge_active_slot = "A"
         decision.entladeleistung_kw = 5.0
@@ -621,7 +621,7 @@ class TestPeakShareSlotMarkdown:
             battery_soc=70.0,
         )
         decision = Decision()
-        decision.zustand = "Abend-Entladung"
+        decision.zustand = "Nacht-Entladung"
         decision.entladung_aktiv = True
         decision.discharge_active_slot = "B"
         decision.entladeleistung_kw = 5.0
@@ -652,7 +652,7 @@ class TestPeakShareSlotMarkdown:
             battery_soc=80.0,
         )
         decision = Decision()
-        decision.zustand = "Abend-Entladung"
+        decision.zustand = "Nacht-Entladung"
         decision.entladung_aktiv = True
         decision.discharge_active_slot = "A"
         decision.entladeleistung_kw = 5.0

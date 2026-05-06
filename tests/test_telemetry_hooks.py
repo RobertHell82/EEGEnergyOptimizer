@@ -50,6 +50,11 @@ def test_normalize_state_helper_unit():
 
     assert _normalize_state("Normal") == "normal"
     assert _normalize_state("Morgen-Einspeisung") == "morgen_einspeisung"
+    # UI-Label "Nacht-Entladung" wird auf den stabilen Backend-event_type
+    # "abend_entladung" gemappt (UI wurde umbenannt, Telemetrie bleibt stabil).
+    assert _normalize_state("Nacht-Entladung") == "abend_entladung"
+    # Legacy-Label "Abend-Entladung" wird durch generische snake_case-Logik
+    # ebenfalls zu "abend_entladung" — gleicher event_type, kein Bruch.
     assert _normalize_state("Abend-Entladung") == "abend_entladung"
     assert _normalize_state(None) is None
 

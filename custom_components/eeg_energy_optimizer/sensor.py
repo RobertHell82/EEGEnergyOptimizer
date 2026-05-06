@@ -810,7 +810,7 @@ class RegisterWritesSensor(SensorEntity):
 class EntscheidungsSensor(SensorEntity):
     """Optimizer decision sensor with Markdown dashboard attribute.
 
-    State: Next planned action (e.g. 'Abend-Entladung 20:00', 'Normalbetrieb')
+    State: Next planned action (e.g. 'Nacht-Entladung 20:00', 'Normalbetrieb')
     Attributes: Markdown mini-dashboard, zustand, überschuss_faktor,
                 entladung_aktiv, min_soc, letzte_aktualisierung
 
@@ -887,7 +887,7 @@ class EntscheidungsSensor(SensorEntity):
 class FeedinEnergySensor(SensorEntity):
     """Daily feed-in energy during an optimizer active state.
 
-    Two instances: morning (Morgen-Einspeisung) and evening (Abend-Entladung).
+    Two instances: morning (Morgen-Einspeisung) and evening (Nacht-Entladung).
     Resets to 0 at midnight. Compatible with HA Energy Dashboard (TOTAL + last_reset).
     """
 
@@ -1105,7 +1105,7 @@ async def async_setup_entry(
     )
     feedin_evening_sensor = FeedinEnergySensor(
         hass, entry, "evening",
-        "Abend-Entladung Energie heute",
+        "Nacht-Entladung Energie heute",
         "mdi:battery-arrow-down",
     )
 

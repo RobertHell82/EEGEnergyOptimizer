@@ -134,9 +134,13 @@ MODE_AUS = "Aus"
 OPTIMIZER_MODES = [MODE_EIN, MODE_TEST]
 
 # Optimizer states (D-22)
+# Hinweis: STATE_ABEND_ENTLADUNG wurde im UI in "Nacht-Entladung" umbenannt
+# (PeakShare verschiebt das Fenster regelmäßig in die Nacht hinein, oft bis
+# zum 04:00-Cutoff). Der Variablenname bleibt aus Stabilitätsgründen erhalten;
+# der Telemetrie-event_type bleibt "abend_entladung" (siehe _normalize_state).
 STATE_MORGEN_EINSPEISUNG = "Morgen-Einspeisung"
 STATE_NORMAL = "Normal"
-STATE_ABEND_ENTLADUNG = "Abend-Entladung"
+STATE_ABEND_ENTLADUNG = "Nacht-Entladung"
 
 # Startup grace period: delay inverter commands after HA restart
 # to let sensors (PV forecast, sun.sun) settle with valid data

@@ -1,7 +1,7 @@
 """Feed-in statistics tracking for EEG Energy Optimizer.
 
 Tracks grid feed-in energy (kWh), session count, and duration during
-optimizer active states (Morgen-Einspeisung and Abend-Entladung).
+optimizer active states (Morgen-Einspeisung and Nacht-Entladung).
 
 Data is persisted via Home Assistant's Store API and retained indefinitely.
 Session details (start/end/kwh per session) are compacted to daily aggregates

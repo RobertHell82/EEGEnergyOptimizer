@@ -1,7 +1,7 @@
 # TODO
 
 ## Testing
-- [ ] Huawei Wechselrichter — alle Situationen durchspielen (Morgen-Einspeisung aktiv, Abend-Entladung aktiv, Normalbetrieb, Übergänge)
+- [ ] Huawei Wechselrichter — alle Situationen durchspielen (Morgen-Einspeisung aktiv, Nacht-Entladung aktiv, Normalbetrieb, Übergänge)
 
 ## Dokumentation
 - [ ] Anleitung Huawei — Schritt-für-Schritt-Einrichtung der Huawei Solar Integration

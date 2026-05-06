@@ -7,6 +7,15 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.2.1-dev-01] - 2026-05-06
+
+### Geändert (UI)
+
+- **„Abend-Entladung" wurde überall im UI in „Nacht-Entladung" umbenannt.** Mit aktiver PeakShare-Bedarfssteuerung verschiebt sich das Entladefenster regelmäßig in die Nacht hinein (oft bis zum 04:00-Cutoff) — der bisherige Begriff war damit irreführend. Betroffen sind Wizard, Settings-Tab, Status-Karte, Statistik-Karte, Activity-Log-Filter, Bar-Chart-Tooltips/Legende, Konsumprofil-Hinweis sowie das Erklär-SVG.
+- **Sensor-`unique_id` und Entity-IDs bleiben unverändert** — die Long-Term-Statistik in HA bricht nicht. Lediglich der angezeigte Sensorname (`Abend-Entladung Energie heute` → `Nacht-Entladung Energie heute`) und der Decision-Sensor-State (`Abend-Entladung` → `Nacht-Entladung`) ändern sich.
+- **Telemetrie-`event_type` bleibt stabil bei `abend_entladung`.** Im Backend gespeicherte Auswertungen über die Umbenennung hinweg bleiben konsistent (`_normalize_state`-Override).
+- **Activity-Log-Einträge aus früheren Versionen (Zustand `Abend-Entladung`) werden im Frontend weiterhin korrekt gerendert** — Icon, Farbe, Slot-Marker und Filter-Match funktionieren über beide Labels hinweg.
+
 ## [1.2.1] - 2026-05-06
 
 ### Behoben

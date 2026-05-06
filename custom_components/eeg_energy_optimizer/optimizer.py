@@ -86,7 +86,7 @@ REASON_MORNING_DELAY_DISABLED = "morning_delay_disabled"
 REASON_SUNRISE_UNKNOWN = "sunrise_unknown"
 REASON_HYSTERESIS_STRICT = "hysteresis_strict"
 
-# Abend-Entladung
+# Nacht-Entladung
 REASON_NIGHT_DISCHARGE_DISABLED = "night_discharge_disabled"
 REASON_OVERNIGHT_DEMAND_TOO_HIGH = "overnight_demand_too_high"
 REASON_BEFORE_DISCHARGE_START = "before_discharge_start"
@@ -155,7 +155,7 @@ REASON_LABELS_DE: dict[str, str] = {
     REASON_MORNING_DELAY_DISABLED: "Morgen-Einspeisung deaktiviert",
     REASON_SUNRISE_UNKNOWN: "Sonnenaufgang unbekannt",
     REASON_HYSTERESIS_STRICT: "Hysterese aktiv (höhere Schwelle)",
-    REASON_NIGHT_DISCHARGE_DISABLED: "Abend-Entladung deaktiviert",
+    REASON_NIGHT_DISCHARGE_DISABLED: "Nacht-Entladung deaktiviert",
     REASON_OVERNIGHT_DEMAND_TOO_HIGH: "Nachtverbrauch zu hoch (Min-SOC ≥ 100%)",
     REASON_BEFORE_DISCHARGE_START: "Vor Entladestart-Zeit",
     REASON_PEAKSHARE_BEFORE_WINDOW: "PeakShare-Fenster noch nicht erreicht",
@@ -170,7 +170,7 @@ REASON_LABELS_DE: dict[str, str] = {
     REASON_BATTERY_SOC_UNAVAILABLE: "Batterie-SOC-Sensor nicht verfügbar",
     # Phase 11: Dual-Window
     REASON_BEFORE_SLOT_A: "Vor Slot-A-Start (Abend)",
-    REASON_SLOT_A_ACTIVE: "Slot A aktiv (Abend-Entladung)",
+    REASON_SLOT_A_ACTIVE: "Slot A aktiv (Nacht-Entladung)",
     REASON_SLOT_A_RESERVE_REACHED: "Slot-A-Reserve erreicht",
     REASON_BETWEEN_SLOTS: "Pause zwischen Slot A und Slot B",
     REASON_BEFORE_SLOT_B: "Vor Slot-B-Start (Morgen)",
@@ -211,7 +211,7 @@ def _read_power_kw(hass: Any, entity_id: str) -> float | None:
 
 
 def compute_hard_cutoff(now: datetime, next_sunrise: datetime | None) -> datetime:
-    """Berechne den dynamischen Hard-Cutoff für die Abend-Entladung.
+    """Berechne den dynamischen Hard-Cutoff für die Nacht-Entladung.
 
     Die Entladung muss spätestens enden, bevor:
       a) das Morgen-Einspeisungs-Fenster startet (Sonnenaufgang minus 1 h), und
@@ -502,7 +502,7 @@ class EEGOptimizer:
         self._discharge_b_end_cap: str = b_end_cap_str
 
         # Defense-in-depth: SolarEdge erzwingt zur Laufzeit XOR (genau ein Slot).
-        # Konflikt-Auflösung: Slot A bevorzugt (Default-Profil Abend-Entladung).
+        # Konflikt-Auflösung: Slot A bevorzugt (Default-Profil Nacht-Entladung).
         if self._is_solaredge and self._enable_slot_a and self._enable_slot_b:
             _LOGGER.warning(
                 "SolarEdge: nur ein Slot pro Tag erlaubt — Slot B deaktiviert "
@@ -990,7 +990,7 @@ class EEGOptimizer:
 
         Quelle pro Zustand:
           - Morgen-Einspeisung: ``morning_end_time`` heute
-          - Abend-Entladung mit PeakShare: ``decision.discharge_window_end`` (HH:MM)
+          - Nacht-Entladung mit PeakShare: ``decision.discharge_window_end`` (HH:MM)
           - Slot A (kein PeakShare): 5min vor Slot-B-Start (wenn B aktiv)
             sonst hard_cutoff
           - Slot B (kein PeakShare): ``compute_b_window_end``
@@ -1195,7 +1195,7 @@ class EEGOptimizer:
     def _evaluate_slot_a(
         self, snap: Snapshot, min_soc: float
     ) -> tuple[bool, list[str], list[str], bool]:
-        """Slot A — Abend-Entladung mit Energie-Reserve (Phase 11, SPEC §2).
+        """Slot A — Nacht-Entladung mit Energie-Reserve (Phase 11, SPEC §2).
 
         Liefert ``(passed, reasons, blocked_by, hysteresis_active)``.
 
@@ -1528,7 +1528,7 @@ class EEGOptimizer:
         # _should_block_charging / _should_discharge sie auswerten.
         # - Morgen-Einspeisung läuft nur am Vormittag (kein Mitternachtsübergang),
         #   ein Datum aus einem Vortag ist daher immer veraltet.
-        # - Abend-Entladung kann über Mitternacht laufen; das gespeicherte
+        # - Nacht-Entladung kann über Mitternacht laufen; das gespeicherte
         #   Startdatum bleibt deshalb gültig, bis der nächste Sonnenaufgang
         #   überschritten ist (= Ende der Sitzung).
         today_str = snap.now.strftime("%Y-%m-%d")
@@ -1546,7 +1546,7 @@ class EEGOptimizer:
             self._discharge_activated_date = None
 
         # Phase 11: Pro-Slot-Hysterese-Reset (analog _discharge_activated_date).
-        # Slot A (Abend-Entladung) und Slot B (Morgen-Entladung) bekommen
+        # Slot A (Nacht-Entladung) und Slot B (Morgen-Entladung) bekommen
         # eigene Reset-Trigger. Reset NUR nach today's Sunrise — verhindert
         # Mitternachts-Reset, der Hysterese aushebeln würde (T-11-02-01).
         if (
@@ -1588,7 +1588,7 @@ class EEGOptimizer:
                 active_slot = "B"
 
         # Aktivierungsdatum nur beim erstmaligen Aktivieren setzen — bei
-        # durchgehender Sitzung (z.B. Abend-Entladung über Mitternacht)
+        # durchgehender Sitzung (z.B. Nacht-Entladung über Mitternacht)
         # bleibt das ursprüngliche Startdatum erhalten, damit der Reset
         # oben zum Sonnenaufgang sauber greift.
         if zustand == STATE_MORGEN_EINSPEISUNG:
@@ -1628,7 +1628,7 @@ class EEGOptimizer:
             # letzteres triggerte einen synthetischen Recompute-Aufruf, jetzt
             # überflüssig nach Per-Slot-Caching.
             slot_label = (
-                "Morgen-Entladung" if active_slot == "B" else "Abend-Entladung"
+                "Morgen-Entladung" if active_slot == "B" else "Nacht-Entladung"
             )
             ps_plan = None
             if (
@@ -1741,7 +1741,7 @@ class EEGOptimizer:
         # Strukturierte Diagnose (D-09): kanonische Katalog-Keys für Telemetrie.
         # Mapping je nach gewähltem Zustand:
         #   Morgen-Einspeisung → reasons = block-Pass-Keys, blocked_by = discharge-Guards
-        #   Abend-Entladung    → reasons = discharge-Pass-Keys, blocked_by = block-Guards
+        #   Nacht-Entladung    → reasons = discharge-Pass-Keys, blocked_by = block-Guards
         #   Normal             → reasons = [], blocked_by = beide Guard-Listen kombiniert
         if zustand == STATE_MORGEN_EINSPEISUNG:
             decision.reasons = list(block_reasons_keys)
@@ -1799,7 +1799,7 @@ class EEGOptimizer:
             if decision.discharge_active_slot == "B":
                 lines.append("### Morgen-Entladung")
             else:
-                lines.append("### Abend-Entladung")
+                lines.append("### Nacht-Entladung")
             # Phase 11: Slot-Marker (D-08, D-10)
             if decision.discharge_active_slot == "A":
                 lines.append("- Aktiver Slot: A")
