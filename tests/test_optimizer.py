@@ -663,12 +663,13 @@ class TestHysteresis:
     def test_discharge_first_activation_uses_normal_threshold(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
-        """First activation on a day: SOC just above min_soc should activate discharge."""
+        """First activation on a day: SOC ausreichend über min_soc + entry_bonus → aktiv."""
         opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
         # min_soc = base(10) + ceil(3.0*1.25/10*100) = 10 + 38 = 48
+        # entry_bonus = 5 → entry threshold = 53. SOC=54 > 53 → passed.
         snap = _make_snapshot(
             now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
-            battery_soc=49.0,
+            battery_soc=54.0,
             battery_capacity_kwh=10.0,
             consumption_overnight_kwh=3.0,
             pv_tomorrow_kwh=40.0,
@@ -736,9 +737,12 @@ class TestHysteresis:
         now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
 
         opt._discharge_activated_date = now.strftime("%Y-%m-%d")
+        opt._slot_a_activated_date = now.strftime("%Y-%m-%d")  # Phase 11
         opt._last_eval_zustand = STATE_ABEND_ENTLADUNG  # still active!
+        opt._last_active_slot = "A"  # Phase 11: Schmitt-Trigger braucht Slot-Marker
 
-        # min_soc = 48%, SOC at 49% — only 1% above, but no hysteresis needed
+        # min_soc = 48%; währen Slot aktiv ist, gilt exit threshold = 48 - 2 = 46.
+        # SOC=49 > 46 → block bleibt aktiv (Anti-Toggle-Hysterese).
         snap = _make_snapshot(
             now=now,
             battery_soc=49.0,
@@ -854,12 +858,16 @@ class TestHysteresis:
 
         # Vortag aktiviert, _last_eval_zustand wurde inzwischen auf NORMAL gesetzt
         opt._discharge_activated_date = "2026-06-14"
+        opt._slot_a_activated_date = "2026-06-14"
         opt._last_eval_zustand = STATE_NORMAL
 
-        # min_soc = 48%, SOC 49% — only 1% above, but no hysteresis (different day)
+        # min_soc = 48%, SOC 54%: ohne Reset wäre Reaktivierungs-Hysterese (53)
+        # ohnehin erfüllt. Hier prüft der Test, dass das Vortags-Datum komplett
+        # zurückgesetzt wird (kein Reaktivierungs-Flag mehr) und der reguläre
+        # Eintritt mit entry_bonus=5 (threshold 53) greift. SOC=54 > 53.
         snap = _make_snapshot(
             now=now,
-            battery_soc=49.0,
+            battery_soc=54.0,
             battery_capacity_kwh=10.0,
             consumption_overnight_kwh=3.0,
             pv_tomorrow_kwh=40.0,
@@ -870,7 +878,7 @@ class TestHysteresis:
         with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
             decision = opt._evaluate(snap, MODE_TEST)
         # Reset hat _discharge_activated_date geleert → keine Hysterese →
-        # SOC 49 % > min_soc 48 % reicht für Aktivierung.
+        # SOC 54 % > entry threshold 53 % reicht für Aktivierung.
         assert opt._discharge_activated_date == "2026-06-15"  # neu auf heute gesetzt
         assert decision.zustand == STATE_ABEND_ENTLADUNG
 
@@ -917,13 +925,16 @@ class TestHysteresis:
             opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
 
         opt._discharge_activated_date = "2026-05-02"
+        opt._slot_a_activated_date = "2026-05-02"
         opt._last_eval_zustand = STATE_NORMAL  # Entladung vor Stunden beendet
 
-        # min_soc = 48 %, SOC 49 % — würde mit Hysterese (53 % nötig) blockiert,
-        # ohne Hysterese (48 % nötig) aktivieren.
+        # min_soc = 48 %; mit Reaktivierungs-Hysterese müsste SOC > 53 sein,
+        # ohne Reaktivierung gilt entry_bonus=5 → threshold 53. SOC=54 > 53.
+        # Test prüft: Vortagesdatum wird zurückgesetzt → kein Reaktivierungs-Pfad,
+        # sondern regulärer Eintritt (`hysteresis_active=False`).
         snap = _make_snapshot(
             now=now_evening,
-            battery_soc=49.0,
+            battery_soc=54.0,
             battery_capacity_kwh=10.0,
             consumption_overnight_kwh=3.0,
             pv_tomorrow_kwh=40.0,

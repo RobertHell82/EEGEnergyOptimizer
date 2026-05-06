@@ -256,7 +256,9 @@ class TestSlotAReserveLogic:
         )
         snap = _make_snapshot(
             now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
-            battery_soc=25.0,  # > min_soc=20, kein reserve_aufschlag (B aus)
+            # min_soc=20, kein reserve (B aus), entry_bonus=5 → entry threshold = 25.
+            # SOC=30 > 25 → passed.
+            battery_soc=30.0,
             battery_capacity_kwh=10.0,
             sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
             sunrise_today=datetime(2026, 6, 15, 4, 52, tzinfo=timezone.utc),
@@ -365,9 +367,10 @@ class TestSlotBLogic:
             mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
         )
         # Winter-Setup: now 04:00, sunrise 07:30, b_end = 07:00 (cap).
+        # min_soc=20, entry_bonus=5 → entry threshold = 25. SOC=30 > 25 → passed.
         snap = _make_snapshot(
             now=datetime(2026, 12, 21, 4, 0, tzinfo=timezone.utc),
-            battery_soc=25.0,  # > min_soc=20
+            battery_soc=30.0,
             battery_capacity_kwh=10.0,
             sunrise=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
             sunrise_today=datetime(2026, 12, 20, 7, 30, tzinfo=timezone.utc),
@@ -511,10 +514,11 @@ class TestProSlotHysteresis:
         opt._slot_a_activated_date = "2026-06-15"  # A war aktiv
         opt._slot_b_activated_date = None  # B noch nicht
         opt._last_active_slot = "A"
-        # battery_soc=22 → > min_soc=20 ohne Aufschlag → passes
+        # min_soc=20 + entry_bonus=5 → entry threshold = 25. SOC=27 > 25 → passes
+        # ohne Reaktivierungs-Aufschlag (würde 25 sein, aber B war noch nicht aktiv).
         snap = _make_snapshot(
             now=datetime(2026, 12, 21, 4, 0, tzinfo=timezone.utc),
-            battery_soc=22.0,
+            battery_soc=27.0,
             battery_capacity_kwh=10.0,
             sunrise=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
             sunrise_today=datetime(2026, 12, 20, 7, 30, tzinfo=timezone.utc),
@@ -2080,6 +2084,33 @@ class TestReserveHysteresis:
             sunrise_today=datetime(2026, 12, 20, 7, 30, tzinfo=timezone.utc),
         )
         passed, reasons, blocked, hyst = opt._evaluate_slot_b(snap, 20.0)
+        assert passed is False
+
+    def test_slot_b_with_soc_just_above_min_soc_does_not_start(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Live-Bug-Reproduktion (06.05.2026): Slot B startete bei SOC=19% mit
+        Ziel-SOC=18% → 1% nutzbarer Spielraum. Mit RESERVE_ENTRY_BONUS_PCT=5
+        muss SOC mind. 5% über min_soc liegen, sonst kein Eintritt."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=False,
+            enable_slot_b=True,
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+            min_soc=18,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 5, 6, 5, 29, tzinfo=timezone.utc),
+            battery_soc=19.0,  # nur 1% über min_soc → entry threshold 23 nicht erreicht
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 5, 6, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 5, 6, 7, 30, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_b(snap, 18.0)
         assert passed is False
 
     def test_slot_a_reactivation_overrides_currently_active(

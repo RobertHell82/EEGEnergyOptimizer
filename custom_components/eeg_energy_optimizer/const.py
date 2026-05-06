@@ -218,8 +218,14 @@ FAILURE_DEDUP_WINDOW_S = 3600           # 1 h Dedup pro (category, message_hash)
 # aufgeräumt, damit der nächste echte Block sauber startet.
 MIN_BLOCK_OUTCOME_MINUTES = 5
 
-# Schmitt-Trigger gegen Reserve-Schwellen-Toggle: während ein Slot bereits aktiv
-# ist, sinkt die Austrittsschwelle um diesen Prozentwert (kleinere Schwelle = der
-# Block bleibt länger aktiv). Eintrittsschwelle bleibt unverändert. Reaktivierungs-
-# Hysterese (+5%) hat Vorrang, falls der Slot heute bereits einmal verlassen wurde.
-RESERVE_HYSTERESIS_PCT = 2
+# Schmitt-Trigger gegen Reserve-Schwellen-Toggle (Anti-Oszillations-Pattern):
+#   - RESERVE_ENTRY_BONUS_PCT: Eintritts-Mindestreserve. Slot startet erst,
+#     wenn SOC die Reserve um mindestens diesen Prozentwert übersteigt.
+#     Verhindert Mini-Blöcke (z.B. SOC=19% startet bei min_soc=18%).
+#   - RESERVE_EXIT_HYSTERESIS_PCT: laufender Slot bleibt aktiv, bis SOC um
+#     diesen Prozentwert UNTER die Reserve fällt. Verhindert 30s-Toggle bei
+#     SOC-Oszillation.
+#   - Reaktivierungs-Hysterese (+5%) bleibt unabhängig; erschwert Wiedereinstieg
+#     in einen Slot, der innerhalb derselben Sitzung bereits verlassen wurde.
+RESERVE_ENTRY_BONUS_PCT = 5
+RESERVE_EXIT_HYSTERESIS_PCT = 2

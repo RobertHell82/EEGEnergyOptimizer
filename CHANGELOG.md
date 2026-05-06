@@ -21,7 +21,11 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 ### Geändert (Optimizer)
 
-- **Schmitt-Trigger-Hysterese auf Reserve-Schwellen verhindert SOC-Oszillations-Toggle.** Slot A und Slot B nutzen jetzt eine asymmetrische Schwelle: solange ein Slot bereits aktiv läuft (vorheriger Cycle = `STATE_ABEND_ENTLADUNG` mit passendem `_last_active_slot`), sinkt die Austrittsschwelle um `RESERVE_HYSTERESIS_PCT = 2`. Eintrittsschwelle bleibt unverändert. Effekt: SOC, das knapp um die Reserve oszilliert, kippt den Block nicht mehr im 30-Sekunden-Takt zwischen aktiv und inaktiv. Reaktivierungs-Hysterese (+5% nach erfolgtem Block-Verlassen) hat weiterhin Vorrang. Schwelle wird bei 0% geclampt.
+- **Schmitt-Trigger-Hysterese auf Reserve-Schwellen + Eintritts-Mindestreserve.** Drei-stufige Schwellen-Logik in Slot A und Slot B (Reaktivierung > Default-Eintritt > Currently-Active-Austritt):
+  - **Default-Eintritt** (`RESERVE_ENTRY_BONUS_PCT = 5`): ein Slot startet erst, wenn SOC die Reserve um mindestens 5% übersteigt. Verhindert Mini-Blöcke mit nutzbarem 1%-Spielraum (Live-Bug 06.05.2026: Slot B startete bei SOC=19% mit Ziel-SOC=18% und entlud nur 1%).
+  - **Currently-Active-Austritt** (`RESERVE_EXIT_HYSTERESIS_PCT = 2`): solange der Slot bereits aktiv läuft, sinkt die Austrittsschwelle um 2% — der Block bleibt aktiv, bis SOC echte 2% UNTER die Reserve fällt. Anti-Toggle bei SOC-Oszillation.
+  - **Reaktivierung** (+5% wie bisher): erschwert Wiedereinstieg in einen Slot, der heute schon einmal aktiv war und verlassen wurde.
+  - Schwellen werden bei 0% geclampt; Konstante `RESERVE_HYSTERESIS_PCT` umbenannt in `RESERVE_EXIT_HYSTERESIS_PCT` (interne API).
 
 ## [1.2.0] - 2026-05-05
 

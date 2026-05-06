@@ -51,7 +51,8 @@ from .const import (
     INVERTER_SIGN_CONVENTIONS,
     MODE_EIN,
     MODE_TEST,
-    RESERVE_HYSTERESIS_PCT,
+    RESERVE_ENTRY_BONUS_PCT,
+    RESERVE_EXIT_HYSTERESIS_PCT,
     STARTUP_GRACE_SECONDS,
     STATE_ABEND_ENTLADUNG,
     STATE_MORGEN_EINSPEISUNG,
@@ -1305,12 +1306,16 @@ class EEGOptimizer:
             self._last_eval_zustand == STATE_ABEND_ENTLADUNG
             and self._last_active_slot == "A"
         )
+        # Schwellen-Stufung:
+        #   Reaktivierung: a_min_soc + 5 (strikt; war heute schon aktiv und verlassen)
+        #   Currently active: a_min_soc - exit_hyst (Block läuft länger, Anti-Toggle)
+        #   Default-Eintritt: a_min_soc + entry_bonus (Mindestreserve, kein Mini-Block)
         if is_reactivation:
             effective_min_soc = a_min_soc + 5
         elif is_currently_active:
-            effective_min_soc = max(0.0, a_min_soc - RESERVE_HYSTERESIS_PCT)
+            effective_min_soc = max(0.0, a_min_soc - RESERVE_EXIT_HYSTERESIS_PCT)
         else:
-            effective_min_soc = a_min_soc
+            effective_min_soc = a_min_soc + RESERVE_ENTRY_BONUS_PCT
 
         if snap.battery_soc <= effective_min_soc:
             blocked_by: list[str] = []
@@ -1423,12 +1428,16 @@ class EEGOptimizer:
             self._last_eval_zustand == STATE_ABEND_ENTLADUNG
             and self._last_active_slot == "B"
         )
+        # Schwellen-Stufung (analog Slot A):
+        #   Reaktivierung: min_soc + 5
+        #   Currently active: min_soc - exit_hyst (Anti-Toggle)
+        #   Default-Eintritt: min_soc + entry_bonus (Mindestreserve)
         if is_reactivation:
             effective_min_soc = min_soc + 5
         elif is_currently_active:
-            effective_min_soc = max(0.0, min_soc - RESERVE_HYSTERESIS_PCT)
+            effective_min_soc = max(0.0, min_soc - RESERVE_EXIT_HYSTERESIS_PCT)
         else:
-            effective_min_soc = min_soc
+            effective_min_soc = min_soc + RESERVE_ENTRY_BONUS_PCT
 
         if snap.battery_soc <= effective_min_soc:
             blocked_by: list[str] = []
