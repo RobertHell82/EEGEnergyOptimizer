@@ -7,7 +7,9 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
-## [1.2.1-dev-01] - 2026-05-06
+## [1.2.2] - 2026-05-06
+
+> Release konsolidiert die DEV-Iteration 1.2.1-dev-01 (UI-Umbenennung Abend-Entladung → Nacht-Entladung).
 
 ### Geändert (UI)
 
