@@ -1884,3 +1884,437 @@ class TestInverterRaceValidation:
         )
         with pytest.raises((ValueError, AttributeError)):
             _parse_hhmm("invalid")
+
+
+# ---------------------------------------------------------------------------
+# TestReserveHysteresis — Schmitt-Trigger gegen Reserve-Schwellen-Toggle
+# ---------------------------------------------------------------------------
+
+class TestReserveHysteresis:
+    """Wenn ein Slot bereits aktiv läuft, ist die Austrittsschwelle 2% niedriger
+    als die Eintrittsschwelle. Zwischen den beiden Schwellen ist der Block
+    "stabil" — SOC-Oszillation um die Reserve führt nicht mehr zu Toggle."""
+
+    def test_slot_a_currently_active_uses_lower_exit_threshold(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """SOC unter Eintrittsschwelle, aber über Austrittsschwelle: laufender
+        Slot bleibt aktiv (Hysterese hält Block aufrecht)."""
+        from custom_components.eeg_energy_optimizer.const import STATE_ABEND_ENTLADUNG
+
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        # Slot A war im vorigen Cycle aktiv
+        opt._last_eval_zustand = STATE_ABEND_ENTLADUNG
+        opt._last_active_slot = "A"
+        opt._slot_a_activated_date = "2026-06-15"  # heute aktiv (kein reactivation, weil _last_active_slot == "A")
+
+        # min_soc=20, slot-B=off → a_min_soc=20. Eintritt: > 20. Austritt: > 18.
+        # SOC=19 → unter Eintritt, über Austritt → bleibt aktiv.
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            battery_soc=19.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 6, 15, 4, 52, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_a(snap, 20.0)
+        assert passed is True
+        assert REASON_SLOT_A_ACTIVE in reasons
+        assert hyst is False
+
+    def test_slot_a_not_currently_active_uses_full_entry_threshold(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Selber SOC=19, aber Slot war vorher inaktiv → Eintritt verlangt > 20."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        # Slot A war vorher NICHT aktiv (Default-State: STATE_NORMAL, _last_active_slot=None)
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            battery_soc=19.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 6, 15, 4, 52, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_a(snap, 20.0)
+        assert passed is False
+        assert REASON_SLOT_A_RESERVE_REACHED in blocked
+
+    def test_slot_a_currently_active_blocks_below_exit_threshold(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """SOC unter Austrittsschwelle (a_min_soc - 2): Slot endet auch im
+        laufenden Block."""
+        from custom_components.eeg_energy_optimizer.const import STATE_ABEND_ENTLADUNG
+
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        opt._last_eval_zustand = STATE_ABEND_ENTLADUNG
+        opt._last_active_slot = "A"
+        opt._slot_a_activated_date = "2026-06-15"
+
+        # a_min_soc=20, exit=18. SOC=17.5 → unter Austritt → blocked.
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            battery_soc=17.5,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 6, 15, 4, 52, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_a(snap, 20.0)
+        assert passed is False
+        assert REASON_SLOT_A_RESERVE_REACHED in blocked
+
+    def test_slot_a_currently_active_with_reserve_uses_lower_exit(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Mit Slot-B-Reserve: a_min_soc = min_soc + reserve = 35. Exit = 33.
+        SOC=34 (unter Eintritt, über Austritt) bleibt im laufenden Block."""
+        from custom_components.eeg_energy_optimizer.const import STATE_ABEND_ENTLADUNG
+
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+            discharge_a_reserve_pct=15,
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        opt._last_eval_zustand = STATE_ABEND_ENTLADUNG
+        opt._last_active_slot = "A"
+        opt._slot_a_activated_date = "2026-06-15"
+
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            battery_soc=34.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 6, 15, 4, 52, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_a(snap, 20.0)
+        assert passed is True
+        assert REASON_SLOT_A_ACTIVE in reasons
+
+    def test_slot_b_currently_active_uses_lower_exit_threshold(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Slot B analog: SOC=19, min_soc=20, currently active → bleibt aktiv (exit=18)."""
+        from custom_components.eeg_energy_optimizer.const import STATE_ABEND_ENTLADUNG
+
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=False,
+            enable_slot_b=True,
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        opt._last_eval_zustand = STATE_ABEND_ENTLADUNG
+        opt._last_active_slot = "B"
+        opt._slot_b_activated_date = "2026-12-21"
+
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 21, 4, 0, tzinfo=timezone.utc),
+            battery_soc=19.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 20, 7, 30, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_b(snap, 20.0)
+        assert passed is True
+        assert REASON_SLOT_B_ACTIVE in reasons
+        assert hyst is False
+
+    def test_slot_b_not_currently_active_uses_full_entry_threshold(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Slot B war NICHT aktiv im vorigen Cycle: SOC=19 → blocked, weil Eintritt > 20."""
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=False,
+            enable_slot_b=True,
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 21, 4, 0, tzinfo=timezone.utc),
+            battery_soc=19.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 20, 7, 30, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_b(snap, 20.0)
+        assert passed is False
+
+    def test_slot_a_reactivation_overrides_currently_active(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Reaktivierungs-Hysterese (+5%) und Schmitt-Hysterese (-2%) schließen
+        sich logisch aus: is_reactivation setzt _last_active_slot != 'A',
+        is_currently_active erfordert _last_active_slot == 'A'.
+
+        Verifiziert: bei `_slot_a_activated_date` gesetzt + `_last_active_slot=B`
+        gilt strikt die Reaktivierungsschwelle, nicht die Schmitt-Hysterese.
+        """
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+            discharge_a_reserve_pct=15,
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        opt._slot_a_activated_date = "2026-06-15"
+        opt._last_active_slot = "B"  # Slot B war zuletzt aktiv → Reaktivierung für A
+
+        # a_min_soc = 20+15 = 35; reaktivierung = 40; Schmitt-exit = 33.
+        # SOC=39 → unter Reaktivierung (40) → blocked. Wenn fälschlich Schmitt
+        # angewendet würde (exit=33), wäre 39 > 33 → passed.
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            battery_soc=39.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 6, 15, 4, 52, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_a(snap, 20.0)
+        assert passed is False
+        assert REASON_HYSTERESIS_STRICT in blocked
+        assert hyst is True
+
+
+# ---------------------------------------------------------------------------
+# TestPlannedBlockEnd — geplantes Block-Ende für Telemetry-Skalierung
+# ---------------------------------------------------------------------------
+
+class TestPlannedBlockEnd:
+    """``_compute_planned_block_end`` liefert ISO-Timestamp für Block-Ende.
+    Wird vom Telemetry-Reporter genutzt, um predicted_*_kwh über die
+    Block-Dauer zu skalieren."""
+
+    def test_morning_einspeisung_uses_morning_end_time(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        from custom_components.eeg_energy_optimizer.const import (
+            STATE_MORGEN_EINSPEISUNG,
+        )
+
+        cfg = _make_config(morning_end_time="09:00")
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+        )
+        decision = Decision()
+        result = opt._compute_planned_block_end(
+            snap, STATE_MORGEN_EINSPEISUNG, None, decision
+        )
+        assert result == "2026-06-15T09:00:00+00:00"
+
+    def test_slot_a_with_b_enabled_uses_5min_before_b_start(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        from custom_components.eeg_energy_optimizer.const import (
+            STATE_ABEND_ENTLADUNG,
+        )
+
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
+        )
+        decision = Decision()
+        result = opt._compute_planned_block_end(
+            snap, STATE_ABEND_ENTLADUNG, "A", decision
+        )
+        # b_start morgen 03:00 - 5min = 02:55
+        assert "2026-06-16T02:55:00" in result
+
+    def test_slot_a_only_uses_hard_cutoff(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        from custom_components.eeg_energy_optimizer.const import (
+            STATE_ABEND_ENTLADUNG,
+        )
+
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
+        )
+        decision = Decision()
+        result = opt._compute_planned_block_end(
+            snap, STATE_ABEND_ENTLADUNG, "A", decision
+        )
+        # hard_cutoff = min(04:00 morgen, sunrise-1h=03:52) = 03:52
+        assert "2026-06-16T03:52:00" in result
+
+    def test_slot_b_uses_compute_b_window_end(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        from custom_components.eeg_energy_optimizer.const import (
+            STATE_ABEND_ENTLADUNG,
+        )
+
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=False,
+            enable_slot_b=True,
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 21, 4, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            sunrise=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+        )
+        decision = Decision()
+        result = opt._compute_planned_block_end(
+            snap, STATE_ABEND_ENTLADUNG, "B", decision
+        )
+        # b_end = min(07:00 cap, sunrise-5min=07:25) = 07:00
+        assert "2026-12-21T07:00:00" in result
+
+    def test_peakshare_active_uses_window_end_from_decision(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        from custom_components.eeg_energy_optimizer.const import (
+            STATE_ABEND_ENTLADUNG,
+        )
+
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
+        )
+        decision = Decision()
+        decision.discharge_peakshare_active = True
+        decision.discharge_window_end = "23:30"
+        result = opt._compute_planned_block_end(
+            snap, STATE_ABEND_ENTLADUNG, "A", decision
+        )
+        # PeakShare-Plan-Ende: 23:30 heute (now=21:00 < 23:30)
+        assert "2026-06-15T23:30:00" in result
+
+    def test_peakshare_past_midnight_advances_to_next_day(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """PeakShare-window_end='02:00' während now=21:00 → end gehört zum Folgetag."""
+        from custom_components.eeg_energy_optimizer.const import (
+            STATE_ABEND_ENTLADUNG,
+        )
+
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
+        )
+        decision = Decision()
+        decision.discharge_peakshare_active = True
+        decision.discharge_window_end = "02:00"
+        result = opt._compute_planned_block_end(
+            snap, STATE_ABEND_ENTLADUNG, "A", decision
+        )
+        assert "2026-06-16T02:00:00" in result
+
+    def test_normal_state_returns_empty_string(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        from custom_components.eeg_energy_optimizer.const import STATE_NORMAL
+
+        cfg = _make_config()
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+        )
+        decision = Decision()
+        result = opt._compute_planned_block_end(
+            snap, STATE_NORMAL, None, decision
+        )
+        assert result == ""
+

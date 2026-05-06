@@ -7,6 +7,22 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [Unreleased]
+
+### Behoben
+
+- **Dashboard-Statuskarte „Abend-Entladung" zeigt in der A→B-Pause nicht mehr fälschlich Rot.** `_discharge_detail_status` betrachtet jetzt auch die Slot-spezifischen Wartezeit-Reasons (`REASON_BEFORE_SLOT_A`, `REASON_BEFORE_SLOT_B`, `REASON_BETWEEN_SLOTS`, `REASON_SLOT_A_RESERVE_REACHED`) als Time-Reasons. Folge: vor Slot-A-Start, in der Pause zwischen Slot A und Slot B sowie vor Slot-B-Start zeigt die Karte „Geplant" (blau) statt „Nicht geplant" (rot). Bedingungs-bedingte Blocker (z.B. SOC zu niedrig) bleiben weiterhin rot.
+
+### Geändert (Telemetrie)
+
+- **Outcome trägt jetzt `actuals_invalid=true`, wenn ein Power-Sensor mid-block ausfällt.** Pro Block wird getrackt, ob `pv_now_kw` / `consumption_now_kw` / `grid_now_kw` nach mindestens einem nicht-None-Sample wieder None liefern (= Sensor-Ausfall während des laufenden Blocks). In diesem Fall wird `actuals_invalid=true` ins Outcome-Payload geschrieben — das Backend kann jetzt zwischen „Sensor nicht konfiguriert" (Feld fehlt seit jeher) und „Sensor zwischenzeitlich ausgefallen" (Aktuals verfälscht) unterscheiden. Sensoren, die durchgängig None liefern (z.B. nicht konfiguriert), setzen das Flag nicht.
+- **Outcomes von Spike-Blöcken (< 5 min) werden nicht mehr ans Backend gesendet.** Schwellen-Toggle-Spikes (Block startet, SOC erreicht sofort die Reserve, Block endet binnen Sekunden) verzerrten bisher die Forecast-MAE-Statistik im Backend. Neuer Cutoff `MIN_BLOCK_OUTCOME_MINUTES = 5`: Blöcke unter 5 Minuten werden geskippt; Block-Predictions / -Samples / -Actuals-State werden trotzdem aufgeräumt, damit der nächste echte Block sauber startet. Lokale Feed-In-Statistik bleibt unberührt — die UI sieht den Spike nach wie vor.
+- **`predicted_pv_kwh` / `predicted_consumption_kwh` werden jetzt block-skaliert ausgegeben.** Bisher wurden Tagesforecasts ans Backend gemeldet, die mit den über das Block-Fenster integrierten `actual_*_kwh`-Werten nicht vergleichbar waren (Forecast-MAE für eine 7h-Abend-Entladung wurde mit dem ganzen morgigen 24h-Tagesforecast gegengerechnet). Neuer Decision-Pfad: Optimizer setzt `decision.planned_block_end` bei Block-Start (Morgen-Einspeisung: `morning_end_time`; Slot A: 5min vor Slot-B-Start oder hard_cutoff; Slot B: `compute_b_window_end`; PeakShare: `discharge_window_end`). `_build_block_predictions` skaliert dann linear über 24h: `predicted = day_forecast × min(block_h / 24, 1)`. Backwards-kompatibel: ohne `planned_block_end` (Legacy/Tests) bleibt fraction=1.0.
+
+### Geändert (Optimizer)
+
+- **Schmitt-Trigger-Hysterese auf Reserve-Schwellen verhindert SOC-Oszillations-Toggle.** Slot A und Slot B nutzen jetzt eine asymmetrische Schwelle: solange ein Slot bereits aktiv läuft (vorheriger Cycle = `STATE_ABEND_ENTLADUNG` mit passendem `_last_active_slot`), sinkt die Austrittsschwelle um `RESERVE_HYSTERESIS_PCT = 2`. Eintrittsschwelle bleibt unverändert. Effekt: SOC, das knapp um die Reserve oszilliert, kippt den Block nicht mehr im 30-Sekunden-Takt zwischen aktiv und inaktiv. Reaktivierungs-Hysterese (+5% nach erfolgtem Block-Verlassen) hat weiterhin Vorrang. Schwelle wird bei 0% geclampt.
+
 ## [1.2.0] - 2026-05-05
 
 > Release konsolidiert die DEV-Iterationen 31–34 (Phase 11 Dual-Window, Phase 11.1 PeakShare-per-Slot, Phase 12 UI-Vereinfachung).

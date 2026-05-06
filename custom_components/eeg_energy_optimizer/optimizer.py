@@ -51,6 +51,7 @@ from .const import (
     INVERTER_SIGN_CONVENTIONS,
     MODE_EIN,
     MODE_TEST,
+    RESERVE_HYSTERESIS_PCT,
     STARTUP_GRACE_SECONDS,
     STATE_ABEND_ENTLADUNG,
     STATE_MORGEN_EINSPEISUNG,
@@ -374,6 +375,12 @@ class Decision:
 
     # Phase 11: aktiver Slot ("A" | "B" | None für Legacy/Pause)
     discharge_active_slot: str | None = None
+
+    # Block-Telemetrie (Phase 12+): geplantes Block-Ende als ISO-Timestamp.
+    # Wird bei Block-Start im Optimizer gesetzt und vom Telemetry-Reporter
+    # gelesen, um predicted_pv_kwh / predicted_consumption_kwh über die
+    # tatsächliche Block-Dauer zu skalieren. Leer im Normalbetrieb.
+    planned_block_end: str = ""
 
 
 class EEGOptimizer:
@@ -934,12 +941,24 @@ class EEGOptimizer:
             return result
 
         # Not discharging: separate time-reason from condition-reasons via Katalog-Keys.
-        # Both fixed-time (REASON_BEFORE_DISCHARGE_START) and PeakShare
-        # (REASON_PEAKSHARE_BEFORE_WINDOW) sind Time-Reasons → Karte zeigt
-        # "Geplant" (blau) statt "Nicht geplant" (rot).
+        # Time-Reasons → Karte zeigt "Geplant" (blau) statt "Nicht geplant" (rot):
+        #   - REASON_BEFORE_DISCHARGE_START / REASON_PEAKSHARE_BEFORE_WINDOW:
+        #     Legacy- und Single-Window-Pfade.
+        #   - REASON_BEFORE_SLOT_A / REASON_BEFORE_SLOT_B: Dual-Slot-Mode wartet
+        #     nur auf die Slot-Startzeit.
+        #   - REASON_BETWEEN_SLOTS: Pause zwischen Slot A und Slot B (deklarativ).
+        #   - REASON_SLOT_A_RESERVE_REACHED: im Dual-Slot-Mode markiert dies den
+        #     5min-Cutoff vor Slot-B-Start (A endet, B wartet noch). Im A-only-
+        #     Mode kann dieser Reason auch SOC-bedingt sein, dann steht er aber
+        #     allein — die Karte zeigt dennoch "Geplant", was als "Slot fertig,
+        #     nichts mehr zu tun" lesbar ist (analog window_expired).
         time_reason_keys = {
             REASON_BEFORE_DISCHARGE_START,
             REASON_PEAKSHARE_BEFORE_WINDOW,
+            REASON_BEFORE_SLOT_A,
+            REASON_BEFORE_SLOT_B,
+            REASON_BETWEEN_SLOTS,
+            REASON_SLOT_A_RESERVE_REACHED,
         }
         time_keys = [k for k in discharge_blocked_by if k in time_reason_keys]
         condition_keys = [k for k in discharge_blocked_by if k not in time_reason_keys]
@@ -954,6 +973,79 @@ class EEGOptimizer:
             result["reasons"] = [REASON_LABELS_DE.get(k, k) for k in condition_keys]
 
         return result
+
+    def _compute_planned_block_end(
+        self,
+        snap: Snapshot,
+        zustand: str,
+        active_slot: str | None,
+        decision: Decision,
+    ) -> str:
+        """Geplantes Block-Ende als ISO-Timestamp für Telemetrie-Skalierung.
+
+        Wird vom Telemetry-Reporter genutzt, um ``predicted_pv_kwh`` /
+        ``predicted_consumption_kwh`` über die tatsächliche Block-Dauer zu
+        skalieren (Tagesforecast × block_h / 24).
+
+        Quelle pro Zustand:
+          - Morgen-Einspeisung: ``morning_end_time`` heute
+          - Abend-Entladung mit PeakShare: ``decision.discharge_window_end`` (HH:MM)
+          - Slot A (kein PeakShare): 5min vor Slot-B-Start (wenn B aktiv)
+            sonst hard_cutoff
+          - Slot B (kein PeakShare): ``compute_b_window_end``
+
+        Liefert leeren String wenn ``zustand`` nicht im Block ist oder das
+        Ende nicht bestimmbar (sunrise unbekannt etc.).
+        """
+        if zustand == STATE_MORGEN_EINSPEISUNG:
+            end = snap.now.replace(
+                hour=self._morning_end_hour,
+                minute=self._morning_end_min,
+                second=0,
+                microsecond=0,
+            )
+            if end <= snap.now:
+                return ""
+            return end.isoformat()
+
+        if zustand != STATE_ABEND_ENTLADUNG:
+            return ""
+
+        # PeakShare-Plan-Ende hat Vorrang (HH:MM-String aus decision)
+        if decision.discharge_peakshare_active and decision.discharge_window_end:
+            try:
+                hh_str, mm_str = decision.discharge_window_end.split(":")
+                hh, mm = int(hh_str), int(mm_str)
+            except (ValueError, AttributeError):
+                return ""
+            end = snap.now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            if end <= snap.now:
+                end = end + timedelta(days=1)
+            return end.isoformat()
+
+        if active_slot == "B":
+            b_end = compute_b_window_end(
+                snap.now,
+                snap.sunrise,
+                self._discharge_b_end_cap,
+                float(self._morning_start_offset_h),
+            )
+            return b_end.isoformat() if b_end is not None else ""
+
+        # Slot A (Default): 5min vor B-Start oder hard_cutoff
+        if self._enable_slot_b:
+            b_start = snap.now.replace(
+                hour=self._discharge_b_start_h,
+                minute=self._discharge_b_start_m,
+                second=0,
+                microsecond=0,
+            )
+            if self._discharge_b_start_h < 12 and snap.now.hour >= 12:
+                b_start = b_start + timedelta(days=1)
+            return (b_start - timedelta(minutes=5)).isoformat()
+
+        cutoff = compute_hard_cutoff(snap.now, snap.sunrise)
+        return cutoff.isoformat() if cutoff is not None else ""
 
     def _calc_energiebedarf(self, snap: Snapshot) -> float:
         """Calculate total energy demand: daylight consumption with buffer + missing battery.
@@ -1206,7 +1298,19 @@ class EEGOptimizer:
             self._slot_a_activated_date is not None
             and self._last_active_slot != "A"
         )
-        effective_min_soc = a_min_soc + (5 if is_reactivation else 0)
+        # Schmitt-Trigger: Slot läuft bereits aktiv → niedrigere Austrittsschwelle,
+        # damit SOC-Oszillation um a_min_soc nicht zu Block-Toggle führt.
+        # Mutually exclusive mit is_reactivation (dort _last_active_slot != "A").
+        is_currently_active = (
+            self._last_eval_zustand == STATE_ABEND_ENTLADUNG
+            and self._last_active_slot == "A"
+        )
+        if is_reactivation:
+            effective_min_soc = a_min_soc + 5
+        elif is_currently_active:
+            effective_min_soc = max(0.0, a_min_soc - RESERVE_HYSTERESIS_PCT)
+        else:
+            effective_min_soc = a_min_soc
 
         if snap.battery_soc <= effective_min_soc:
             blocked_by: list[str] = []
@@ -1313,7 +1417,18 @@ class EEGOptimizer:
             self._slot_b_activated_date is not None
             and self._last_active_slot != "B"
         )
-        effective_min_soc = min_soc + (5 if is_reactivation else 0)
+        # Schmitt-Trigger analog Slot A: niedrigere Austrittsschwelle, wenn der
+        # Slot bereits aktiv läuft. Mutually exclusive mit is_reactivation.
+        is_currently_active = (
+            self._last_eval_zustand == STATE_ABEND_ENTLADUNG
+            and self._last_active_slot == "B"
+        )
+        if is_reactivation:
+            effective_min_soc = min_soc + 5
+        elif is_currently_active:
+            effective_min_soc = max(0.0, min_soc - RESERVE_HYSTERESIS_PCT)
+        else:
+            effective_min_soc = min_soc
 
         if snap.battery_soc <= effective_min_soc:
             blocked_by: list[str] = []
@@ -1606,6 +1721,13 @@ class EEGOptimizer:
                 decision.discharge_peakshare_active = True
                 decision.discharge_window_start = ps_plan[0].strftime("%H:%M")
                 decision.discharge_window_end = ps_plan[1].strftime("%H:%M")
+
+        # Phase 12+: geplantes Block-Ende für Telemetry-Skalierung.
+        # Muss NACH der PeakShare-Befüllung berechnet werden, damit der
+        # Helper auf decision.discharge_window_end zugreifen kann.
+        decision.planned_block_end = self._compute_planned_block_end(
+            snap, zustand, active_slot, decision
+        )
 
         # Strukturierte Diagnose (D-09): kanonische Katalog-Keys für Telemetrie.
         # Mapping je nach gewähltem Zustand:

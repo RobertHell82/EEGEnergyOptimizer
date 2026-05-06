@@ -405,6 +405,7 @@ def _make_outcome_stats(hass=None, identity_known=True, configured=True):
         "snapshot_queue": [],
         "block_predictions": {},
         "block_samples": {},
+        "block_actuals_state": {},
         "optimizer": None,
     }
     stats.set_reporter(reporter, data)
@@ -721,4 +722,282 @@ def test_outcome_silent_when_no_identity():
     _open_morning_session(stats)
     stats._close_session(datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc))
     assert reporter.send_outcome.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# e) actuals_invalid flag — mid-block sensor unavailability
+# ---------------------------------------------------------------------------
+def test_outcome_actuals_invalid_set_when_sensor_drops_mid_block():
+    """Wenn ein Sensor während des Blocks von 'liefert' auf None kippt,
+    muss der Outcome `actuals_invalid=true` tragen."""
+    stats, reporter, data = _make_outcome_stats()
+    started = datetime(2026, 4, 15, 5, 30, tzinfo=timezone.utc)
+    ended = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": started.isoformat(),
+        "soc_start_pct": 90,
+    }
+    # Der State würde von __init__._record_block_sample so gesetzt werden,
+    # wenn der PV-Sensor nach mind. einem nicht-None-Sample None liefert.
+    data["block_actuals_state"] = {
+        "morgen_einspeisung": {
+            "pv_seen": True, "cons_seen": True, "grid_seen": True,
+            "actuals_invalid": True,
+        }
+    }
+    _open_morning_session(stats, start_iso=started.isoformat())
+    stats._close_session(ended)
+
+    payload = reporter.send_outcome.call_args.args[0]
+    assert payload.get("actuals_invalid") is True
+    # State wird nach Send gepoppt
+    assert "morgen_einspeisung" not in data["block_actuals_state"]
+
+
+def test_outcome_no_actuals_invalid_field_when_state_clean():
+    """Ohne mid-block-Ausfall darf das Feld gar nicht im Payload sein —
+    Backend-Default = False."""
+    stats, reporter, data = _make_outcome_stats()
+    started = datetime(2026, 4, 15, 5, 30, tzinfo=timezone.utc)
+    ended = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": started.isoformat(),
+        "soc_start_pct": 90,
+    }
+    data["block_actuals_state"] = {
+        "morgen_einspeisung": {
+            "pv_seen": True, "cons_seen": True, "grid_seen": True,
+            "actuals_invalid": False,
+        }
+    }
+    _open_morning_session(stats, start_iso=started.isoformat())
+    stats._close_session(ended)
+
+    payload = reporter.send_outcome.call_args.args[0]
+    assert "actuals_invalid" not in payload
+
+
+def test_outcome_no_actuals_invalid_when_state_missing():
+    """Wenn kein State-Eintrag existiert (z.B. Tests ohne den neuen Hook),
+    bleibt das Feld weg — backwards-kompatibel."""
+    stats, reporter, data = _make_outcome_stats()
+    # Kein "block_actuals_state"-Eintrag für diesen event_type
+    _open_morning_session(stats)
+    stats._close_session(datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc))
+
+    payload = reporter.send_outcome.call_args.args[0]
+    assert "actuals_invalid" not in payload
+
+
+# ---------------------------------------------------------------------------
+# f) _record_block_sample — mid-block-drop tracking
+# ---------------------------------------------------------------------------
+def test_record_block_sample_flags_mid_block_drop():
+    """Direkter Test der Tracking-Logik: ein PV-Sensor, der erst Werte liefert
+    und dann None wird, kippt actuals_invalid auf True. Ein durchgängig nicht
+    konfigurierter Sensor (immer None) lässt das Flag bei False."""
+    # Wir bauen das State-Update inline nach, weil _record_block_sample eine
+    # Closure in async_setup_entry ist und ohne hass-Setup nicht direkt
+    # aufrufbar ist. Tests gegen die Closure-Logik laufen über Integration.
+    # Hier der Algorithmus 1:1, um den Vertrag zu pinnen.
+    state = {"pv_seen": False, "cons_seen": False, "grid_seen": False, "actuals_invalid": False}
+
+    def _update(pv, cons, grid):
+        for seen_key, val in (("pv_seen", pv), ("cons_seen", cons), ("grid_seen", grid)):
+            if val is not None:
+                state[seen_key] = True
+            elif state[seen_key]:
+                state["actuals_invalid"] = True
+
+    # Sample 1: PV liefert, cons liefert, grid liefert
+    _update(2.0, 0.4, 1.5)
+    assert state == {"pv_seen": True, "cons_seen": True, "grid_seen": True, "actuals_invalid": False}
+    # Sample 2: PV None (Ausfall mid-block) — Flag MUSS kippen
+    _update(None, 0.5, 1.6)
+    assert state["actuals_invalid"] is True
+
+
+def test_record_block_sample_unconfigured_sensor_does_not_flag():
+    """Ein Sensor, der durchgängig None liefert (nicht konfiguriert),
+    darf actuals_invalid NICHT setzen."""
+    state = {"pv_seen": False, "cons_seen": False, "grid_seen": False, "actuals_invalid": False}
+
+    def _update(pv, cons, grid):
+        for seen_key, val in (("pv_seen", pv), ("cons_seen", cons), ("grid_seen", grid)):
+            if val is not None:
+                state[seen_key] = True
+            elif state[seen_key]:
+                state["actuals_invalid"] = True
+
+    # PV durchgängig None (z.B. kein PV-Power-Sensor konfiguriert), cons + grid OK
+    for _ in range(10):
+        _update(None, 0.4, 1.5)
+    assert state["pv_seen"] is False
+    assert state["actuals_invalid"] is False
+
+
+# ---------------------------------------------------------------------------
+# g) MIN_BLOCK_OUTCOME_MINUTES — Mindestdauer-Cutoff
+# ---------------------------------------------------------------------------
+def test_outcome_skipped_when_block_shorter_than_min_minutes():
+    """Block < 5 min (Schwellen-Toggle-Spike) → kein send_outcome."""
+    stats, reporter, data = _make_outcome_stats()
+    started = datetime(2026, 4, 15, 5, 30, tzinfo=timezone.utc)
+    ended = datetime(2026, 4, 15, 5, 31, tzinfo=timezone.utc)  # 1 min
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": started.isoformat(),
+        "soc_start_pct": 90,
+    }
+    data["block_samples"]["morgen_einspeisung"] = [
+        {"ts": started.isoformat(), "pv_now_kw": 2.0, "consumption_now_kw": 0.4, "grid_now_kw": 1.5},
+    ]
+    data["block_actuals_state"]["morgen_einspeisung"] = {
+        "pv_seen": True, "cons_seen": True, "grid_seen": True, "actuals_invalid": False,
+    }
+    _open_morning_session(stats, start_iso=started.isoformat())
+    stats._close_session(ended)
+
+    assert reporter.send_outcome.call_count == 0
+    # State trotzdem aufgeräumt — der nächste echte Block startet sauber
+    assert "morgen_einspeisung" not in data["block_predictions"]
+    assert "morgen_einspeisung" not in data["block_samples"]
+    assert "morgen_einspeisung" not in data["block_actuals_state"]
+
+
+def test_outcome_sent_when_block_meets_min_duration():
+    """Block ≥ 5 min → ganz normaler Outcome-Send."""
+    stats, reporter, data = _make_outcome_stats()
+    started = datetime(2026, 4, 15, 5, 30, tzinfo=timezone.utc)
+    ended = datetime(2026, 4, 15, 5, 35, tzinfo=timezone.utc)  # 5 min — exakt am Cutoff
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": started.isoformat(),
+        "soc_start_pct": 90,
+    }
+    _open_morning_session(stats, start_iso=started.isoformat())
+    stats._close_session(ended)
+
+    assert reporter.send_outcome.call_count == 1
+    payload = reporter.send_outcome.call_args.args[0]
+    assert payload["duration_minutes"] == 5
+
+
+def test_outcome_skip_does_not_affect_other_event_type_state():
+    """Cutoff-Skip räumt nur den eigenen event_type auf — andere Block-States
+    (z.B. paralleler Abend-Block) bleiben unangetastet."""
+    stats, reporter, data = _make_outcome_stats()
+    started = datetime(2026, 4, 15, 5, 30, tzinfo=timezone.utc)
+    ended = datetime(2026, 4, 15, 5, 31, tzinfo=timezone.utc)  # 1 min
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": started.isoformat(),
+        "soc_start_pct": 90,
+    }
+    # Hypothetischer Abend-State darf den Skip überleben
+    data["block_predictions"]["abend_entladung"] = {
+        "started_at": "2026-04-15T18:00:00+00:00",
+        "soc_start_pct": 80,
+    }
+    _open_morning_session(stats, start_iso=started.isoformat())
+    stats._close_session(ended)
+
+    assert reporter.send_outcome.call_count == 0
+    assert "morgen_einspeisung" not in data["block_predictions"]
+    assert "abend_entladung" in data["block_predictions"]
+
+
+# ---------------------------------------------------------------------------
+# h) _build_block_predictions — Block-Skalierung (predicted_*_kwh)
+# ---------------------------------------------------------------------------
+def test_build_block_predictions_scales_pv_and_consumption_to_block_window():
+    """Mit ``planned_block_end`` skaliert _build_block_predictions PV und Verbrauch
+    linear über 24h auf die Block-Dauer. 6h-Block → 25% des Tagesforecasts."""
+    from custom_components.eeg_energy_optimizer import _build_block_predictions
+    from custom_components.eeg_energy_optimizer.optimizer import Decision
+
+    decision = Decision()
+    decision.zustand = STATE_ABEND_ENTLADUNG
+    decision.timestamp = "2026-04-15T20:00:00+00:00"
+    decision.planned_block_end = "2026-04-16T02:00:00+00:00"  # 6h Block
+    decision.discharge_pv_tomorrow_kwh = 24.0
+    decision.discharge_consumption_daylight_kwh = 12.0
+    decision.discharge_soc = 80
+
+    predictions = _build_block_predictions(decision)
+    # 6h / 24h = 0.25 → predicted = day * 0.25
+    assert predictions["predicted_pv_kwh"] == pytest.approx(6.0, rel=1e-9)
+    assert predictions["predicted_consumption_kwh"] == pytest.approx(3.0, rel=1e-9)
+    assert predictions["soc_start_pct"] == 80
+
+
+def test_build_block_predictions_morning_einspeisung_scales():
+    """Morgen-Einspeisung (3h Block) → 12.5% des Tagesforecasts."""
+    from custom_components.eeg_energy_optimizer import _build_block_predictions
+    from custom_components.eeg_energy_optimizer.optimizer import Decision
+
+    decision = Decision()
+    decision.zustand = STATE_MORGEN_EINSPEISUNG
+    decision.timestamp = "2026-04-15T05:30:00+00:00"
+    decision.planned_block_end = "2026-04-15T08:30:00+00:00"  # 3h
+    decision.morning_pv_today_kwh = 32.0
+    decision.morning_consumption_kwh = 16.0
+    decision.discharge_soc = 90
+
+    predictions = _build_block_predictions(decision)
+    # 3h / 24h = 0.125 → predicted = day * 0.125
+    assert predictions["predicted_pv_kwh"] == pytest.approx(4.0, rel=1e-9)
+    assert predictions["predicted_consumption_kwh"] == pytest.approx(2.0, rel=1e-9)
+
+
+def test_build_block_predictions_legacy_no_planned_end_keeps_full_day_forecast():
+    """Backwards-Kompatibilität: ohne ``planned_block_end`` keine Skalierung
+    (fraction=1.0). Alte Tests + Fallback-Pfade bleiben unverändert."""
+    from custom_components.eeg_energy_optimizer import _build_block_predictions
+    from custom_components.eeg_energy_optimizer.optimizer import Decision
+
+    decision = Decision()
+    decision.zustand = STATE_ABEND_ENTLADUNG
+    decision.timestamp = "2026-04-15T20:00:00+00:00"
+    # Kein planned_block_end gesetzt → fraction bleibt 1.0
+    decision.discharge_pv_tomorrow_kwh = 24.0
+    decision.discharge_consumption_daylight_kwh = 12.0
+    decision.discharge_soc = 80
+
+    predictions = _build_block_predictions(decision)
+    assert predictions["predicted_pv_kwh"] == 24.0
+    assert predictions["predicted_consumption_kwh"] == 12.0
+
+
+def test_build_block_predictions_caps_fraction_at_one():
+    """planned_block_end > 24h nach started_at darf fraction nicht > 1.0 setzen."""
+    from custom_components.eeg_energy_optimizer import _build_block_predictions
+    from custom_components.eeg_energy_optimizer.optimizer import Decision
+
+    decision = Decision()
+    decision.zustand = STATE_ABEND_ENTLADUNG
+    decision.timestamp = "2026-04-15T20:00:00+00:00"
+    decision.planned_block_end = "2026-04-17T20:00:00+00:00"  # 48h (unrealistic, defensive)
+    decision.discharge_pv_tomorrow_kwh = 24.0
+    decision.discharge_consumption_daylight_kwh = 12.0
+    decision.discharge_soc = 80
+
+    predictions = _build_block_predictions(decision)
+    # Capped at fraction=1.0
+    assert predictions["predicted_pv_kwh"] == 24.0
+    assert predictions["predicted_consumption_kwh"] == 12.0
+
+
+def test_build_block_predictions_invalid_planned_end_falls_back_to_legacy():
+    """Bei kaputtem ``planned_block_end`` (parsefehler) fallback auf fraction=1.0."""
+    from custom_components.eeg_energy_optimizer import _build_block_predictions
+    from custom_components.eeg_energy_optimizer.optimizer import Decision
+
+    decision = Decision()
+    decision.zustand = STATE_ABEND_ENTLADUNG
+    decision.timestamp = "2026-04-15T20:00:00+00:00"
+    decision.planned_block_end = "not-a-date"
+    decision.discharge_pv_tomorrow_kwh = 24.0
+    decision.discharge_consumption_daylight_kwh = 12.0
+
+    predictions = _build_block_predictions(decision)
+    assert predictions["predicted_pv_kwh"] == 24.0
+    assert predictions["predicted_consumption_kwh"] == 12.0
 

@@ -664,3 +664,150 @@ class TestPeakShareSlotMarkdown:
         md = opt._build_markdown(snap, decision)
         assert "PeakShare-Fenster" not in md
         assert "Aktiver Slot: A" in md
+
+
+# ---------------------------------------------------------------------------
+# TestSlotAwareGeplantStatus — UX-Fix: A→B-Pause auf "Geplant" statt "Nicht geplant"
+# ---------------------------------------------------------------------------
+
+class TestSlotAwareGeplantStatus:
+    """Slot-aware Time-Reasons werden in der Status-Karte als "Geplant" (blau)
+    statt "Nicht geplant" (rot) dargestellt.
+
+    Vorher kannte ``_discharge_detail_status`` nur ``REASON_BEFORE_DISCHARGE_START``
+    und ``REASON_PEAKSHARE_BEFORE_WINDOW`` als Time-Reasons. Slot-spezifische
+    Wartezeit-Keys (``REASON_BEFORE_SLOT_A``, ``REASON_BEFORE_SLOT_B``,
+    ``REASON_BETWEEN_SLOTS``, ``REASON_SLOT_A_RESERVE_REACHED``) landeten
+    fälschlich in ``condition_keys`` → Karte rot.
+    """
+
+    def test_status_geplant_when_only_before_slot_b(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Vor Slot-B-Start (Slot-B-only Setup) → Karte zeigt 'geplant'."""
+        cfg = _make_config(
+            enable_slot_a=False, enable_slot_b=True,
+            discharge_b_start_time="03:00",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 22, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+        )
+        info = opt._discharge_detail_status(
+            snap, should_discharge=False, min_soc=20.0,
+            discharge_blocked_by=[optimizer_mod.REASON_BEFORE_SLOT_B],
+            active_slot=None,
+        )
+        assert info["status"] == "geplant"
+        assert info["reasons"] == []
+
+    def test_status_geplant_in_slot_a_to_b_gap(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """A→B-Pause (Slot A reserve_reached + Slot B before_start) → 'geplant'.
+
+        Genau der Fall, der vorher rot wurde: Slot A ist beendet (5min vor
+        Slot-B-Start), Slot B wartet noch auf Startzeit.
+        """
+        cfg = _make_config(
+            enable_slot_a=True, enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 22, 1, 30, tzinfo=timezone.utc),
+            battery_soc=30.0,
+        )
+        info = opt._discharge_detail_status(
+            snap, should_discharge=False, min_soc=20.0,
+            discharge_blocked_by=[
+                optimizer_mod.REASON_SLOT_A_RESERVE_REACHED,
+                optimizer_mod.REASON_BEFORE_SLOT_B,
+            ],
+            active_slot=None,
+        )
+        assert info["status"] == "geplant"
+        assert info["reasons"] == []
+
+    def test_status_geplant_before_slot_a_dual_mode(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Tagsüber, vor Slot-A-Start (beide Slots enabled) → 'geplant'."""
+        cfg = _make_config(
+            enable_slot_a=True, enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 15, 18, 0, tzinfo=timezone.utc),
+            battery_soc=80.0,
+        )
+        info = opt._discharge_detail_status(
+            snap, should_discharge=False, min_soc=20.0,
+            discharge_blocked_by=[
+                optimizer_mod.REASON_BEFORE_SLOT_A,
+                optimizer_mod.REASON_BEFORE_SLOT_B,
+            ],
+            active_slot=None,
+        )
+        assert info["status"] == "geplant"
+
+    def test_status_nicht_geplant_when_condition_blocks_alongside_slot_time(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Eine echte Condition (z.B. SOC zu niedrig) bleibt 'nicht_geplant'
+        — auch wenn parallel ein Slot-Time-Reason vorliegt."""
+        cfg = _make_config(
+            enable_slot_a=True, enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 22, 1, 30, tzinfo=timezone.utc),
+            battery_soc=18.0,
+        )
+        info = opt._discharge_detail_status(
+            snap, should_discharge=False, min_soc=20.0,
+            discharge_blocked_by=[
+                optimizer_mod.REASON_SOC_BELOW_MIN,
+                optimizer_mod.REASON_BEFORE_SLOT_B,
+            ],
+            active_slot=None,
+        )
+        assert info["status"] == "nicht_geplant"
+        assert info["reasons"]  # deutsche Übersetzung für die Condition
+
+    def test_status_geplant_with_between_slots_reason(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """REASON_BETWEEN_SLOTS allein → 'geplant' (deklarative Pause)."""
+        cfg = _make_config(
+            enable_slot_a=True, enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 22, 1, 30, tzinfo=timezone.utc),
+            battery_soc=40.0,
+        )
+        info = opt._discharge_detail_status(
+            snap, should_discharge=False, min_soc=20.0,
+            discharge_blocked_by=[optimizer_mod.REASON_BETWEEN_SLOTS],
+            active_slot=None,
+        )
+        assert info["status"] == "geplant"

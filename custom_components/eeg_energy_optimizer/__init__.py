@@ -290,16 +290,40 @@ def _build_snapshot_payload(decision, mode_str, now):
 
 
 def _build_block_predictions(decision):
-    """Captured beim Block-Start — predicted-Werte für späteren Outcome-Vergleich (W-1)."""
+    """Captured beim Block-Start — predicted-Werte für späteren Outcome-Vergleich (W-1).
+
+    Skaliert ``predicted_pv_kwh`` / ``predicted_consumption_kwh`` linear über
+    24h auf die geplante Block-Dauer. Verbessert die Vergleichbarkeit mit
+    ``actual_*_kwh`` (Trapez über das Block-Fenster) signifikant gegenüber
+    dem rohen Tagesforecast. Backwards-kompatibel: ohne ``planned_block_end``
+    bleibt fraction=1.0 (Legacy-Pfad / Tests).
+    """
     if decision.zustand == STATE_MORGEN_EINSPEISUNG:
-        predicted_pv = float(decision.morning_pv_today_kwh)
-        predicted_consumption = float(decision.morning_consumption_kwh)
+        day_pv = float(decision.morning_pv_today_kwh)
+        day_consumption = float(decision.morning_consumption_kwh)
     elif decision.zustand == STATE_ABEND_ENTLADUNG:
-        predicted_pv = float(decision.discharge_pv_tomorrow_kwh)
-        predicted_consumption = float(decision.discharge_consumption_daylight_kwh)
+        day_pv = float(decision.discharge_pv_tomorrow_kwh)
+        day_consumption = float(decision.discharge_consumption_daylight_kwh)
     else:
-        predicted_pv = 0.0
-        predicted_consumption = 0.0
+        day_pv = 0.0
+        day_consumption = 0.0
+
+    fraction = 1.0
+    if decision.planned_block_end and decision.timestamp:
+        try:
+            t_start = datetime.fromisoformat(
+                decision.timestamp.replace("Z", "+00:00")
+            )
+            t_end = datetime.fromisoformat(
+                decision.planned_block_end.replace("Z", "+00:00")
+            )
+            block_h = max(0.0, (t_end - t_start).total_seconds() / 3600.0)
+            fraction = min(block_h / 24.0, 1.0)
+        except (ValueError, TypeError, AttributeError):
+            fraction = 1.0
+
+    predicted_pv = day_pv * fraction
+    predicted_consumption = day_consumption * fraction
 
     soc_start = decision.discharge_soc
     if not soc_start:
@@ -1072,6 +1096,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # genug Stützstellen für die Trapezregel haben.
         # event_type (snake_case) -> list[{ts, pv_now_kw, consumption_now_kw, grid_now_kw}]
         data["block_samples"] = {}
+        # event_type (snake_case) -> {pv_seen, cons_seen, grid_seen, actuals_invalid}
+        # Trackt pro Block, ob ein bereits gesehener Sensor mid-block ausfällt
+        # (None nach mindestens einem nicht-None-Sample). Outcome trägt dann
+        # actuals_invalid=true, damit das Backend zwischen "Sensor nicht
+        # konfiguriert" (Wert fehlt von Anfang an) und "Sensor zwischenzeitlich
+        # ausgefallen" (Aktuals verfälscht) unterscheiden kann.
+        data["block_actuals_state"] = {}
         # (category, message_hash) -> last-emit datetime (UTC)
         data["telemetry_failure_dedup"] = {}
         data["telemetry_forecast_none_streak"] = 0
@@ -1198,6 +1229,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 data["block_predictions"][event_type] = _build_block_predictions(decision)
                 # Frische Sitzung: alten Buffer für diesen Block-Typ wegwerfen.
                 data["block_samples"][event_type] = []
+                data["block_actuals_state"][event_type] = {
+                    "pv_seen": False,
+                    "cons_seen": False,
+                    "grid_seen": False,
+                    "actuals_invalid": False,
+                }
 
         def _record_block_sample(decision):
             """Erfasst einen Power-Sample während eines aktiven Blocks.
@@ -1212,14 +1249,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if event_type not in ("morgen_einspeisung", "abend_entladung"):
                 return
             snap = decision.snapshot or {}
+            pv_val = snap.get("pv_now_kw")
+            cons_val = snap.get("consumption_now_kw")
+            grid_val = snap.get("grid_now_kw")
             sample = {
                 "ts": decision.timestamp,
-                "pv_now_kw": snap.get("pv_now_kw"),
-                "consumption_now_kw": snap.get("consumption_now_kw"),
-                "grid_now_kw": snap.get("grid_now_kw"),
+                "pv_now_kw": pv_val,
+                "consumption_now_kw": cons_val,
+                "grid_now_kw": grid_val,
             }
             buf = data["block_samples"].setdefault(event_type, [])
             buf.append(sample)
+
+            # Aktuals-Validität tracken: ein Sensor gilt als "kritisch ausgefallen"
+            # nur wenn er im selben Block bereits mindestens einen Wert geliefert hat
+            # und danach None wird. Das schließt nicht-konfigurierte Sensoren aus
+            # (die liefern durchgängig None und setzen das Flag nicht).
+            state = data["block_actuals_state"].setdefault(
+                event_type,
+                {"pv_seen": False, "cons_seen": False, "grid_seen": False, "actuals_invalid": False},
+            )
+            for seen_key, val in (
+                ("pv_seen", pv_val),
+                ("cons_seen", cons_val),
+                ("grid_seen", grid_val),
+            ):
+                if val is not None:
+                    state[seen_key] = True
+                elif state[seen_key]:
+                    state["actuals_invalid"] = True
 
         def _on_snapshot_tick(now):
             """D-14 — alle 30 min (xx:00, xx:30) ein Snapshot in den Queue schreiben."""

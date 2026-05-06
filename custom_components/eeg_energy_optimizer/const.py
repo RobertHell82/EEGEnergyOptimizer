@@ -211,3 +211,15 @@ TELEMETRY_SETTINGS_KEYS = (
 SENSOR_UNAVAIL_THRESHOLD_S = 600        # Sensor 10 min unverfügbar → Failure
 FORECAST_NONE_STREAK_THRESHOLD = 3      # 3 aufeinanderfolgende None-Forecasts → Failure
 FAILURE_DEDUP_WINDOW_S = 3600           # 1 h Dedup pro (category, message_hash)
+
+# Outcome-Telemetrie — Mindestdauer pro Block. Schwellen-Toggle-Spikes (Block
+# startet, SOC erreicht sofort Reserve, Block endet) verzerren Forecast-MAE und
+# werden nicht ans Backend gesendet. Statefacheinträge werden trotzdem
+# aufgeräumt, damit der nächste echte Block sauber startet.
+MIN_BLOCK_OUTCOME_MINUTES = 5
+
+# Schmitt-Trigger gegen Reserve-Schwellen-Toggle: während ein Slot bereits aktiv
+# ist, sinkt die Austrittsschwelle um diesen Prozentwert (kleinere Schwelle = der
+# Block bleibt länger aktiv). Eintrittsschwelle bleibt unverändert. Reaktivierungs-
+# Hysterese (+5%) hat Vorrang, falls der Slot heute bereits einmal verlassen wurde.
+RESERVE_HYSTERESIS_PCT = 2
