@@ -7,6 +7,25 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.2.3] - 2026-05-07
+
+> Release konsolidiert die DEV-Iteration 1.2.3-dev-01 (Optimizer-Hysterese, PeakShare-Window, HA 2026.11).
+
+### Behoben (Optimizer)
+
+- **Mini-Blöcke bei Slot A / Slot B durch dynamischen `min_soc`-Drift behoben.** Über die Nacht schrumpft `consumption_overnight_kwh` (Restzeit bis Sonnenaufgang sinkt), wodurch `_calc_min_soc` ~8 %/h nach unten driftete. Die Schmitt-Trigger-Hysterese (Exit −2 / Default-Eintritt +5) hat innerhalb einer Stunde ihre 7-%-Spanne verloren, sodass der Slot nach einem Self-Stop kurz wieder anlief und sofort wieder stoppte. Reproduktion 06.05.2026: Entladung in 7 Mini-Blöcken zwischen 1 und 20 min, mit Pausen bis 79 min.
+  - Neue Felder `_slot_a_latched_min_soc` / `_slot_b_latched_min_soc` frieren `min_soc` beim erstmaligen Slot-Eintritt der Session ein und werden für Schmitt-/Default-/Reaktivierungs-Schwellen genutzt.
+  - Reset gemeinsam mit `_slot_a_activated_date` / `_slot_b_activated_date` nach Sonnenaufgang.
+- **PeakShare-End-Anchor verhindert 4-Min-Pläne kurz vor Sonnenaufgang.** Bisher wurde `end_time` an `window_end` geclampt, wenn der höchste-Demand-Block + Jitter über das Window hinausragte — Live-Bug 07.05.2026: Plan 05:26–05:30 statt 04:30–05:30. Neue Logik schiebt den Block nach links, wenn `start + required_hours > window_end`, und behält die volle `required_hours`-Dauer bis zum Window-Ende (z.B. Sonnenaufgang).
+
+### Behoben (Telemetrie)
+
+- **`app_version`-Cache wird beim `async_setup_entry` invalidiert.** Bisher behielt der Modul-Cache `_APP_VERSION_CACHE` einen alten Wert, wenn HA nach einem HACS-Update nur die Integration neu lud (statt Core-Restart). Folge: Telemetrie-Backend bekam dauerhaft die alte Version. Reset jetzt am Anfang jedes Setup-Aufrufs, sodass `_load_app_version` frisch von Disk liest.
+
+### Behoben (HA-Kompatibilität)
+
+- **`unit_class="power"` in `async_import_statistics`-Aufrufen ergänzt.** HA 2026.11 macht das Feld zur Pflicht und loggt sonst eine Deprecation-Warnung in `homeassistant.helpers.frame`. Fallback auf älteres HA, das das Feld noch nicht kennt, bleibt erhalten.
+
 ## [1.2.3-dev-01] - 2026-05-07
 
 ### Behoben (Optimizer)
