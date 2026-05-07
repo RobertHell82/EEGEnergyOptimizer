@@ -456,6 +456,13 @@ class EEGOptimizer:
         self._slot_b_activated_date: str | None = None
         self._last_active_slot: str | None = None  # "A" | "B" | None — Reaktivierungs-Check
 
+        # Latched min_soc — beim ersten Slot-Eintritt der Session eingefroren,
+        # damit die Hysterese-Spanne nicht durch den natürlichen min_soc-Drift
+        # (overnight_consumption_kwh schrumpft mit der Restnacht) aufgefressen
+        # wird. Reset gemeinsam mit _slot_*_activated_date nach Sunrise.
+        self._slot_a_latched_min_soc: float | None = None
+        self._slot_b_latched_min_soc: float | None = None
+
         # Startup grace period: don't send inverter commands until sensors
         # have had time to settle after a HA restart.
         self._startup_time: datetime = _now()
@@ -1254,8 +1261,18 @@ class EEGOptimizer:
 
         # SOC-Schwelle: nur wenn Slot B aktiv → reserve_pct als Aufschlag.
         # Vorgezogen für PeakShare-available_kwh-Berechnung.
+        # Latched-min_soc: ab dem zweiten Cycle der Slot-A-Session wird der
+        # beim Erst-Eintritt eingefrorene Wert genutzt. Verhindert, dass der
+        # über die Nacht schrumpfende _calc_min_soc die Hysterese-Spanne
+        # (Schmitt-Trigger −2 / Default-Eintritt +5) auffrisst und Mini-Blöcke
+        # erzeugt. Reset gemeinsam mit _slot_a_activated_date nach Sunrise.
+        base_min_soc = (
+            self._slot_a_latched_min_soc
+            if self._slot_a_latched_min_soc is not None
+            else min_soc
+        )
         a_reserve = self._discharge_a_reserve_pct if self._enable_slot_b else 0
-        a_min_soc = min_soc + a_reserve
+        a_min_soc = base_min_soc + a_reserve
 
         # Phase 11.1: PeakShare-Plan-Lookup pro Slot
         peakshare_plan = None
@@ -1428,16 +1445,24 @@ class EEGOptimizer:
             self._last_eval_zustand == STATE_ABEND_ENTLADUNG
             and self._last_active_slot == "B"
         )
+        # Latched-min_soc analog Slot A — ab Cycle 2 der Session wird der beim
+        # Erst-Eintritt eingefrorene Wert genutzt, damit die Hysterese-Spanne
+        # nicht durch den schrumpfenden _calc_min_soc aufgebraucht wird.
+        base_min_soc = (
+            self._slot_b_latched_min_soc
+            if self._slot_b_latched_min_soc is not None
+            else min_soc
+        )
         # Schwellen-Stufung (analog Slot A):
         #   Reaktivierung: min_soc + 5
         #   Currently active: min_soc - exit_hyst (Anti-Toggle)
         #   Default-Eintritt: min_soc + entry_bonus (Mindestreserve)
         if is_reactivation:
-            effective_min_soc = min_soc + 5
+            effective_min_soc = base_min_soc + 5
         elif is_currently_active:
-            effective_min_soc = max(0.0, min_soc - RESERVE_EXIT_HYSTERESIS_PCT)
+            effective_min_soc = max(0.0, base_min_soc - RESERVE_EXIT_HYSTERESIS_PCT)
         else:
-            effective_min_soc = min_soc + RESERVE_ENTRY_BONUS_PCT
+            effective_min_soc = base_min_soc + RESERVE_ENTRY_BONUS_PCT
 
         if snap.battery_soc <= effective_min_soc:
             blocked_by: list[str] = []
@@ -1556,6 +1581,7 @@ class EEGOptimizer:
             and snap.now >= snap.sunrise_today
         ):
             self._slot_a_activated_date = None
+            self._slot_a_latched_min_soc = None
         if (
             self._slot_b_activated_date is not None
             and self._slot_b_activated_date < today_str
@@ -1563,6 +1589,7 @@ class EEGOptimizer:
             and snap.now >= snap.sunrise_today
         ):
             self._slot_b_activated_date = None
+            self._slot_b_latched_min_soc = None
 
         bedarf = self._calc_energiebedarf(snap)
         block, block_reasons_keys, block_blocked_by_keys = self._should_block_charging(snap)
@@ -1600,13 +1627,18 @@ class EEGOptimizer:
             # Phase 11: Pro-Slot-Aktivierungsdatum + last_active_slot.
             # _last_active_slot trackt den zuletzt aktiven Slot — wird in
             # _evaluate_slot_a/b für die Reaktivierungs-Logik gelesen.
+            # Latched-min_soc: bei erstmaliger Aktivierung dieser Session den
+            # aktuellen min_soc einfrieren — Anti-Drift-Schutz für die
+            # Schmitt-Trigger-Hysterese (siehe _evaluate_slot_a/b).
             if active_slot == "A":
                 if self._slot_a_activated_date is None:
                     self._slot_a_activated_date = today_str
+                    self._slot_a_latched_min_soc = min_soc
                 self._last_active_slot = "A"
             elif active_slot == "B":
                 if self._slot_b_activated_date is None:
                     self._slot_b_activated_date = today_str
+                    self._slot_b_latched_min_soc = min_soc
                 self._last_active_slot = "B"
         self._last_eval_zustand = zustand
 

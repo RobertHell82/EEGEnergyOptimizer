@@ -709,6 +709,9 @@ async def async_backfill_hausverbrauch_stats(
                 return
             # Neuere HA-Versionen (2026.x+) erwarten mean_type als Feld in
             # StatisticMetaData. Auf älteren Versionen lebt es als kwarg.
+            # HA 2026.11: unit_class wird Pflicht — "power" passt zur Einheit
+            # kW (analog Energie/Volume/...). Ohne dieses Feld loggt
+            # homeassistant.helpers.frame eine Deprecation-Warnung.
             meta_kwargs = {
                 "has_mean": True,
                 "has_sum": False,
@@ -716,15 +719,22 @@ async def async_backfill_hausverbrauch_stats(
                 "source": "recorder",
                 "statistic_id": stat_id,
                 "unit_of_measurement": "kW",
+                "unit_class": "power",
             }
             if StatisticMeanType is not None:
                 meta_kwargs["mean_type"] = StatisticMeanType.ARITHMETIC
             try:
                 meta = StatisticMetaData(**meta_kwargs)
             except TypeError:
-                # Sehr alte HA: kein mean_type-Feld in StatisticMetaData
-                meta_kwargs.pop("mean_type", None)
-                meta = StatisticMetaData(**meta_kwargs)
+                # Älteres HA ohne unit_class- und/oder mean_type-Felder.
+                # Schrittweise abwerfen, bis StatisticMetaData die Kwargs
+                # akzeptiert (Legacy-Kompatibilität).
+                meta_kwargs.pop("unit_class", None)
+                try:
+                    meta = StatisticMetaData(**meta_kwargs)
+                except TypeError:
+                    meta_kwargs.pop("mean_type", None)
+                    meta = StatisticMetaData(**meta_kwargs)
             try:
                 async_import_statistics(hass, meta, data)
             except TypeError:
@@ -950,6 +960,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     config = {**entry.data, **entry.options}
     setup_complete = config.get("setup_complete", False)
+
+    # Cache-Invalidate: Module-State bleibt bei Config-Entry-Reload bestehen,
+    # daher würde der nach HACS-Update geänderte manifest.json-Wert nicht
+    # gelesen werden, bevor HA komplett neu startet. Beim Setup-Aufruf den
+    # Cache zurücksetzen, damit _load_app_version frisch von Disk liest.
+    global _APP_VERSION_CACHE
+    _APP_VERSION_CACHE = None
 
     # Register WebSocket commands (always — panel needs them even before setup)
     async_register_websocket_commands(hass)

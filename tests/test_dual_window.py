@@ -1208,6 +1208,107 @@ class TestPeakShareSlotIntegration:
         # Library MUSS end_time auf window_end klammen
         assert result[1] <= a_end_cap
 
+    def test_end_anchor_keeps_full_required_duration(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Live-Bug 07.05.2026: Block-Best lag knapp vor Window-End → das alte
+        Ende-Clamp kürzte den Plan auf 4 Minuten. Mit End-Anchor wird der
+        Block stattdessen nach links geschoben, sodass die volle
+        ``required_hours``-Dauer erhalten bleibt und das Plan-Ende bis zum
+        Sonnenaufgang (window_end) reicht."""
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            find_discharge_window,
+        )
+
+        # Slot-B-typisches Setup: Window 03:00 → 05:30 (Sunrise-5min).
+        window_start = datetime(2026, 5, 7, 3, 0, tzinfo=timezone.utc)
+        window_end = datetime(2026, 5, 7, 5, 30, tzinfo=timezone.utc)
+
+        # API liefert drei Stundenslots, höchster Deficit bei 05:00.
+        api_hours = [
+            {"timestamp": "2026-05-07T03:00:00+00:00", "deficitKwh": 1.0},
+            {"timestamp": "2026-05-07T04:00:00+00:00", "deficitKwh": 2.0},
+            {"timestamp": "2026-05-07T05:00:00+00:00", "deficitKwh": 10.0},
+        ]
+
+        # required_hours = ceil(1.0 / 1.0) = 1
+        result = find_discharge_window(
+            api_hours,
+            available_kwh=1.0,
+            discharge_power_kw=1.0,
+            window_start=window_start,
+            window_end=window_end,
+            jitter_minutes=0,
+        )
+        assert result is not None
+        start, end = result
+        # Ohne End-Anchor wäre Plan-Start 05:00 → Plan (05:00, 05:30) = 30 min.
+        # Mit End-Anchor: Block nach links → Plan (04:30, 05:30) = 60 min.
+        assert end == window_end
+        assert (end - start) == timedelta(hours=1)
+        assert start == datetime(2026, 5, 7, 4, 30, tzinfo=timezone.utc)
+
+    def test_end_anchor_with_jitter_beyond_window_end(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Reproduktion des konkreten 4-min-Plans: best_block + Jitter +60min
+        landet hinter window_end. Mit End-Anchor wird stattdessen die volle
+        Dauer rückwärts angeordnet."""
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            find_discharge_window,
+        )
+
+        window_start = datetime(2026, 5, 7, 3, 0, tzinfo=timezone.utc)
+        window_end = datetime(2026, 5, 7, 5, 30, tzinfo=timezone.utc)
+
+        # Best-Block bei 04:00, Jitter +60 → naive Start 05:00
+        # Naive Plan-Ende: 06:00 (über window_end), würde geclampt auf 05:30
+        # → 30 min Plan. Mit End-Anchor: Plan (04:30, 05:30) = 60 min.
+        api_hours = [
+            {"timestamp": "2026-05-07T03:00:00+00:00", "deficitKwh": 1.0},
+            {"timestamp": "2026-05-07T04:00:00+00:00", "deficitKwh": 10.0},
+            {"timestamp": "2026-05-07T05:00:00+00:00", "deficitKwh": 1.0},
+        ]
+        result = find_discharge_window(
+            api_hours,
+            available_kwh=1.0,
+            discharge_power_kw=1.0,
+            window_start=window_start,
+            window_end=window_end,
+            jitter_minutes=60,
+        )
+        assert result is not None
+        start, end = result
+        assert end == window_end
+        assert (end - start) == timedelta(hours=1)
+
+    def test_end_anchor_preserves_short_window_when_required_overflows(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Edge Case: Window kürzer als required_hours. Plan füllt das ganze
+        verfügbare Fenster (start=window_start, end=window_end), nicht weniger."""
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            find_discharge_window,
+        )
+
+        # Window nur 30 min, required = 2h → kann nicht passen
+        window_start = datetime(2026, 5, 7, 5, 0, tzinfo=timezone.utc)
+        window_end = datetime(2026, 5, 7, 5, 30, tzinfo=timezone.utc)
+        api_hours = [
+            {"timestamp": "2026-05-07T05:00:00+00:00", "deficitKwh": 5.0},
+        ]
+        result = find_discharge_window(
+            api_hours,
+            available_kwh=2.0,
+            discharge_power_kw=1.0,
+            window_start=window_start,
+            window_end=window_end,
+            jitter_minutes=0,
+        )
+        # Library findet nur 1 eligible hour, aber required=2 → None erwartet
+        # (len(eligible)=1 < required_hours=2 → frühes Return None).
+        assert result is None
+
     def test_slot_a_hysteresis_strict_with_peakshare_active(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
     ):
@@ -2152,6 +2253,185 @@ class TestReserveHysteresis:
         assert passed is False
         assert REASON_HYSTERESIS_STRICT in blocked
         assert hyst is True
+
+
+# ---------------------------------------------------------------------------
+# TestLatchedMinSoc — Anti-Drift-Schutz für Hysterese-Spanne
+# ---------------------------------------------------------------------------
+
+class TestLatchedMinSoc:
+    """Live-Bug-Reproduktion (06.05.2026, https://amh8txlwup06so6k8jwgxrldsq7wjblf.ui.nabu.casa/):
+    Nacht-Entladung erzeugte Mini-Blöcke (1–2 min Aktiv-Phasen mit ~30–80 min
+    Pausen dazwischen). Ursache: ``_calc_min_soc`` schrumpft über die Nacht
+    (overnight_consumption_kwh = "jetzt bis Sunrise+1h" wird linear kleiner),
+    daher driftet ``a_min_soc`` ~8 %/h nach unten und frisst die Hysterese-
+    Spanne (Schmitt −2 / Default-Eintritt +5 = 7 %) innerhalb einer Stunde
+    auf. Nach einem Self-Stop reaktivierte der Slot dadurch immer wieder.
+
+    Fix: ``_slot_a_latched_min_soc`` / ``_slot_b_latched_min_soc`` werden
+    beim erstmaligen Slot-Eintritt der Session eingefroren und überleben
+    bis zum nächsten Sonnenaufgang. Die Hysterese arbeitet damit auf einem
+    stabilen Bezugspunkt.
+    """
+
+    def test_slot_a_latched_min_soc_blocks_reentry_after_self_stop(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Reproduktion: Slot A stoppt selbst (SOC ≤ a_min_soc-2), danach sinkt
+        ``min_soc`` durch Drift. Mit Latch darf der Slot NICHT wieder starten,
+        weil der gefrorene Bezugswert die Eintrittsschwelle hoch hält."""
+        from custom_components.eeg_energy_optimizer.const import STATE_NORMAL
+
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        # Sitzung lief: Slot A war heute aktiv und hat sich gerade self-gestoppt.
+        # Latched min_soc hält den Bezugspunkt vom Slot-Start (20).
+        opt._slot_a_activated_date = "2026-06-15"
+        opt._slot_a_latched_min_soc = 20.0
+        opt._last_active_slot = "A"
+        opt._last_eval_zustand = STATE_NORMAL  # Self-Stop im vorigen Cycle
+
+        # Drift-Simulation: aktueller min_soc (Argument) ist deutlich gesunken,
+        # SOC liegt knapp unter dem gefrorenen +5 Schwellwert.
+        # Ohne Latch: a_min_soc=12, eff=17 → SOC=24 > 17 → STARTET (Mini-Block).
+        # Mit Latch: a_min_soc=20, eff=25 → SOC=24 < 25 → bleibt blockiert. ✓
+        snap = _make_snapshot(
+            now=datetime(2026, 6, 16, 1, 0, tzinfo=timezone.utc),
+            battery_soc=24.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 6, 15, 4, 52, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_a(snap, 12.0)
+        assert passed is False
+        assert REASON_SLOT_A_RESERVE_REACHED in blocked
+
+    def test_slot_a_latched_min_soc_set_on_first_activation(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Erstmaliger Slot-A-Eintritt → ``_slot_a_latched_min_soc`` wird auf
+        den aktuellen ``_calc_min_soc``-Wert gesetzt."""
+        from unittest.mock import patch
+
+        from custom_components.eeg_energy_optimizer.const import (
+            STATE_ABEND_ENTLADUNG,
+        )
+
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            min_soc=20,
+            safety_buffer_pct=0,
+        )
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        with patch(
+            "custom_components.eeg_energy_optimizer.optimizer._now",
+            return_value=now,
+        ):
+            opt = _make_optimizer(
+                mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+            )
+            # Frische Session: keine Aktivierung heute, kein Latch.
+            assert opt._slot_a_latched_min_soc is None
+
+            # consumption_overnight_kwh=3 + 0% buffer + capacity=10 → min_soc = 20 + 30 = 50.
+            snap = _make_snapshot(
+                now=now,
+                battery_soc=80.0,
+                battery_capacity_kwh=10.0,
+                consumption_overnight_kwh=3.0,
+                consumption_tomorrow_daylight_kwh=5.0,
+                pv_tomorrow_kwh=25.0,
+                sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
+                sunrise_today=datetime(2026, 6, 15, 4, 52, tzinfo=timezone.utc),
+            )
+            decision = opt._evaluate(snap, "ein")
+        # Slot A muss aktiv sein für den Latch-Pfad
+        assert decision.zustand == STATE_ABEND_ENTLADUNG
+        # Latched-Wert entspricht dem zur Aktivierungszeit berechneten min_soc.
+        assert opt._slot_a_latched_min_soc == 50.0
+
+    def test_slot_a_latched_min_soc_reset_after_sunrise(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Nach Sonnenaufgang am Folgetag wird der Latch zusammen mit
+        ``_slot_a_activated_date`` zurückgesetzt — neue Session startet
+        mit frischem Bezugspunkt."""
+        from unittest.mock import patch
+
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=False,
+            discharge_a_start_time="20:00",
+            min_soc=20,
+        )
+        now = datetime(2026, 6, 16, 6, 0, tzinfo=timezone.utc)
+        with patch(
+            "custom_components.eeg_energy_optimizer.optimizer._now",
+            return_value=now,
+        ):
+            opt = _make_optimizer(
+                mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+            )
+            # Vorherige Session hat Latch und Aktivierungsdatum gesetzt.
+            opt._slot_a_activated_date = "2026-06-15"
+            opt._slot_a_latched_min_soc = 35.0
+
+            # Folgetag, nach Sunrise — Reset-Bedingungen erfüllt.
+            snap = _make_snapshot(
+                now=now,
+                battery_soc=50.0,
+                sunrise=datetime(2026, 6, 17, 4, 52, tzinfo=timezone.utc),
+                sunrise_today=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
+            )
+            opt._evaluate(snap, "ein")
+        assert opt._slot_a_activated_date is None
+        assert opt._slot_a_latched_min_soc is None
+
+    def test_slot_b_latched_min_soc_blocks_reentry_after_self_stop(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+    ):
+        """Slot-B-Analogon: Latch verhindert Drift-induziertes Wiederanlaufen."""
+        from custom_components.eeg_energy_optimizer.const import STATE_NORMAL
+
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=False,
+            enable_slot_b=True,
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg,
+        )
+        opt._slot_b_activated_date = "2026-12-21"
+        opt._slot_b_latched_min_soc = 20.0
+        opt._last_active_slot = "B"
+        opt._last_eval_zustand = STATE_NORMAL
+
+        # Drift: Argument-min_soc=12. Ohne Latch eff=17, SOC=24 → start.
+        # Mit Latch: eff=25, SOC=24 → blocked. ✓
+        snap = _make_snapshot(
+            now=datetime(2026, 12, 21, 5, 0, tzinfo=timezone.utc),
+            battery_soc=24.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 12, 21, 7, 30, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 12, 20, 7, 30, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_b(snap, 12.0)
+        assert passed is False
 
 
 # ---------------------------------------------------------------------------

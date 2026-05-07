@@ -123,8 +123,24 @@ def find_discharge_window(
     start_time = eligible[best_start]["ts"] + timedelta(minutes=jitter_minutes)
     if start_time < window_start:
         start_time = window_start
-    end_time = start_time + timedelta(hours=required_hours)
-    # Clamp end_time to window_end (04:00 hard cutoff)
+
+    required_dur = timedelta(hours=required_hours)
+
+    # End-Anchor: Wenn das Plan-Ende das Window verlässt, schiebe den Block
+    # nach links statt das Ende zu clampen. So bleibt die volle required_hours-
+    # Dauer erhalten und die Discharge läuft bis zum Window-Ende
+    # (z.B. Sonnenaufgang) statt nach wenigen Minuten abzubrechen.
+    # Live-Bug 07.05.2026: Block-Best 04:30 + Jitter +56min führte zu Plan
+    # 05:26–05:30 (4min nutzbar). Mit End-Anchor: 04:30–05:30 (60min nutzbar).
+    if start_time + required_dur > window_end:
+        start_time = window_end - required_dur
+        # Falls das Window selbst kürzer als required_hours ist (Edge Case),
+        # auf window_start clampen — die Final-Clamp am Ende kürzt das Ende.
+        if start_time < window_start:
+            start_time = window_start
+
+    end_time = start_time + required_dur
+    # Final safety clamp: Window kürzer als required_hours → Ende=window_end
     if end_time > window_end:
         end_time = window_end
 
