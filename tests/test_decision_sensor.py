@@ -72,13 +72,13 @@ class TestEntscheidungsSensor:
 
     def test_update_sets_state(self):
         sensor = EntscheidungsSensor("test_entry")
-        decision = _make_decision(nächste_aktion="Abend-Entladung 20:00")
+        decision = _make_decision(nächste_aktion="Nacht-Entladung 20:00")
         sensor.update_from_decision(decision)
-        assert sensor._attr_native_value == "Abend-Entladung 20:00"
+        assert sensor._attr_native_value == "Nacht-Entladung 20:00"
 
     def test_update_sets_markdown(self):
         sensor = EntscheidungsSensor("test_entry")
-        md = "## Status\nAbend-Entladung\n\n### Details\n- SOC: 85%"
+        md = "## Status\nNacht-Entladung\n\n### Details\n- SOC: 85%"
         decision = _make_decision(markdown=md)
         sensor.update_from_decision(decision)
         assert sensor._attr_extra_state_attributes["markdown"] == md
@@ -109,7 +109,7 @@ class TestEntscheidungsSensor:
             entladung_aktiv=True,
             entladeleistung_kw=3.0,
             min_soc_berechnet=28.0,
-            nächste_aktion="Abend-Entladung 20:00",
+            nächste_aktion="Nacht-Entladung 20:00",
         )
         sensor.update_from_decision(decision)
         attrs = sensor._attr_extra_state_attributes

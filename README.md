@@ -5,7 +5,7 @@ HACS-kompatible Home Assistant Integration für vorausschauendes Batteriemanagem
 ## Funktionen
 
 - **Morgen-Einspeisung** — blockiert die Batterieladung, damit PV-Überschüsse ins EEG-Netz eingespeist werden
-- **Abend-Entladung** — entlädt die Batterie während der Spitzenverbrauchszeiten der Gemeinschaft
+- **Nacht-Entladung** — entlädt die Batterie während der Spitzenverbrauchszeiten der Gemeinschaft
 - **PeakShare-Integration** — optimiert das Entladefenster automatisch nach dem realen Bedarf deiner EEG-Community (Sliding-Window über Community-Bedarfsprognose)
 - **Dynamischer Min-SOC** — reserviert automatisch genug Batterie für den Nachtverbrauch des Haushalts
 - **PV-Prognose** — Solcast Solar und Forecast.Solar Unterstützung mit 7-Tage-Ausblick
@@ -22,7 +22,7 @@ Der EEG Energy Optimizer sendet anonymisierte Diagnose- und Wirksamkeitsdaten an
 | Kategorie | Frequenz | Inhalt |
 |-----------|----------|--------|
 | **Profil** | bei Setup, Restart, Settings-Change | App-Version, HA-Version, Wechselrichter-Typ, Batterie-Kapazität, PV-Peak, Prognose-Quelle, Länder-ISO-Code, ausgewählte EEG-Community (sofern PeakShare aktiv), gefilterte Settings (Whitelist) |
-| **Snapshot** | alle 30 Min, gebündelt 1×/h | Zeitstempel, Zustand (Normal/Morgen-Einspeisung/Abend-Entladung), Modus (Ein/Test), SOC %, PV-/Verbrauchs-/Netz-/Batterie-Leistung, dynamischer Min-SOC, Hysterese-Flag |
+| **Snapshot** | alle 30 Min, gebündelt 1×/h | Zeitstempel, Zustand (Normal/Morgen-Einspeisung/Nacht-Entladung), Modus (Ein/Test), SOC %, PV-/Verbrauchs-/Netz-/Batterie-Leistung, dynamischer Min-SOC, Hysterese-Flag |
 | **State-Change** | bei jedem Übergang (sofort) | Zeitstempel, Übergang (von→nach), Begründungs-Codes (`reasons`/`blocked_by`), Snapshot |
 | **Outcome** | nach Block-Ende | Block-Typ, Start/Ende, Dauer, ins Netz eingespeiste kWh, Peak-Leistung, SOC-Start/-Ende, predicted-vs-actual PV/Verbrauch |
 | **Failure** | bei Auftreten (mit Dedup) | Zeitstempel, Kategorie, Schweregrad, gehashte Fehlermeldung, Kontext-JSON |
@@ -56,7 +56,7 @@ Die Fronius-Steuerung nutzt direkte Modbus TCP Verbindung zum Wechselrichter (Su
 
 Die SolarEdge-Steuerung schreibt Modbus-Register, die im Flash-Speicher (NVRAM) des Wechselrichters persistiert werden. Flash-Speicher hat eine begrenzte Anzahl Schreibzyklen (typisch 100.000+).
 
-Die Integration minimiert Schreibvorgänge: Im Worst Case (jeden Tag Morgen-Blockierung + Abend-Entladung) sind es **max. ~12 Writes pro Tag**. An bewölkten Tagen oder im Winter 0 Writes. Realistisch im Jahresdurchschnitt ~7 Writes/Tag — das ergibt bei 100.000 Zyklen **~39 Jahre Lebensdauer**.
+Die Integration minimiert Schreibvorgänge: Im Worst Case (jeden Tag Morgen-Blockierung + Nacht-Entladung) sind es **max. ~12 Writes pro Tag**. An bewölkten Tagen oder im Winter 0 Writes. Realistisch im Jahresdurchschnitt ~7 Writes/Tag — das ergibt bei 100.000 Zyklen **~39 Jahre Lebensdauer**.
 
 ## Installation
 
@@ -101,11 +101,11 @@ Der Stromverbrauch wird anhand des durchschnittlichen Verbrauchs desselben Woche
 
 Reicht die PV-Prognose nicht aus, um den Gesamtbedarf zu decken, wird die Batterie sofort geladen — damit der Haushalt bis zum Abend versorgt ist.
 
-### Abend-Entladung (Nachteinspeisung)
+### Nacht-Entladung
 
-<img src="https://raw.githubusercontent.com/RobertHell82/EEGEnergyOptimizer/main/docs/evening-discharge.svg" alt="Abend-Entladung" width="700">
+<img src="https://raw.githubusercontent.com/RobertHell82/EEGEnergyOptimizer/main/docs/evening-discharge.svg" alt="Nacht-Entladung" width="700">
 
-Die Abend-Entladung speist unter Tags gewonnene Energie, die der eigene Haushalt nicht benötigt, um über die Nacht zu kommen, in die Energiegemeinschaft ein. So steht Strom zu einem Zeitpunkt zur Verfügung, an dem ansonsten keine PV-Erzeugung im Netz vorhanden ist.
+Die Nacht-Entladung speist unter Tags gewonnene Energie, die der eigene Haushalt nicht benötigt, um über die Nacht zu kommen, in die Energiegemeinschaft ein. So steht Strom zu einem Zeitpunkt zur Verfügung, an dem ansonsten keine PV-Erzeugung im Netz vorhanden ist.
 
 **Funktionsweise:** Die Batterie wird mit einstellbarer Leistung entladen, bis der dynamisch berechnete Ziel-SOC erreicht ist. Die Entladung endet spätestens um 04:00 Uhr.
 
@@ -122,7 +122,7 @@ Der Startzeitpunkt richtet sich nach dem gewählten Modus:
 - Aktueller SOC liegt über dem berechneten Ziel-SOC
 - Die PV-Prognose für morgen deckt den erwarteten Gesamtbedarf
 
-**Hysterese:** Wurde eine Aktion (Morgen-Einspeisung oder Abend-Entladung) am selben Tag bereits aktiviert und dann deaktiviert, gelten strengere Schwellen für eine erneute Aktivierung. So wird ein schnelles Hin-und-Herspringen zwischen Zuständen verhindert.
+**Hysterese:** Wurde eine Aktion (Morgen-Einspeisung oder Nacht-Entladung) am selben Tag bereits aktiviert und dann deaktiviert, gelten strengere Schwellen für eine erneute Aktivierung. So wird ein schnelles Hin-und-Herspringen zwischen Zuständen verhindert.
 
 **Der Gesamtbedarf für morgen setzt sich zusammen aus:**
 - Geschätzter Stromverbrauch von Sonnenaufgang bis Sonnenuntergang

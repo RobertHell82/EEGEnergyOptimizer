@@ -1,7 +1,7 @@
 """Feed-in statistics tracking for EEG Energy Optimizer.
 
 Tracks grid feed-in energy (kWh), session count, and duration during
-optimizer active states (Morgen-Einspeisung and Abend-Entladung).
+optimizer active states (Morgen-Einspeisung and Nacht-Entladung).
 
 Data is persisted via Home Assistant's Store API and retained indefinitely.
 Session details (start/end/kwh per session) are compacted to daily aggregates
@@ -19,6 +19,7 @@ from .const import (
     CONF_INVERTER_TYPE,
     DOMAIN,
     INVERTER_SIGN_CONVENTIONS,
+    MIN_BLOCK_OUTCOME_MINUTES,
     STATE_ABEND_ENTLADUNG,
     STATE_MORGEN_EINSPEISUNG,
     STATE_TO_STATS_KEY,
@@ -395,6 +396,22 @@ class FeedinStatistics:
             return  # unbekannter Session-Typ — nichts zu senden
 
         data = self._data or {}
+
+        # Mindestdauer-Cutoff: Schwellen-Toggle-Spikes (z.B. SOC oszilliert
+        # an der Reserve, Block startet und endet binnen Sekunden) verzerren
+        # Backend-Statistiken. Block-State wird trotzdem aufgeräumt, damit
+        # der nächste echte Block sauber startet.
+        if duration_min < MIN_BLOCK_OUTCOME_MINUTES:
+            _LOGGER.debug(
+                "Telemetry: outcome geskippt — Block zu kurz (%d min < %d, event_type=%s)",
+                duration_min, MIN_BLOCK_OUTCOME_MINUTES, event_type,
+            )
+            for key in ("block_predictions", "block_samples", "block_actuals_state"):
+                d = data.get(key)
+                if isinstance(d, dict):
+                    d.pop(event_type, None)
+            return
+
         predictions = (data.get("block_predictions") or {}).get(event_type)
 
         # SOC-Ende: bevorzugt aus dem optimizer.last_decision.snapshot — das ist
@@ -470,6 +487,11 @@ class FeedinStatistics:
             if len(cons_samples) >= 2:
                 actual_consumption_kwh = round(_trapezoid_kwh(cons_samples), 3)
 
+        # actuals_invalid: True wenn ein während des Blocks bereits gesehener
+        # Power-Sensor mid-block None geliefert hat (siehe __init__._record_block_sample).
+        actuals_state = (data.get("block_actuals_state") or {}).get(event_type) or {}
+        actuals_invalid = bool(actuals_state.get("actuals_invalid"))
+
         payload: dict = {
             "event_type": event_type,
             "started_at": started_at_str if started_at_str else session.get("start_utc", ""),
@@ -492,14 +514,22 @@ class FeedinStatistics:
         # optionale Metriken.
         payload = {k: v for k, v in payload.items() if v is not None}
 
-        # Predictions + Block-Samples poppen, damit eine Folge-Session
-        # desselben Typs keine veralteten Werte bekommt.
+        # actuals_invalid wird nur gesetzt, wenn True — sonst bleibt das Feld
+        # weg (Backend-Default = False / actuals trustworthy).
+        if actuals_invalid:
+            payload["actuals_invalid"] = True
+
+        # Predictions + Block-Samples + Actuals-State poppen, damit eine
+        # Folge-Session desselben Typs keine veralteten Werte bekommt.
         bp = data.get("block_predictions")
         if isinstance(bp, dict):
             bp.pop(event_type, None)
         bs = data.get("block_samples")
         if isinstance(bs, dict):
             bs.pop(event_type, None)
+        bas = data.get("block_actuals_state")
+        if isinstance(bas, dict):
+            bas.pop(event_type, None)
 
         # Fire-and-forget — Reporter handled Buffer/Retry bei Fehler.
         try:

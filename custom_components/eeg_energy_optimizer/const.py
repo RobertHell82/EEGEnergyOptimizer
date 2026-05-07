@@ -134,9 +134,13 @@ MODE_AUS = "Aus"
 OPTIMIZER_MODES = [MODE_EIN, MODE_TEST]
 
 # Optimizer states (D-22)
+# Hinweis: STATE_ABEND_ENTLADUNG wurde im UI in "Nacht-Entladung" umbenannt
+# (PeakShare verschiebt das Fenster regelmäßig in die Nacht hinein, oft bis
+# zum 04:00-Cutoff). Der Variablenname bleibt aus Stabilitätsgründen erhalten;
+# der Telemetrie-event_type bleibt "abend_entladung" (siehe _normalize_state).
 STATE_MORGEN_EINSPEISUNG = "Morgen-Einspeisung"
 STATE_NORMAL = "Normal"
-STATE_ABEND_ENTLADUNG = "Abend-Entladung"
+STATE_ABEND_ENTLADUNG = "Nacht-Entladung"
 
 # Startup grace period: delay inverter commands after HA restart
 # to let sensors (PV forecast, sun.sun) settle with valid data
@@ -211,3 +215,21 @@ TELEMETRY_SETTINGS_KEYS = (
 SENSOR_UNAVAIL_THRESHOLD_S = 600        # Sensor 10 min unverfügbar → Failure
 FORECAST_NONE_STREAK_THRESHOLD = 3      # 3 aufeinanderfolgende None-Forecasts → Failure
 FAILURE_DEDUP_WINDOW_S = 3600           # 1 h Dedup pro (category, message_hash)
+
+# Outcome-Telemetrie — Mindestdauer pro Block. Schwellen-Toggle-Spikes (Block
+# startet, SOC erreicht sofort Reserve, Block endet) verzerren Forecast-MAE und
+# werden nicht ans Backend gesendet. Statefacheinträge werden trotzdem
+# aufgeräumt, damit der nächste echte Block sauber startet.
+MIN_BLOCK_OUTCOME_MINUTES = 5
+
+# Schmitt-Trigger gegen Reserve-Schwellen-Toggle (Anti-Oszillations-Pattern):
+#   - RESERVE_ENTRY_BONUS_PCT: Eintritts-Mindestreserve. Slot startet erst,
+#     wenn SOC die Reserve um mindestens diesen Prozentwert übersteigt.
+#     Verhindert Mini-Blöcke (z.B. SOC=19% startet bei min_soc=18%).
+#   - RESERVE_EXIT_HYSTERESIS_PCT: laufender Slot bleibt aktiv, bis SOC um
+#     diesen Prozentwert UNTER die Reserve fällt. Verhindert 30s-Toggle bei
+#     SOC-Oszillation.
+#   - Reaktivierungs-Hysterese (+5%) bleibt unabhängig; erschwert Wiedereinstieg
+#     in einen Slot, der innerhalb derselben Sitzung bereits verlassen wurde.
+RESERVE_ENTRY_BONUS_PCT = 5
+RESERVE_EXIT_HYSTERESIS_PCT = 2

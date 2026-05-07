@@ -37,7 +37,7 @@ optimizer.py: async_run_cycle(mode)
         - PeakShare mode: time within computed optimal window (or fixed start time fallback)
         - SOC > dynamic min_soc (+ hysteresis on reactivation)
         - PV tomorrow >= tomorrow_demand
-     4. State: Morgen-Einspeisung / Abend-Entladung / Normal
+     4. State: Morgen-Einspeisung / Nacht-Entladung / Normal
   → _execute() — inverter commands (only in mode "Ein")
 ```
 
@@ -81,7 +81,7 @@ optimizer.py: async_run_cycle(mode)
 | 17 | Register-Writes | fast | Cumulative inverter Modbus write counter (used for SolarEdge NVRAM monitoring) |
 | 18 | Entscheidung | 30s | Current optimizer state + Markdown dashboard |
 | 19 | Morgen-Einspeisung Energie heute | fast | Grid feed-in kWh during Morgen-Einspeisung (TOTAL, resets daily) |
-| 20 | Abend-Entladung Energie heute | fast | Grid feed-in kWh during evening discharge (TOTAL, resets daily) |
+| 20 | Nacht-Entladung Energie heute | fast | Grid feed-in kWh during evening discharge (TOTAL, resets daily) |
 
 ### Select Entity
 
@@ -92,7 +92,7 @@ optimizer.py: async_run_cycle(mode)
 ### Optimizer States
 
 - **Morgen-Einspeisung**: Battery charging blocked to maximize morning EEG feed-in
-- **Abend-Entladung**: Battery discharging for evening EEG feed-in
+- **Nacht-Entladung**: Battery discharging for evening EEG feed-in
 - **Normal**: Standard operation (inverter in auto mode)
 
 ### Activity Log
@@ -154,10 +154,10 @@ Implementations:
 ## Key Domain Concepts
 
 - **Morgen-Einspeisung** (Morning Feed-in): Prevents battery from charging during morning hours so PV surplus feeds into the grid when the EEG community needs it most. Active when PV forecast exceeds demand + safety buffer.
-- **Evening Discharge (Abend-Entladung)**: Discharges battery into grid during evening hours when community demand is high. With PeakShare enabled, the discharge window is automatically optimized based on community grid import forecasts (sliding window algorithm finds the contiguous block with highest demand). Without PeakShare, a fixed start time is used. Requires: sufficient SOC above dynamic min-SOC, and tomorrow's PV forecast covers tomorrow's demand. Hard cutoff at 04:00 — discharge stops regardless of other conditions.
+- **Night Discharge (Nacht-Entladung)**: Discharges battery into grid during evening and night hours when community demand is high. With PeakShare enabled, the discharge window is automatically optimized based on community grid import forecasts (sliding window algorithm finds the contiguous block with highest demand) — frequently runs through the night up to the 04:00 hard cutoff, which is why the UI label is "Nacht-Entladung". Without PeakShare, a fixed start time is used. Requires: sufficient SOC above dynamic min-SOC, and tomorrow's PV forecast covers tomorrow's demand. Hard cutoff at 04:00 — discharge stops regardless of other conditions.
 - **Dynamic Min-SOC**: base_min_soc + ceil((overnight_consumption * (1 + buffer%) / capacity) * 100) — ensures enough energy for overnight household consumption.
 - **Safety Buffer** (`safety_buffer_pct`, default 25%): Applied to both morning blocking threshold and overnight consumption reserve.
-- **Hysteresis** (anti-oscillation): Tracks whether a state (Morgen-Einspeisung or Abend-Entladung) was already active on the current day. If a state was active and then deactivated, stricter thresholds apply for reactivation: evening discharge requires SOC > min_soc + 5% (instead of > min_soc), morning feed-in requires PV > demand × 1.1 (instead of > demand). While a state remains continuously active, normal thresholds apply.
+- **Hysteresis** (anti-oscillation): Tracks whether a state (Morgen-Einspeisung or Nacht-Entladung) was already active on the current day. If a state was active and then deactivated, stricter thresholds apply for reactivation: evening discharge requires SOC > min_soc + 5% (instead of > min_soc), morning feed-in requires PV > demand × 1.1 (instead of > demand). While a state remains continuously active, normal thresholds apply.
 - **Consumption Profile**: Hourly averages from recorder, split by 7 individual weekdays (mo–so), rolling window (default 4 weeks), with weekday fallback chain for missing data.
 - **Dual Update Timers**: Slow sensors (profile) every 15min, fast sensors (forecasts, battery, Hausverbrauch) every 1min.
 

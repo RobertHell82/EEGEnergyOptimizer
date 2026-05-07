@@ -7,6 +7,73 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.2.3] - 2026-05-07
+
+> Release konsolidiert die DEV-Iteration 1.2.3-dev-01 (Optimizer-Hysterese, PeakShare-Window, HA 2026.11).
+
+### Behoben (Optimizer)
+
+- **Mini-Blöcke bei Slot A / Slot B durch dynamischen `min_soc`-Drift behoben.** Über die Nacht schrumpft `consumption_overnight_kwh` (Restzeit bis Sonnenaufgang sinkt), wodurch `_calc_min_soc` ~8 %/h nach unten driftete. Die Schmitt-Trigger-Hysterese (Exit −2 / Default-Eintritt +5) hat innerhalb einer Stunde ihre 7-%-Spanne verloren, sodass der Slot nach einem Self-Stop kurz wieder anlief und sofort wieder stoppte. Reproduktion 06.05.2026: Entladung in 7 Mini-Blöcken zwischen 1 und 20 min, mit Pausen bis 79 min.
+  - Neue Felder `_slot_a_latched_min_soc` / `_slot_b_latched_min_soc` frieren `min_soc` beim erstmaligen Slot-Eintritt der Session ein und werden für Schmitt-/Default-/Reaktivierungs-Schwellen genutzt.
+  - Reset gemeinsam mit `_slot_a_activated_date` / `_slot_b_activated_date` nach Sonnenaufgang.
+- **PeakShare-End-Anchor verhindert 4-Min-Pläne kurz vor Sonnenaufgang.** Bisher wurde `end_time` an `window_end` geclampt, wenn der höchste-Demand-Block + Jitter über das Window hinausragte — Live-Bug 07.05.2026: Plan 05:26–05:30 statt 04:30–05:30. Neue Logik schiebt den Block nach links, wenn `start + required_hours > window_end`, und behält die volle `required_hours`-Dauer bis zum Window-Ende (z.B. Sonnenaufgang).
+
+### Behoben (Telemetrie)
+
+- **`app_version`-Cache wird beim `async_setup_entry` invalidiert.** Bisher behielt der Modul-Cache `_APP_VERSION_CACHE` einen alten Wert, wenn HA nach einem HACS-Update nur die Integration neu lud (statt Core-Restart). Folge: Telemetrie-Backend bekam dauerhaft die alte Version. Reset jetzt am Anfang jedes Setup-Aufrufs, sodass `_load_app_version` frisch von Disk liest.
+
+### Behoben (HA-Kompatibilität)
+
+- **`unit_class="power"` in `async_import_statistics`-Aufrufen ergänzt.** HA 2026.11 macht das Feld zur Pflicht und loggt sonst eine Deprecation-Warnung in `homeassistant.helpers.frame`. Fallback auf älteres HA, das das Feld noch nicht kennt, bleibt erhalten.
+
+## [1.2.3-dev-01] - 2026-05-07
+
+### Behoben (Optimizer)
+
+- **Mini-Blöcke bei Slot A / Slot B durch dynamischen `min_soc`-Drift behoben.** Über die Nacht schrumpft `consumption_overnight_kwh` (Restzeit bis Sonnenaufgang sinkt), wodurch `_calc_min_soc` ~8 %/h nach unten driftete. Die Schmitt-Trigger-Hysterese (Exit −2 / Default-Eintritt +5) hat innerhalb einer Stunde ihre 7-%-Spanne verloren, sodass der Slot nach einem Self-Stop kurz wieder anlief und sofort wieder stoppte. Reproduktion 06.05.2026: Entladung in 7 Mini-Blöcken zwischen 1 und 20 min, mit Pausen bis 79 min.
+  - Neue Felder `_slot_a_latched_min_soc` / `_slot_b_latched_min_soc` frieren `min_soc` beim erstmaligen Slot-Eintritt der Session ein und werden für Schmitt-/Default-/Reaktivierungs-Schwellen genutzt.
+  - Reset gemeinsam mit `_slot_a_activated_date` / `_slot_b_activated_date` nach Sonnenaufgang.
+- **PeakShare-End-Anchor verhindert 4-Min-Pläne kurz vor Sonnenaufgang.** Bisher wurde `end_time` an `window_end` geclampt, wenn der höchste-Demand-Block + Jitter über das Window hinausragte — Live-Bug 07.05.2026: Plan 05:26–05:30 statt 04:30–05:30. Neue Logik schiebt den Block nach links, wenn `start + required_hours > window_end`, und behält die volle `required_hours`-Dauer bis zum Window-Ende (z.B. Sonnenaufgang).
+
+### Behoben (Telemetrie)
+
+- **`app_version`-Cache wird beim `async_setup_entry` invalidiert.** Bisher behielt der Modul-Cache `_APP_VERSION_CACHE` einen alten Wert, wenn HA nach einem HACS-Update nur die Integration neu lud (statt Core-Restart). Folge: Telemetrie-Backend bekam dauerhaft die alte Version. Reset jetzt am Anfang jedes Setup-Aufrufs, sodass `_load_app_version` frisch von Disk liest.
+
+### Behoben (HA-Kompatibilität)
+
+- **`unit_class="power"` in `async_import_statistics`-Aufrufen ergänzt.** HA 2026.11 macht das Feld zur Pflicht und loggt sonst eine Deprecation-Warnung in `homeassistant.helpers.frame`. Fallback auf älteres HA, das das Feld noch nicht kennt, bleibt erhalten.
+
+## [1.2.2] - 2026-05-06
+
+> Release konsolidiert die DEV-Iteration 1.2.1-dev-01 (UI-Umbenennung Abend-Entladung → Nacht-Entladung).
+
+### Geändert (UI)
+
+- **„Abend-Entladung" wurde überall im UI in „Nacht-Entladung" umbenannt.** Mit aktiver PeakShare-Bedarfssteuerung verschiebt sich das Entladefenster regelmäßig in die Nacht hinein (oft bis zum 04:00-Cutoff) — der bisherige Begriff war damit irreführend. Betroffen sind Wizard, Settings-Tab, Status-Karte, Statistik-Karte, Activity-Log-Filter, Bar-Chart-Tooltips/Legende, Konsumprofil-Hinweis sowie das Erklär-SVG.
+- **Sensor-`unique_id` und Entity-IDs bleiben unverändert** — die Long-Term-Statistik in HA bricht nicht. Lediglich der angezeigte Sensorname (`Abend-Entladung Energie heute` → `Nacht-Entladung Energie heute`) und der Decision-Sensor-State (`Abend-Entladung` → `Nacht-Entladung`) ändern sich.
+- **Telemetrie-`event_type` bleibt stabil bei `abend_entladung`.** Im Backend gespeicherte Auswertungen über die Umbenennung hinweg bleiben konsistent (`_normalize_state`-Override).
+- **Activity-Log-Einträge aus früheren Versionen (Zustand `Abend-Entladung`) werden im Frontend weiterhin korrekt gerendert** — Icon, Farbe, Slot-Marker und Filter-Match funktionieren über beide Labels hinweg.
+
+## [1.2.1] - 2026-05-06
+
+### Behoben
+
+- **Dashboard-Statuskarte „Abend-Entladung" zeigt in der A→B-Pause nicht mehr fälschlich Rot.** `_discharge_detail_status` betrachtet jetzt auch die Slot-spezifischen Wartezeit-Reasons (`REASON_BEFORE_SLOT_A`, `REASON_BEFORE_SLOT_B`, `REASON_BETWEEN_SLOTS`, `REASON_SLOT_A_RESERVE_REACHED`) als Time-Reasons. Folge: vor Slot-A-Start, in der Pause zwischen Slot A und Slot B sowie vor Slot-B-Start zeigt die Karte „Geplant" (blau) statt „Nicht geplant" (rot). Bedingungs-bedingte Blocker (z.B. SOC zu niedrig) bleiben weiterhin rot.
+
+### Geändert (Telemetrie)
+
+- **Outcome trägt jetzt `actuals_invalid=true`, wenn ein Power-Sensor mid-block ausfällt.** Pro Block wird getrackt, ob `pv_now_kw` / `consumption_now_kw` / `grid_now_kw` nach mindestens einem nicht-None-Sample wieder None liefern (= Sensor-Ausfall während des laufenden Blocks). In diesem Fall wird `actuals_invalid=true` ins Outcome-Payload geschrieben — das Backend kann jetzt zwischen „Sensor nicht konfiguriert" (Feld fehlt seit jeher) und „Sensor zwischenzeitlich ausgefallen" (Aktuals verfälscht) unterscheiden. Sensoren, die durchgängig None liefern (z.B. nicht konfiguriert), setzen das Flag nicht.
+- **Outcomes von Spike-Blöcken (< 5 min) werden nicht mehr ans Backend gesendet.** Schwellen-Toggle-Spikes (Block startet, SOC erreicht sofort die Reserve, Block endet binnen Sekunden) verzerrten bisher die Forecast-MAE-Statistik im Backend. Neuer Cutoff `MIN_BLOCK_OUTCOME_MINUTES = 5`: Blöcke unter 5 Minuten werden geskippt; Block-Predictions / -Samples / -Actuals-State werden trotzdem aufgeräumt, damit der nächste echte Block sauber startet. Lokale Feed-In-Statistik bleibt unberührt — die UI sieht den Spike nach wie vor.
+- **`predicted_pv_kwh` / `predicted_consumption_kwh` werden jetzt block-skaliert ausgegeben.** Bisher wurden Tagesforecasts ans Backend gemeldet, die mit den über das Block-Fenster integrierten `actual_*_kwh`-Werten nicht vergleichbar waren (Forecast-MAE für eine 7h-Abend-Entladung wurde mit dem ganzen morgigen 24h-Tagesforecast gegengerechnet). Neuer Decision-Pfad: Optimizer setzt `decision.planned_block_end` bei Block-Start (Morgen-Einspeisung: `morning_end_time`; Slot A: 5min vor Slot-B-Start oder hard_cutoff; Slot B: `compute_b_window_end`; PeakShare: `discharge_window_end`). `_build_block_predictions` skaliert dann linear über 24h: `predicted = day_forecast × min(block_h / 24, 1)`. Backwards-kompatibel: ohne `planned_block_end` (Legacy/Tests) bleibt fraction=1.0.
+
+### Geändert (Optimizer)
+
+- **Schmitt-Trigger-Hysterese auf Reserve-Schwellen + Eintritts-Mindestreserve.** Drei-stufige Schwellen-Logik in Slot A und Slot B (Reaktivierung > Default-Eintritt > Currently-Active-Austritt):
+  - **Default-Eintritt** (`RESERVE_ENTRY_BONUS_PCT = 5`): ein Slot startet erst, wenn SOC die Reserve um mindestens 5% übersteigt. Verhindert Mini-Blöcke mit nutzbarem 1%-Spielraum (Live-Bug 06.05.2026: Slot B startete bei SOC=19% mit Ziel-SOC=18% und entlud nur 1%).
+  - **Currently-Active-Austritt** (`RESERVE_EXIT_HYSTERESIS_PCT = 2`): solange der Slot bereits aktiv läuft, sinkt die Austrittsschwelle um 2% — der Block bleibt aktiv, bis SOC echte 2% UNTER die Reserve fällt. Anti-Toggle bei SOC-Oszillation.
+  - **Reaktivierung** (+5% wie bisher): erschwert Wiedereinstieg in einen Slot, der heute schon einmal aktiv war und verlassen wurde.
+  - Schwellen werden bei 0% geclampt; Konstante `RESERVE_HYSTERESIS_PCT` umbenannt in `RESERVE_EXIT_HYSTERESIS_PCT` (interne API).
+
 ## [1.2.0] - 2026-05-05
 
 > Release konsolidiert die DEV-Iterationen 31–34 (Phase 11 Dual-Window, Phase 11.1 PeakShare-per-Slot, Phase 12 UI-Vereinfachung).
