@@ -106,7 +106,6 @@ const WIZARD_DEFAULTS = {
   discharge_a_start_time: "20:00",
   discharge_b_start_time: "03:00",
   discharge_b_end_cap: "07:00",
-  discharge_a_reserve_pct: 5,
   enable_peakshare: true,
   peakshare_community: "BEG",
   discharge_power_kw: 5.0,
@@ -3055,12 +3054,6 @@ class EegOptimizerPanel extends HTMLElement {
           <input type="text" data-field="discharge_a_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${this._wizardData.discharge_a_start_time || "20:00"}" style="width:80px">
           <div class="help-text">Startzeit der Nacht-Entladung. Empfehlung 20:00 (EEG-Abendpeak 18:00\u201323:00).</div>
-        </div>
-        <div class="field-group">
-          <label>Reserve f\u00fcr Slot B (%)</label>
-          <input type="number" data-field="discharge_a_reserve_pct" min="0" max="50" step="1"
-                 value="${this._wizardData.discharge_a_reserve_pct ?? 5}" style="width:80px">
-          <div class="help-text">SOC-Reserve in Prozent, die Slot A f\u00fcr Slot B aufhebt. Default 5%.</div>
         </div>` : ""}
       </div>
     ` : "";
@@ -3364,12 +3357,6 @@ class EegOptimizerPanel extends HTMLElement {
           <input type="text" data-field="settings_discharge_a_start_time" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"
                  value="${d.discharge_a_start_time || "20:00"}" style="width:80px">
           <div class="help-text">Startzeit der Nacht-Entladung. Empfehlung 20:00 (EEG-Abendpeak 18:00–23:00).</div>
-        </div>
-        <div class="field-group">
-          <label>Reserve für Slot B (%)</label>
-          <input type="number" data-field="settings_discharge_a_reserve_pct" min="0" max="50" step="1"
-                 value="${d.discharge_a_reserve_pct ?? 5}" style="width:80px">
-          <div class="help-text">SOC-Reserve in Prozent, die Slot A für Slot B aufhebt. Default 5%.</div>
         </div>` : ""}
       </div>
     ` : "";

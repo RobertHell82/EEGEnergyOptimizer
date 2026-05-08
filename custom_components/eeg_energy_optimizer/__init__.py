@@ -34,7 +34,6 @@ from .const import (
     COMBINED_BATTERY_POWER_SENSOR_ID,
     COMBINED_GRID_POWER_SENSOR_ID,
     CONSUMPTION_SENSOR,
-    DEFAULT_DISCHARGE_A_RESERVE_PCT,
     DEFAULT_LOOKBACK_WEEKS,
     FAILURE_DEDUP_WINDOW_S,
     FORECAST_NONE_STREAK_THRESHOLD,
@@ -915,7 +914,6 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data.setdefault("discharge_a_start_time", "20:00")
         new_data.setdefault("discharge_b_start_time", "03:00")
         new_data.setdefault("discharge_b_end_cap", "07:00")
-        new_data.setdefault("discharge_a_reserve_pct", DEFAULT_DISCHARGE_A_RESERVE_PCT)
         hass.config_entries.async_update_entry(entry, data=new_data, version=15)
 
     if entry.version < 16:
@@ -945,6 +943,14 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data.pop("discharge_start_time", None)
         new_data.pop("enable_dual_discharge", None)
         hass.config_entries.async_update_entry(entry, data=new_data, version=16)
+
+    if entry.version < 17:
+        # v17 — Slot-B-Reserve entfernt. discharge_a_reserve_pct wird aus der
+        # Config gestrichen; Slot A entlädt immer bis min_soc_dyn, Slot B
+        # nutzt den verbleibenden SOC oberhalb min_soc als Budget.
+        new_data = {**entry.data}
+        new_data.pop("discharge_a_reserve_pct", None)
+        hass.config_entries.async_update_entry(entry, data=new_data, version=17)
 
     return True
 

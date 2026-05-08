@@ -88,14 +88,14 @@ class TestConfigFlowMetadata:
     def test_version_in_sync_with_migration(self):
         """VERSION must match the highest migration target in __init__.py.
 
-        Latest migration: v16 (Phase 12 — Dual-Master-Toggle entfernt,
-        discharge_start_time aus Schema raus, SolarEdge XOR per Slot).
+        Latest migration: v17 (discharge_a_reserve_pct aus dem Schema entfernt;
+        Slot A endet immer bei min_soc, Slot-B-Reserve wegrationalisiert).
         """
-        assert EegEnergyOptimizerConfigFlow.VERSION == 16
+        assert EegEnergyOptimizerConfigFlow.VERSION == 17
 
-    def test_config_flow_version_is_16(self):
-        """Phase-12-Smoke: VERSION wurde von 15 auf 16 angehoben."""
-        assert EegEnergyOptimizerConfigFlow.VERSION == 16
+    def test_config_flow_version_is_17(self):
+        """Smoke: VERSION wurde von 16 auf 17 angehoben."""
+        assert EegEnergyOptimizerConfigFlow.VERSION == 17
 
 
 class TestStepUser:

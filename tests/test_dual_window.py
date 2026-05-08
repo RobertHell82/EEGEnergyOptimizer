@@ -156,9 +156,9 @@ class TestMigrationV14ToV15:
         assert new_data["discharge_a_start_time"] == "20:00"
         assert new_data["discharge_b_start_time"] == "03:00"
         assert new_data["discharge_b_end_cap"] == "07:00"
-        # Phase 11.1: Default-Wechsel 15 -> 5 (D-02). Migration nutzt
-        # DEFAULT_DISCHARGE_A_RESERVE_PCT, neue Setups landen bei 5.
-        assert new_data["discharge_a_reserve_pct"] == 5
+        # discharge_a_reserve_pct wurde in v17 entfernt — die v15-Migration
+        # setzt den Key nicht mehr.
+        assert "discharge_a_reserve_pct" not in new_data
         assert kwargs.get("version") == 15
 
     @pytest.mark.asyncio
@@ -200,8 +200,10 @@ class TestMigrationV14ToV15:
         assert new_data["discharge_b_start_time"] == "03:00"
 
     @pytest.mark.asyncio
-    async def test_migration_idempotent_when_already_v15(self):
-        """T-11-01-02: Idempotenz — version=15 triggert keinen Update-Call."""
+    async def test_migration_v15_skips_v15_block(self):
+        """version=15 triggert den v15-Block nicht mehr — nur die nachfolgenden
+        Blöcke (v16, v17) feuern und führen ggf. ein async_update_entry aus.
+        Die v15-spezifischen Defaults (Slot-Keys) werden nicht erneut gesetzt."""
         from custom_components.eeg_energy_optimizer import async_migrate_entry
         hass = MagicMock()
         hass.config_entries.async_update_entry = MagicMock()
@@ -209,27 +211,30 @@ class TestMigrationV14ToV15:
         entry.version = 15
         entry.data = {"inverter_type": "huawei_sun2000"}
         await async_migrate_entry(hass, entry)
-        # version<15 ist False → Update-Aufruf für v15-Block darf nicht passieren.
-        # Frühere Blöcke (v3..v14) feuern auch nicht weil version=15.
-        assert hass.config_entries.async_update_entry.call_count == 0
+        # v15-Defaults dürfen nicht in die persistierten Daten geschrieben werden.
+        for call in hass.config_entries.async_update_entry.call_args_list:
+            new_data = call.kwargs.get("data") or call.args[1]
+            assert "discharge_a_start_time" not in new_data
+            assert "enable_slot_a" not in new_data
 
     @pytest.mark.asyncio
-    async def test_migration_v14_v15_uses_default_constant(self):
-        """Phase 11.1: Migration v14→v15 nutzt DEFAULT_DISCHARGE_A_RESERVE_PCT
-        (=5 nach Phase 11.1, D-02) — neue Setups bekommen den neuen Default."""
+    async def test_migration_v17_removes_reserve_key(self):
+        """v17-Migration entfernt discharge_a_reserve_pct aus Bestandsdaten."""
         from custom_components.eeg_energy_optimizer import async_migrate_entry
         hass = MagicMock()
         hass.config_entries.async_update_entry = MagicMock()
         entry = MagicMock()
-        entry.version = 14
-        # Bewusst KEIN discharge_a_reserve_pct gesetzt — Migration soll Default
-        # aus der Konstante übernehmen.
-        entry.data = {"inverter_type": "huawei_sun2000"}
+        entry.version = 16
+        entry.data = {
+            "inverter_type": "huawei_sun2000",
+            "discharge_a_reserve_pct": 15,
+        }
         await async_migrate_entry(hass, entry)
-        args, kwargs = hass.config_entries.async_update_entry.call_args
-        new_data = kwargs.get("data") or args[1]
-        # Phase 11.1: Default ist jetzt 5 (per D-02).
-        assert new_data["discharge_a_reserve_pct"] == 5
+        # Letzter Update-Call ist der v17-Block.
+        last_call = hass.config_entries.async_update_entry.call_args_list[-1]
+        new_data = last_call.kwargs.get("data") or last_call.args[1]
+        assert "discharge_a_reserve_pct" not in new_data
+        assert last_call.kwargs.get("version") == 17
 
 
 # ---------------------------------------------------------------------------
@@ -268,16 +273,18 @@ class TestSlotAReserveLogic:
         assert REASON_SLOT_A_ACTIVE in reasons
         assert hyst is False
 
-    def test_dual_a_uses_min_soc_plus_reserve(
+    def test_dual_a_uses_min_soc_only(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
+        """Slot A endet bei min_soc_dyn (keine Slot-B-Reserve mehr).
+        Default-Eintrittsschwelle = min_soc + RESERVE_ENTRY_BONUS_PCT(5) = 25.
+        SOC=24 → blockiert."""
         cfg = _make_config(
             enable_dual_discharge=True,
             enable_slot_a=True,
             enable_slot_b=True,
             discharge_a_start_time="20:00",
             discharge_b_start_time="03:00",
-            discharge_a_reserve_pct=15,
             min_soc=20,
         )
         opt = _make_optimizer(
@@ -285,7 +292,7 @@ class TestSlotAReserveLogic:
         )
         snap = _make_snapshot(
             now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
-            battery_soc=30.0,  # < min_soc(20) + reserve(15) = 35 → blockiert
+            battery_soc=24.0,  # < min_soc(20) + entry_bonus(5) = 25 → blockiert
             battery_capacity_kwh=10.0,
             sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
             sunrise_today=datetime(2026, 6, 15, 4, 52, tzinfo=timezone.utc),
@@ -474,7 +481,6 @@ class TestProSlotHysteresis:
             enable_slot_b=True,
             discharge_a_start_time="20:00",
             discharge_b_start_time="03:00",
-            discharge_a_reserve_pct=15,
             min_soc=20,
         )
         opt = _make_optimizer(
@@ -482,11 +488,11 @@ class TestProSlotHysteresis:
         )
         opt._slot_a_activated_date = "2026-06-15"  # heute schon einmal aktiv
         opt._last_active_slot = "B"  # zwischenzeitlich war B aktiv → Reaktivierung
-        # Schwelle: min_soc(20) + reserve(15) = 35; +5 Aufschlag = 40
-        # battery_soc=39 → > 35 (ohne Aufschlag), aber <= 40 (mit Aufschlag) → blockiert
+        # Schwelle ohne Reserve: a_min_soc = min_soc(20); +5 Reaktivierung = 25
+        # battery_soc=24 → unter Reaktivierungsschwelle 25 → blockiert
         snap = _make_snapshot(
             now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
-            battery_soc=39.0,
+            battery_soc=24.0,
             battery_capacity_kwh=10.0,
             sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
             sunrise_today=datetime(2026, 6, 15, 4, 52, tzinfo=timezone.utc),
@@ -773,15 +779,8 @@ class TestPeakShareCacheSchema:
         assert ps._discharge_plan_date is None
 
     # -----------------------------------------------------------------------
-    # Phase 11.1: Default-Wechsel + Per-Slot-Compute-Tracking
+    # Phase 11.1: Per-Slot-Compute-Tracking
     # -----------------------------------------------------------------------
-
-    def test_default_discharge_a_reserve_pct_is_5(self):
-        """Phase 11.1 D-02: Default-Wechsel von 15 auf 5."""
-        from custom_components.eeg_energy_optimizer.const import (
-            DEFAULT_DISCHARGE_A_RESERVE_PCT,
-        )
-        assert DEFAULT_DISCHARGE_A_RESERVE_PCT == 5
 
     def test_per_slot_compute_tracking_initialized_in_init(self):
         """Phase 11.1: __init__ legt _discharge_plan_computed_dates dict an."""
@@ -1390,10 +1389,11 @@ class TestPeakShareSlotIntegration:
         # Winter: cap dominiert -> 07:00
         assert c["window_end"] == datetime(2026, 12, 21, 7, 0, tzinfo=timezone.utc)
 
-    def test_slot_b_available_kwh_uses_reserve_pct(
+    def test_slot_b_available_kwh_uses_soc_above_min_soc(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
     ):
-        """B2: available_kwh == reserve_pct/100 * capacity. reserve_pct=5, capacity=10 -> 0.5 kWh."""
+        """available_kwh = (soc - min_soc) / 100 * capacity.
+        SOC=80, min_soc=20, capacity=10 → (80-20)/100 * 10 = 6.0 kWh."""
         cfg = _make_config(
             enable_dual_discharge=True,
             enable_slot_a=False,
@@ -1403,7 +1403,6 @@ class TestPeakShareSlotIntegration:
             min_soc=20,
             enable_peakshare=True,
             peakshare_community="Testgemeinde",
-            discharge_a_reserve_pct=5,
         )
         opt = _make_optimizer(
             mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
@@ -1420,7 +1419,7 @@ class TestPeakShareSlotIntegration:
         )
         opt._evaluate_slot_b(snap, 20.0)
         c = ps_mock._captured["calls"][0]
-        assert abs(c["available_kwh"] - 0.5) < 1e-6
+        assert abs(c["available_kwh"] - 6.0) < 1e-6
 
     def test_slot_b_no_peakshare_data_falls_through_to_fixed_time(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
@@ -2095,11 +2094,11 @@ class TestReserveHysteresis:
         assert passed is False
         assert REASON_SLOT_A_RESERVE_REACHED in blocked
 
-    def test_slot_a_currently_active_with_reserve_uses_lower_exit(
+    def test_slot_a_currently_active_uses_lower_exit(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
     ):
-        """Mit Slot-B-Reserve: a_min_soc = min_soc + reserve = 35. Exit = 33.
-        SOC=34 (unter Eintritt, über Austritt) bleibt im laufenden Block."""
+        """Schmitt-Trigger: a_min_soc = min_soc = 20. Exit = 18.
+        SOC=19 (unter Eintritt 25, über Austritt 18) bleibt im laufenden Block."""
         from custom_components.eeg_energy_optimizer.const import STATE_ABEND_ENTLADUNG
 
         cfg = _make_config(
@@ -2108,7 +2107,6 @@ class TestReserveHysteresis:
             enable_slot_b=True,
             discharge_a_start_time="20:00",
             discharge_b_start_time="03:00",
-            discharge_a_reserve_pct=15,
             min_soc=20,
         )
         opt = _make_optimizer(
@@ -2120,7 +2118,7 @@ class TestReserveHysteresis:
 
         snap = _make_snapshot(
             now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
-            battery_soc=34.0,
+            battery_soc=19.0,
             battery_capacity_kwh=10.0,
             sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
             sunrise_today=datetime(2026, 6, 15, 4, 52, tzinfo=timezone.utc),
@@ -2230,7 +2228,6 @@ class TestReserveHysteresis:
             enable_slot_b=True,
             discharge_a_start_time="20:00",
             discharge_b_start_time="03:00",
-            discharge_a_reserve_pct=15,
             min_soc=20,
         )
         opt = _make_optimizer(
@@ -2239,12 +2236,12 @@ class TestReserveHysteresis:
         opt._slot_a_activated_date = "2026-06-15"
         opt._last_active_slot = "B"  # Slot B war zuletzt aktiv → Reaktivierung für A
 
-        # a_min_soc = 20+15 = 35; reaktivierung = 40; Schmitt-exit = 33.
-        # SOC=39 → unter Reaktivierung (40) → blocked. Wenn fälschlich Schmitt
-        # angewendet würde (exit=33), wäre 39 > 33 → passed.
+        # a_min_soc = min_soc(20); Reaktivierungsschwelle = 25; Schmitt-exit = 18.
+        # SOC=24 → unter Reaktivierung (25) → blocked. Wenn fälschlich Schmitt
+        # angewendet würde (exit=18), wäre 24 > 18 → passed.
         snap = _make_snapshot(
             now=datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc),
-            battery_soc=39.0,
+            battery_soc=24.0,
             battery_capacity_kwh=10.0,
             sunrise=datetime(2026, 6, 16, 4, 52, tzinfo=timezone.utc),
             sunrise_today=datetime(2026, 6, 15, 4, 52, tzinfo=timezone.utc),
