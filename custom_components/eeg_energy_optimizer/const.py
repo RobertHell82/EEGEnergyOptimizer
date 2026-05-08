@@ -105,7 +105,7 @@ DEFAULT_SAFETY_BUFFER_PCT = 25
 # Phase 11: Dual-Window-Entladung
 # Zwei unabhängig aktivierbare Entlade-Slots: Slot A (Abend), Slot B (Morgen).
 # Slot A startet ab discharge_a_start_time und endet, sobald die Batterie auf
-# (min_soc_dyn + discharge_a_reserve_pct) gefallen ist (Reserve für Slot B).
+# min_soc_dyn gefallen ist.
 # Slot B startet ab discharge_b_start_time und endet adaptiv vor Sonnenaufgang
 # via compute_b_window_end (siehe optimizer.py).
 # Phase 12: enable_dual_discharge bleibt im Schema, ist aber für SolarEdge
@@ -118,14 +118,12 @@ CONF_ENABLE_SLOT_B = "enable_slot_b"
 CONF_DISCHARGE_A_START_TIME = "discharge_a_start_time"
 CONF_DISCHARGE_B_START_TIME = "discharge_b_start_time"
 CONF_DISCHARGE_B_END_CAP = "discharge_b_end_cap"
-CONF_DISCHARGE_A_RESERVE_PCT = "discharge_a_reserve_pct"
 
 DEFAULT_ENABLE_DUAL_DISCHARGE_NON_SOLAREDGE = True
 DEFAULT_ENABLE_DUAL_DISCHARGE_SOLAREDGE = False
 DEFAULT_DISCHARGE_A_START_TIME = "20:00"
 DEFAULT_DISCHARGE_B_START_TIME = "03:00"
 DEFAULT_DISCHARGE_B_END_CAP = "07:00"
-DEFAULT_DISCHARGE_A_RESERVE_PCT = 5  # Phase 11.1: 15 -> 5 (per D-02, PeakShare steuert Slot-A-Ende, Reserve nur als Sicherheits-Floor für Slot B)
 
 # Optimizer modes (D-17)
 MODE_EIN = "Ein"
@@ -208,7 +206,6 @@ TELEMETRY_SETTINGS_KEYS = (
     "discharge_a_start_time",
     "discharge_b_start_time",
     "discharge_b_end_cap",
-    "discharge_a_reserve_pct",
 )
 
 # Phase 8 — Runtime Watchdog-Schwellen (08-03, D-16)

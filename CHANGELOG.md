@@ -7,6 +7,12 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.2.4-dev-01] - 2026-05-08
+
+### Entfernt
+
+- **Konfigurationsoption „Reserve für Slot B (%)" (`discharge_a_reserve_pct`) entfernt.** Slot A entlädt jetzt immer bis zum dynamischen `min_soc` ohne zusätzlichen Aufschlag; Slot B nutzt den verbleibenden SOC oberhalb von `min_soc` als verfügbares Energie-Budget für die PeakShare-Sliding-Window-Berechnung. Bestehende Configs werden über die Migration **v17** automatisch um den Key bereinigt; das UI-Feld in Wizard und Settings ist entfallen.
+
 ## [1.2.3] - 2026-05-07
 
 > Release konsolidiert die DEV-Iteration 1.2.3-dev-01 (Optimizer-Hysterese, PeakShare-Window, HA 2026.11).

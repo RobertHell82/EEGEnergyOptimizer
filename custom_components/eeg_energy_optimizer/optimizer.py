@@ -18,7 +18,6 @@ from .const import (
     CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_POWER_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
-    CONF_DISCHARGE_A_RESERVE_PCT,
     CONF_DISCHARGE_A_START_TIME,
     CONF_DISCHARGE_B_END_CAP,
     CONF_DISCHARGE_B_START_TIME,
@@ -37,7 +36,6 @@ from .const import (
     CONF_PV_POWER_SENSOR,
     CONF_SAFETY_BUFFER_PCT,
     CONSUMPTION_SENSOR,
-    DEFAULT_DISCHARGE_A_RESERVE_PCT,
     DEFAULT_DISCHARGE_A_START_TIME,
     DEFAULT_DISCHARGE_B_END_CAP,
     DEFAULT_DISCHARGE_B_START_TIME,
@@ -487,9 +485,6 @@ class EEGOptimizer:
         self._enable_slot_a: bool = bool(config.get(CONF_ENABLE_SLOT_A, True))
         self._enable_slot_b: bool = bool(
             config.get(CONF_ENABLE_SLOT_B, not (inv_type_cfg == "solaredge_storedge"))
-        )
-        self._discharge_a_reserve_pct: int = int(
-            config.get(CONF_DISCHARGE_A_RESERVE_PCT, DEFAULT_DISCHARGE_A_RESERVE_PCT)
         )
         a_start_str = str(
             config.get(CONF_DISCHARGE_A_START_TIME, DEFAULT_DISCHARGE_A_START_TIME)
@@ -1259,7 +1254,7 @@ class EEGOptimizer:
             # Slot-A-only: Hard-Cutoff (sunrise − 1h oder 04:00, was früher).
             a_end_cap = compute_hard_cutoff(snap.now, snap.sunrise)
 
-        # SOC-Schwelle: nur wenn Slot B aktiv → reserve_pct als Aufschlag.
+        # SOC-Schwelle: Slot A endet immer bei min_soc_dyn (keine Slot-B-Reserve).
         # Vorgezogen für PeakShare-available_kwh-Berechnung.
         # Latched-min_soc: ab dem zweiten Cycle der Slot-A-Session wird der
         # beim Erst-Eintritt eingefrorene Wert genutzt. Verhindert, dass der
@@ -1271,8 +1266,7 @@ class EEGOptimizer:
             if self._slot_a_latched_min_soc is not None
             else min_soc
         )
-        a_reserve = self._discharge_a_reserve_pct if self._enable_slot_b else 0
-        a_min_soc = base_min_soc + a_reserve
+        a_min_soc = base_min_soc
 
         # Phase 11.1: PeakShare-Plan-Lookup pro Slot
         peakshare_plan = None
@@ -1395,14 +1389,15 @@ class EEGOptimizer:
             # Sommer-Fall: Fenster schon vorbei bevor es startet
             return (False, [], [REASON_SLOT_B_PRE_SUNRISE_CUTOFF], False)
 
-        # Phase 11.1: PeakShare-Plan-Lookup pro Slot. available_kwh_b ist
-        # die Reserve, die Slot A für Slot B übrig gelassen hat — eine
-        # statische Annäherung (demand-weighted Aufteilung ist Backlog v1.3+).
+        # PeakShare-Plan-Lookup pro Slot. available_kwh_b leitet sich aus dem
+        # aktuellen SOC oberhalb min_soc ab — wenn Slot A bereits gelaufen ist,
+        # ist das wenig; wenn nicht, ist es das volle Budget.
         peakshare_plan = None
         if self._enable_peakshare and self._peakshare is not None:
-            available_kwh_b = (
-                self._discharge_a_reserve_pct / 100
-            ) * snap.battery_capacity_kwh
+            available_kwh_b = max(
+                0.0,
+                (snap.battery_soc - min_soc) / 100 * snap.battery_capacity_kwh,
+            )
             if available_kwh_b > 0:
                 peakshare_plan = self._peakshare.get_discharge_plan(
                     self._peakshare_community,
@@ -1874,8 +1869,7 @@ class EEGOptimizer:
             lines.append("### Slot-Konfiguration")
             lines.append(
                 f"- Slot A: {'aktiv' if self._enable_slot_a else 'deaktiviert'} "
-                f"({self._discharge_a_start_h:02d}:{self._discharge_a_start_m:02d}, "
-                f"Reserve {self._discharge_a_reserve_pct}%)"
+                f"({self._discharge_a_start_h:02d}:{self._discharge_a_start_m:02d})"
             )
             lines.append(
                 f"- Slot B: {'aktiv' if self._enable_slot_b else 'deaktiviert'} "
