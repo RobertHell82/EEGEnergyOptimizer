@@ -7,6 +7,14 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.2.5] - 2026-05-11
+
+> Release konsolidiert die DEV-Iteration 1.2.5-dev-01 (Slot-B-Vormittags-Fix).
+
+### Behoben
+
+- **Slot B (Morgen-Entladung) konnte fälschlich am späten Vormittag aktivieren.** Bei `now` zwischen heutigem Slot-B-Ende und 12:00 Uhr wurde `b_start` aus `snap.now` abgeleitet und blieb am heutigen Tag, während `b_end` über `snap.sunrise` bereits am morgigen Tag verankert war — das effektive Slot-B-Fenster spannte sich dadurch über ~25 h und Slot B konnte vormittags entladen, sobald der SOC über `min_soc` lag. `b_start` wird nun konsistent am Tag des nächsten Sonnenaufgangs verankert.
+
 ## [1.2.5-dev-01] - 2026-05-11
 
 ### Behoben
