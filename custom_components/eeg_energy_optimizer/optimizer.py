@@ -1366,16 +1366,19 @@ class EEGOptimizer:
         if snap.sunrise is None:
             return (False, [], [REASON_SUNRISE_UNKNOWN], False)
 
-        # b_start auf morgen verschieben wenn now nachmittags + b_start vormittags
-        # (analog discharge_start_resolved-Pattern in _evaluate_legacy_window).
-        b_start = snap.now.replace(
+        # b_start am gleichen Tag wie b_end (snap.sunrise day) verankern.
+        # snap.sunrise ist die nächste Sonnenaufgangskante nach snap.now und
+        # compute_b_window_end verankert b_end ebenfalls daran. Wenn b_start
+        # stattdessen aus snap.now abgeleitet wird, bleibt es bei now zwischen
+        # dem heutigen b_end und 12:00 fälschlich am heutigen Tag hängen — das
+        # Fenster wird dann ~25h gross (b_start heute, b_end morgen) und Slot B
+        # aktiviert über den gesamten Vormittag nach Sonnenaufgang.
+        b_start = snap.sunrise.replace(
             hour=self._discharge_b_start_h,
             minute=self._discharge_b_start_m,
             second=0,
             microsecond=0,
         )
-        if snap.now.hour >= 12 and self._discharge_b_start_h < 12:
-            b_start = b_start + timedelta(days=1)
 
         b_end = compute_b_window_end(
             snap.now,

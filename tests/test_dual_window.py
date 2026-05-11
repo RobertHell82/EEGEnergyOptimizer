@@ -462,6 +462,41 @@ class TestSlotBLogic:
         assert passed is False
         assert REASON_BEFORE_SLOT_B in blocked
 
+    def test_b_late_morning_after_todays_sunrise_returns_before_slot_b(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Regression: now nach heutigem Sonnenaufgang + vor 12:00 darf Slot B
+        NICHT aktivieren. snap.sunrise zeigt auf morgen — b_start muss am
+        morgigen Tag verankert sein, sonst spannt das Fenster ~25 h über den
+        ganzen heutigen Vormittag (Bug aus Field-Report 2026-05-11 11:54).
+        """
+        cfg = _make_config(
+            enable_dual_discharge=True,
+            enable_slot_a=True,
+            enable_slot_b=True,
+            discharge_a_start_time="20:00",
+            discharge_b_start_time="03:00",
+            discharge_b_end_cap="07:00",
+            min_soc=20,
+        )
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, config=cfg
+        )
+        # Heute (Mai) bereits 11:54 lokal: sunrise heute war ~05:30, das nächste
+        # next_rising in sun.sun ist daher morgen ~05:30. SOC weit über
+        # min_soc, damit nur die Fensterlogik (nicht der SOC-Check) blockiert.
+        snap = _make_snapshot(
+            now=datetime(2026, 5, 11, 9, 54, tzinfo=timezone.utc),
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            sunrise=datetime(2026, 5, 12, 3, 27, tzinfo=timezone.utc),
+            sunrise_today=datetime(2026, 5, 11, 3, 27, tzinfo=timezone.utc),
+        )
+        passed, reasons, blocked, hyst = opt._evaluate_slot_b(snap, 20.0)
+        assert passed is False
+        assert REASON_BEFORE_SLOT_B in blocked
+        assert REASON_SLOT_B_ACTIVE not in reasons
+
 
 # ---------------------------------------------------------------------------
 # Plan 11-02 — Pro-Slot-Hysterese (SPEC §4 / D-02 / T-11-02-01)
