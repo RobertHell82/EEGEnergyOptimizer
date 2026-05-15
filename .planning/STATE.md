@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: optimizer-erweiterungen
-status: Phase 12 planned — ready to execute
-stopped_at: Phase 12 planned (1 plan) — SolaX Charge-Block ohne Battery-Idle
-last_updated: "2026-05-15T00:00:00.000Z"
+status: Phase 12 executed — verification & live-UAT pending
+stopped_at: Phase 12 executed (1 plan, 463 tests grün) — SolaX Charge-Block ausgeliefert; Live-UAT auf SolaX-Anlage ausstehend
+last_updated: "2026-05-15T12:00:00.000Z"
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 7
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Project State
@@ -19,16 +19,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Feed solar energy into the grid when the community actually needs it, not when everyone else is feeding in too.
-**Current focus:** Phase 12 — SolaX Charge-Block ohne Battery-Idle (v1.2 Milestone) — geplant, bereit zur Ausführung. Diagnose-Trigger: SOC-Einfrierung bei ~19 % auf SolaX-Live-Anlage in Nacht 14./15. Mai.
+**Current focus:** Phase 12 — SolaX Charge-Block ohne Battery-Idle (v1.2 Milestone) — Code ausgeliefert, Tests grün; Live-UAT auf SolaX-Anlage zur Bestätigung der SOC-Self-Use-Discharge ausstehend.
 
 ## Current Position
 
 Phase: 12 — SolaX Charge-Block ohne Battery-Idle (INSERTED nach Phase 11.1)
-Status: Geplant (1 Plan)
-Plan: 12-01-PLAN.md — solax.py Refactor + Storage + Migration v17→v18 + Tests + CHANGELOG (Wave 1)
+Status: Ausgeführt (1 Plan, 463 Tests grün) — Live-UAT pending
+Plan: 12-01-PLAN.md — solax.py Refactor + Storage + Migration v17→v18 + Tests + CHANGELOG (Wave 1) — ✅ done
 
 ### Phase 12 Plans
-- 12-01 (Wave 1): solax.py `async_set_charge_limit` nutzt `battery_charge_max_current=0` statt Mode-1-Idle + `SolaXStateStore` (Storage-persistierter Original-Wert) + Migration v17→v18 + 8 Tests + CHANGELOG — 📋 ready
+- 12-01 (Wave 1): solax.py `async_set_charge_limit` nutzt `battery_charge_max_current=0` statt Mode-1-Idle + `SolaXStateStore` (Storage-persistierter Original-Wert) + Migration v17→v18 + 16 Tests + CHANGELOG — ✅ done 2026-05-15
+
+Live-UAT pending: Test-Update auf SolaX-Live-Instanz, Beobachtung des SOC-Verlaufs während Morgen-Einspeisung über 1–2 Tage (Goal: SOC bleibt nicht mehr bei ~19 % stehen, entlädt weiter bis ~10 %)
 
 ### Phase 11.1 Plans
 - 11.1-01 (Wave 1): const.py 15→5 + Per-Slot-Cache-Fix + PeakShare-Aufruf in _evaluate_slot_a/b mit window_end-Mutual-Exclusion-Clamp + 31 neue Tests — ✅ done
