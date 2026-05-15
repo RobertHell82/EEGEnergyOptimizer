@@ -88,14 +88,14 @@ class TestConfigFlowMetadata:
     def test_version_in_sync_with_migration(self):
         """VERSION must match the highest migration target in __init__.py.
 
-        Latest migration: v17 (discharge_a_reserve_pct aus dem Schema entfernt;
-        Slot A endet immer bei min_soc, Slot-B-Reserve wegrationalisiert).
+        Latest migration: v18 (Phase 12 — solax_battery_charge_max_current
+        Entity-Override-Key für den neuen Charge-Block-Pfad).
         """
-        assert EegEnergyOptimizerConfigFlow.VERSION == 17
+        assert EegEnergyOptimizerConfigFlow.VERSION == 18
 
-    def test_config_flow_version_is_17(self):
-        """Smoke: VERSION wurde von 16 auf 17 angehoben."""
-        assert EegEnergyOptimizerConfigFlow.VERSION == 17
+    def test_config_flow_version_is_18(self):
+        """Smoke: VERSION wurde von 17 auf 18 angehoben."""
+        assert EegEnergyOptimizerConfigFlow.VERSION == 18
 
 
 class TestStepUser:

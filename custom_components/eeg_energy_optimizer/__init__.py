@@ -952,6 +952,18 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data.pop("discharge_a_reserve_pct", None)
         hass.config_entries.async_update_entry(entry, data=new_data, version=17)
 
+    if entry.version < 18:
+        # v18 — Phase 12: SolaX Charge-Block via battery_charge_max_current.
+        # Neuer Entity-Override-Key für das Lade-Limit (analog zu den
+        # existierenden solax_remotecontrol_*-Keys). Bestehende Anlagen
+        # bekommen den Default-Entity-Pfad.
+        new_data = {**entry.data}
+        new_data.setdefault(
+            "solax_battery_charge_max_current",
+            "number.solax_inverter_battery_charge_max_current",
+        )
+        hass.config_entries.async_update_entry(entry, data=new_data, version=18)
+
     return True
 
 
