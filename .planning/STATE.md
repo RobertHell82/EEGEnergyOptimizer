@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: optimizer-erweiterungen
-status: Phase 11.1 verified — manual UAT pending (Phase 11 also UAT-pending)
-stopped_at: Phase 11.1 complete — 444/445 tests pass, awaiting 7-day user observation
-last_updated: "2026-05-04T00:00:00.000Z"
+status: Phase 12 planned — ready to execute
+stopped_at: Phase 12 planned (1 plan) — SolaX Charge-Block ohne Battery-Idle
+last_updated: "2026-05-15T00:00:00.000Z"
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 2
-  total_plans: 6
+  total_plans: 7
   completed_plans: 6
 ---
 
@@ -19,13 +19,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Feed solar energy into the grid when the community actually needs it, not when everyone else is feeding in too.
-**Current focus:** Phase 11.1 — peakshare-per-slot (v1.2 Milestone — Optimizer-Erweiterungen) — verifiziert, wartet auf manuelle UAT (Phase 11 ebenfalls UAT-pending — gemeinsame Beobachtung möglich)
+**Current focus:** Phase 12 — SolaX Charge-Block ohne Battery-Idle (v1.2 Milestone) — geplant, bereit zur Ausführung. Diagnose-Trigger: SOC-Einfrierung bei ~19 % auf SolaX-Live-Anlage in Nacht 14./15. Mai.
 
 ## Current Position
 
-Phase: 11.1 — PeakShare-Steuerung der Slot-A/B-Fenster (INSERTED nach Phase 11)
-Status: Verifiziert (11/11 must-haves PASS, 444/445 Tests grün)
-Plan: alle 2 Plans abgeschlossen
+Phase: 12 — SolaX Charge-Block ohne Battery-Idle (INSERTED nach Phase 11.1)
+Status: Geplant (1 Plan)
+Plan: 12-01-PLAN.md — solax.py Refactor + Storage + Migration v17→v18 + Tests + CHANGELOG (Wave 1)
+
+### Phase 12 Plans
+- 12-01 (Wave 1): solax.py `async_set_charge_limit` nutzt `battery_charge_max_current=0` statt Mode-1-Idle + `SolaXStateStore` (Storage-persistierter Original-Wert) + Migration v17→v18 + 8 Tests + CHANGELOG — 📋 ready
 
 ### Phase 11.1 Plans
 - 11.1-01 (Wave 1): const.py 15→5 + Per-Slot-Cache-Fix + PeakShare-Aufruf in _evaluate_slot_a/b mit window_end-Mutual-Exclusion-Clamp + 31 neue Tests — ✅ done
