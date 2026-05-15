@@ -18,6 +18,11 @@ from .base import InverterBase
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
+try:
+    from homeassistant.helpers.storage import Store
+except ImportError:  # pragma: no cover — test environment
+    Store = None  # type: ignore
+
 _LOGGER = logging.getLogger(__name__)
 
 SOLAX_DOMAIN = "solax_modbus"
@@ -33,11 +38,52 @@ SOLAX_ENTITY_DEFAULTS = {
 }
 
 
+class SolaXStateStore:
+    """Persistiert den Original-Wert von battery_charge_max_current über HA-Reboots.
+
+    Wird beim ersten async_set_charge_limit-Aufruf mit aktuellem State > 0 befüllt.
+    async_stop_forcible liest den Wert beim Beenden von Morgen-Einspeisung wieder aus.
+    """
+
+    STORAGE_KEY = "eeg_energy_optimizer.solax_state"
+    STORAGE_VERSION = 1
+
+    def __init__(self, hass: Any) -> None:
+        self._store = (
+            Store(hass, self.STORAGE_VERSION, self.STORAGE_KEY)
+            if Store is not None
+            else None
+        )
+        self._data: dict = {}
+        self._loaded = False
+
+    async def async_load(self) -> None:
+        if self._loaded:
+            return
+        if self._store is None:
+            self._loaded = True
+            return
+        data = await self._store.async_load()
+        self._data = data if isinstance(data, dict) else {}
+        self._loaded = True
+
+    async def async_save_original_current(self, amps: float) -> None:
+        self._data["battery_charge_max_current_original"] = float(amps)
+        if self._store is not None:
+            await self._store.async_save(self._data)
+
+    @property
+    def original_current(self) -> float | None:
+        val = self._data.get("battery_charge_max_current_original")
+        return float(val) if val is not None else None
+
+
 class SolaXInverter(InverterBase):
     """SolaX Gen4+ inverter control via solax_modbus HA integration."""
 
     def __init__(self, hass: Any, config: dict) -> None:
         super().__init__(hass, config)
+        self._state_store = SolaXStateStore(hass)
 
     async def _set_number(self, config_key: str, value: float) -> None:
         """Set a number entity value. Resolves entity from config or defaults."""
@@ -73,27 +119,87 @@ class SolaXInverter(InverterBase):
         )
 
     async def async_set_charge_limit(self, power_kw: float) -> bool:
-        """Set battery charge limit. power_kw=0 blocks charging (battery idle).
+        """Set battery charge limit. power_kw=0 blocks charging only (NOT discharge).
 
-        Uses "Enabled Battery Control" with active_power:
-        - 0 = battery idle (PV surplus goes to grid for EEG morning feed-in)
-        - positive = charge at given power
+        Uses battery_charge_max_current entity (Ampere) — analog zu Huawei
+        batterien_maximale_ladeleistung und Fronius StorCtl_Mod Bit 0 + InWRte=0.
+        Self-Use-Mode der SolaX läuft im Hintergrund weiter; Discharge bleibt
+        möglich bis selfuse_discharge_min_soc.
+
+        Der Originalwert wird beim ersten Eingriff in einen Store persistiert
+        (siehe SolaXStateStore). Bei Reboot mitten im Block (aktueller State = 0)
+        wird der Cache NICHT überschrieben.
         """
         try:
+            await self._ensure_original_cached()
+
             if power_kw == 0:
-                await self._set_select("remotecontrol_power_control", "Enabled Battery Control")
-                await self._set_number("remotecontrol_active_power", 0)
+                await self._set_number("battery_charge_max_current", 0)
             else:
-                power_w = int(power_kw * 1000)
-                await self._set_select("remotecontrol_power_control", "Enabled Battery Control")
-                await self._set_number("remotecontrol_active_power", power_w)
-            await self._set_number("remotecontrol_duration", 300)
-            await self._set_number("remotecontrol_autorepeat_duration", 60)
-            await self._press_trigger()
+                voltage = self._read_battery_voltage_or_default()
+                max_a = self._read_max_charge_current_attribute() or 30.0
+                amps = max(0.0, min(power_kw * 1000.0 / voltage, max_a))
+                await self._set_number("battery_charge_max_current", amps)
+
+            # Sicherstellen, dass Mode 1 NICHT aktiv ist (Migration für
+            # Bestands-Setups, die noch im alten Mode-1-Idle stehen).
+            await self._set_select("remotecontrol_power_control", "Disabled")
             return True
         except Exception:
             _LOGGER.exception("SolaX: Failed to set charge limit")
             return False
+
+    async def _ensure_original_cached(self) -> None:
+        """Cache aktuellen battery_charge_max_current in Store, falls > 0 und noch nicht gespeichert."""
+        if self._state_store is None:
+            return
+        await self._state_store.async_load()
+        if self._state_store.original_current is not None:
+            return
+        current = self._read_current_charge_max_current()
+        if current is not None and current > 0:
+            await self._state_store.async_save_original_current(current)
+
+    def _read_current_charge_max_current(self) -> float | None:
+        """Liest aktuellen State von battery_charge_max_current Entity. Liefert None wenn nicht verfügbar."""
+        entity_id = self._config.get(
+            "solax_battery_charge_max_current",
+            SOLAX_ENTITY_DEFAULTS["battery_charge_max_current"],
+        )
+        state = self._hass.states.get(entity_id)
+        if state is None:
+            return None
+        try:
+            return float(state.state)
+        except (TypeError, ValueError):
+            return None
+
+    def _read_max_charge_current_attribute(self) -> float | None:
+        """Liest attributes.max des battery_charge_max_current Entities (Hardware-Maximum)."""
+        entity_id = self._config.get(
+            "solax_battery_charge_max_current",
+            SOLAX_ENTITY_DEFAULTS["battery_charge_max_current"],
+        )
+        state = self._hass.states.get(entity_id)
+        if state is None:
+            return None
+        max_val = state.attributes.get("max")
+        try:
+            return float(max_val) if max_val is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _read_battery_voltage_or_default(self) -> float:
+        """Liest aktuelle Batteriespannung. Fallback: 400 V (typischer SolaX-Hochvolt-Bereich)."""
+        state = self._hass.states.get("sensor.solax_inverter_battery_voltage_charge")
+        if state is not None:
+            try:
+                v = float(state.state)
+                if v > 50:
+                    return v
+            except (TypeError, ValueError):
+                pass
+        return 400.0
 
     async def async_set_discharge(
         self, power_kw: float, target_soc: float | None = None
@@ -117,7 +223,9 @@ class SolaXInverter(InverterBase):
     async def async_stop_forcible(self) -> bool:
         """Stop forced charge/discharge, return to automatic mode.
 
-        Sets autorepeat_duration=0 BEFORE trigger to clear autorepeat timer.
+        Beendet Mode 1 (Disabled + active_power=0 + autorepeat=0 + trigger)
+        UND restoriert battery_charge_max_current aus dem Store. Fallback wenn
+        Store leer: attributes.max des Entities (typisch 30 A).
         """
         try:
             await self._set_select("remotecontrol_power_control", "Disabled")
@@ -125,10 +233,23 @@ class SolaXInverter(InverterBase):
             await self._set_number("remotecontrol_duration", 20)
             await self._set_number("remotecontrol_autorepeat_duration", 0)
             await self._press_trigger()
+
+            original = await self._resolve_original_charge_current()
+            if original is not None:
+                await self._set_number("battery_charge_max_current", original)
             return True
         except Exception:
             _LOGGER.exception("SolaX: Failed to stop forcible mode")
             return False
+
+    async def _resolve_original_charge_current(self) -> float | None:
+        """Liefert gecachten Originalwert; Fallback ist attributes.max des Entities."""
+        if self._state_store is not None:
+            await self._state_store.async_load()
+            original = self._state_store.original_current
+            if original is not None:
+                return original
+        return self._read_max_charge_current_attribute()
 
     @property
     def is_available(self) -> bool:
