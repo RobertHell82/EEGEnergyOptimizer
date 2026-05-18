@@ -1,11 +1,9 @@
 """Tests for SolaX Gen4+ inverter implementation.
 
-The driver issues a five-write sequence per command:
-  1. select.select_option   → power control mode
-  2. number.set_value       → active_power (W, negative for discharge, 0 to idle)
-  3. number.set_value       → remotecontrol_duration (s)
-  4. number.set_value       → remotecontrol_autorepeat_duration (s)
-  5. button.press           → trigger that flushes the params to the Modbus regs
+Phase 12: async_set_charge_limit blockiert das Laden nun via
+battery_charge_max_current=0 statt Mode-1-Idle. async_stop_forcible
+restoriert den Originalwert aus einem Store. async_set_discharge bleibt
+unverändert auf Mode 1 mit negativer active_power.
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -17,6 +15,7 @@ from custom_components.eeg_energy_optimizer.inverter.solax import (
     SOLAX_DOMAIN,
     SOLAX_ENTITY_DEFAULTS,
     SolaXInverter,
+    SolaXStateStore,
 )
 
 
@@ -25,6 +24,7 @@ ACTIVE_POWER_ENTITY = SOLAX_ENTITY_DEFAULTS["remotecontrol_active_power"]
 DURATION_ENTITY = SOLAX_ENTITY_DEFAULTS["remotecontrol_duration"]
 AUTOREPEAT_ENTITY = SOLAX_ENTITY_DEFAULTS["remotecontrol_autorepeat_duration"]
 TRIGGER_ENTITY = SOLAX_ENTITY_DEFAULTS["remotecontrol_trigger"]
+MAX_CURRENT_ENTITY = SOLAX_ENTITY_DEFAULTS["battery_charge_max_current"]
 
 
 def _calls_by_entity(mock_hass) -> dict[str, dict]:
@@ -38,6 +38,30 @@ def _calls_by_entity(mock_hass) -> dict[str, dict]:
     return out
 
 
+class _NoopStore:
+    """In-memory Store-Ersatz für Tests, die Storage nicht prüfen."""
+
+    def __init__(self):
+        self.saved: list[dict] = []
+        self._data: dict = {}
+
+    async def async_load(self):
+        return self._data
+
+    async def async_save(self, data):
+        self._data = dict(data)
+        self.saved.append(dict(data))
+
+
+def _install_noop_store(inv: SolaXInverter) -> _NoopStore:
+    noop = _NoopStore()
+    if inv._state_store is not None:
+        inv._state_store._store = noop
+        inv._state_store._data = {}
+        inv._state_store._loaded = False
+    return noop
+
+
 @pytest.fixture
 def solax_config():
     return {}
@@ -45,7 +69,9 @@ def solax_config():
 
 @pytest.fixture
 def inverter(mock_hass, solax_config):
-    return SolaXInverter(mock_hass, solax_config)
+    inv = SolaXInverter(mock_hass, solax_config)
+    _install_noop_store(inv)
+    return inv
 
 
 class TestSolaXInverterBase:
@@ -59,62 +85,146 @@ class TestSolaXInverterBase:
 
 
 class TestAsyncSetChargeLimit:
-    """Charge limit: 5 writes, ending in a button press."""
+    """Charge-Block ist nun battery_charge_max_current-basiert (Phase 12)."""
 
-    async def test_block_charging_writes_zero_active_power(self, inverter, mock_hass):
-        """power_kw=0 → Enabled Battery Control + active_power=0."""
+    async def test_block_charging_sets_max_current_to_zero(self, inverter, mock_hass):
+        """power_kw=0 → battery_charge_max_current=0 + remotecontrol_power_control=Disabled.
+
+        NEU in Phase 12: KEIN Mode-1-Idle mehr — nur Charge blockieren, Self-Use
+        läuft weiter und entlädt bei Bedarf.
+        """
+        mock_state = MagicMock()
+        mock_state.state = "30.0"
+        mock_state.attributes = {"max": 30}
+        mock_hass.states.get = MagicMock(return_value=mock_state)
+
         result = await inverter.async_set_charge_limit(0)
         assert result is True
 
-        calls = mock_hass.services.async_call.call_args_list
-        assert len(calls) == 5
+        payloads = _calls_by_entity(mock_hass)
+        assert payloads[MAX_CURRENT_ENTITY]["value"] == 0
 
-        # Step 1: select power control mode
-        assert calls[0].args == (
-            "select",
-            "select_option",
-            {"entity_id": SELECT_ENTITY, "option": "Enabled Battery Control"},
-        )
-        # Step 2: active_power = 0 (battery idle)
-        assert calls[1].args == (
-            "number",
-            "set_value",
-            {"entity_id": ACTIVE_POWER_ENTITY, "value": 0},
-        )
-        # Step 3: remotecontrol_duration
-        assert calls[2].args == (
-            "number",
-            "set_value",
-            {"entity_id": DURATION_ENTITY, "value": 300},
-        )
-        # Step 4: autorepeat_duration
-        assert calls[3].args == (
-            "number",
-            "set_value",
-            {"entity_id": AUTOREPEAT_ENTITY, "value": 60},
-        )
-        # Step 5: trigger
-        assert calls[4].args == (
-            "button",
-            "press",
-            {"entity_id": TRIGGER_ENTITY},
-        )
+        select_calls = [
+            c for c in mock_hass.services.async_call.call_args_list
+            if c.args[0] == "select" and c.args[1] == "select_option"
+        ]
+        assert any(
+            c.args[2].get("option") == "Disabled" for c in select_calls
+        ), "remotecontrol_power_control must be set to Disabled"
+        assert not any(
+            c.args[2].get("option") == "Enabled Battery Control" for c in select_calls
+        ), "Mode 1 must NOT be activated for charge block"
 
-    async def test_partial_charge_kw_to_w(self, inverter, mock_hass):
-        """power_kw=3.0 → active_power=3000 (positive = charge)."""
+    async def test_partial_charge_writes_amps_to_max_current(self, inverter, mock_hass):
+        """power_kw=3.0 → battery_charge_max_current in Ampere (kW über Spannung → A).
+
+        Bei 400V Default-Fallback: 3000W / 400V = 7.5 A.
+        """
+        voltage_state = MagicMock()
+        voltage_state.state = "400.0"
+        voltage_state.attributes = {}
+
+        max_current_state = MagicMock()
+        max_current_state.state = "30.0"
+        max_current_state.attributes = {"max": 30}
+
+        def states_get(entity_id):
+            if "voltage" in entity_id:
+                return voltage_state
+            return max_current_state
+
+        mock_hass.states.get = MagicMock(side_effect=states_get)
+
         result = await inverter.async_set_charge_limit(3.0)
         assert result is True
+
         payloads = _calls_by_entity(mock_hass)
-        assert payloads[ACTIVE_POWER_ENTITY]["value"] == 3000
+        written = payloads[MAX_CURRENT_ENTITY]["value"]
+        assert written == pytest.approx(7.5, rel=0.01)
+
+    async def test_partial_charge_clamped_to_hardware_max(self, inverter, mock_hass):
+        """Falls kW/V die Hardware-Max-Stromstärke überschreitet, wird auf max geclampt."""
+        voltage_state = MagicMock()
+        voltage_state.state = "400.0"
+        voltage_state.attributes = {}
+
+        max_current_state = MagicMock()
+        max_current_state.state = "30.0"
+        max_current_state.attributes = {"max": 30}
+
+        def states_get(entity_id):
+            if "voltage" in entity_id:
+                return voltage_state
+            return max_current_state
+
+        mock_hass.states.get = MagicMock(side_effect=states_get)
+
+        # 20 kW / 400 V = 50 A → muss auf 30 A geclampt werden
+        await inverter.async_set_charge_limit(20.0)
+        payloads = _calls_by_entity(mock_hass)
+        assert payloads[MAX_CURRENT_ENTITY]["value"] == pytest.approx(30.0, rel=0.01)
 
     async def test_returns_false_on_exception(self, inverter, mock_hass):
         mock_hass.services.async_call = AsyncMock(side_effect=Exception("boom"))
         result = await inverter.async_set_charge_limit(0)
         assert result is False
 
+    async def test_caches_original_on_first_call(self, inverter, mock_hass):
+        """Erster Eingriff mit State > 0 cached den Wert im Store."""
+        save_calls = []
+
+        class FakeStore:
+            async def async_load(self):
+                return {}
+
+            async def async_save(self, data):
+                save_calls.append(dict(data))
+
+        inverter._state_store._store = FakeStore()
+        inverter._state_store._loaded = False
+        inverter._state_store._data = {}
+
+        mock_state = MagicMock()
+        mock_state.state = "25.0"
+        mock_state.attributes = {"max": 30}
+        mock_hass.states.get = MagicMock(return_value=mock_state)
+
+        await inverter.async_set_charge_limit(0)
+        assert len(save_calls) == 1
+        assert save_calls[0]["battery_charge_max_current_original"] == 25.0
+
+    async def test_skips_cache_when_state_is_zero(self, inverter, mock_hass):
+        """Reboot-Schutz: aktueller State 0 darf bestehenden Cache nicht überschreiben."""
+        save_calls = []
+
+        class FakeStore:
+            async def async_load(self):
+                return {"battery_charge_max_current_original": 30.0}
+
+            async def async_save(self, data):
+                save_calls.append(dict(data))
+
+        inverter._state_store._store = FakeStore()
+        inverter._state_store._loaded = False
+        inverter._state_store._data = {}
+
+        mock_state = MagicMock()
+        mock_state.state = "0.0"
+        mock_state.attributes = {"max": 30}
+        mock_hass.states.get = MagicMock(return_value=mock_state)
+
+        await inverter._state_store.async_load()
+        assert inverter._state_store.original_current == 30.0
+
+        await inverter.async_set_charge_limit(0)
+        # Kein save_call mit 0 als Original-Wert
+        assert all(
+            c.get("battery_charge_max_current_original") != 0 for c in save_calls
+        )
+
 
 class TestAsyncSetDischarge:
-    """Discharge: 5 writes with negative active_power (no min-SOC handling)."""
+    """Discharge bleibt auf Mode 1 mit negativer active_power (regression guard)."""
 
     async def test_discharge_uses_negative_active_power(self, inverter, mock_hass):
         """power_kw=3.0 → active_power=-3000."""
@@ -154,7 +264,6 @@ class TestAsyncSetDischarge:
         """target_soc is part of the InverterBase contract but unused on SolaX."""
         result = await inverter.async_set_discharge(2.0, target_soc=20)
         assert result is True
-        # Same 5 calls as without target_soc — no min-SOC entity is written
         assert len(mock_hass.services.async_call.call_args_list) == 5
 
     async def test_positive_input_still_emits_negative_power(self, inverter, mock_hass):
@@ -170,15 +279,17 @@ class TestAsyncSetDischarge:
 
 
 class TestAsyncStopForcible:
-    """Stop: Disabled mode + power=0 + duration=20 + autorepeat=0 + trigger."""
+    """Stop beendet Mode 1 und restoriert battery_charge_max_current (Phase 12)."""
 
-    async def test_stop_forcible_calls(self, inverter, mock_hass):
+    async def test_stop_forcible_disables_mode_one(self, inverter, mock_hass):
+        """Disabled-Sequenz + duration=20 + autorepeat=0 + trigger."""
+        # mock_hass.states.get liefert per Default MagicMock; attributes.max
+        # parst dann nicht zu float, sodass kein Restore-Aufruf erfolgt.
         result = await inverter.async_stop_forcible()
         assert result is True
 
         calls = mock_hass.services.async_call.call_args_list
-        assert len(calls) == 5
-
+        # 5 Mode-1-Calls + ggf. 1 Restore-Call (hier ohne State → 5)
         assert calls[0].args == (
             "select",
             "select_option",
@@ -189,7 +300,6 @@ class TestAsyncStopForcible:
             "set_value",
             {"entity_id": ACTIVE_POWER_ENTITY, "value": 0},
         )
-        # Stop uses a short duration (20s) and clears the autorepeat timer
         assert calls[2].args == (
             "number",
             "set_value",
@@ -210,6 +320,48 @@ class TestAsyncStopForcible:
         mock_hass.services.async_call = AsyncMock(side_effect=Exception("boom"))
         result = await inverter.async_stop_forcible()
         assert result is False
+
+    async def test_stop_forcible_restores_original_from_store(self, inverter, mock_hass):
+        """stop_forcible restoriert gecachten battery_charge_max_current."""
+
+        class FakeStore:
+            async def async_load(self):
+                return {"battery_charge_max_current_original": 25.0}
+
+            async def async_save(self, data):
+                pass
+
+        inverter._state_store._store = FakeStore()
+        inverter._state_store._loaded = False
+        inverter._state_store._data = {}
+
+        await inverter.async_stop_forcible()
+
+        payloads = _calls_by_entity(mock_hass)
+        assert payloads[MAX_CURRENT_ENTITY]["value"] == 25.0
+
+    async def test_stop_forcible_uses_max_fallback_when_no_cache(self, inverter, mock_hass):
+        """Wenn Store leer, nutzt stop_forcible attributes.max."""
+
+        class FakeStore:
+            async def async_load(self):
+                return {}
+
+            async def async_save(self, data):
+                pass
+
+        inverter._state_store._store = FakeStore()
+        inverter._state_store._loaded = False
+        inverter._state_store._data = {}
+
+        mock_state = MagicMock()
+        mock_state.state = "0.0"
+        mock_state.attributes = {"max": 30}
+        mock_hass.states.get = MagicMock(return_value=mock_state)
+
+        await inverter.async_stop_forcible()
+        payloads = _calls_by_entity(mock_hass)
+        assert payloads[MAX_CURRENT_ENTITY]["value"] == 30.0
 
 
 class TestIsAvailable:
@@ -238,8 +390,8 @@ class TestIsAvailable:
 class TestEntityResolution:
     """Entity IDs may be overridden via solax_<key> config keys; otherwise defaults apply."""
 
-    async def test_uses_config_override(self, mock_hass):
-        """Each solax_<key> override is respected for the matching service call."""
+    async def test_uses_config_override_on_discharge(self, mock_hass):
+        """Discharge respektiert solax_<key>-Overrides (5-Write-Pattern)."""
         config = {
             "solax_remotecontrol_power_control": "select.custom_power_control",
             "solax_remotecontrol_active_power": "number.custom_active_power",
@@ -248,7 +400,8 @@ class TestEntityResolution:
             "solax_remotecontrol_trigger": "button.custom_trigger",
         }
         inv = SolaXInverter(mock_hass, config)
-        await inv.async_set_charge_limit(0)
+        _install_noop_store(inv)
+        await inv.async_set_discharge(1.0)
 
         calls = mock_hass.services.async_call.call_args_list
         assert calls[0].args[2]["entity_id"] == "select.custom_power_control"
@@ -257,10 +410,26 @@ class TestEntityResolution:
         assert calls[3].args[2]["entity_id"] == "number.custom_autorepeat"
         assert calls[4].args[2]["entity_id"] == "button.custom_trigger"
 
-    async def test_uses_defaults_when_no_config(self, mock_hass):
+    async def test_charge_block_respects_battery_charge_max_current_override(self, mock_hass):
+        """Phase 12: solax_battery_charge_max_current-Override wird respektiert."""
+        config = {
+            "solax_battery_charge_max_current": "number.custom_max_current",
+            "solax_remotecontrol_power_control": "select.custom_power_control",
+        }
+        inv = SolaXInverter(mock_hass, config)
+        _install_noop_store(inv)
+        await inv.async_set_charge_limit(0)
+
+        payloads = _calls_by_entity(mock_hass)
+        assert "number.custom_max_current" in payloads
+        assert payloads["number.custom_max_current"]["value"] == 0
+        assert payloads["select.custom_power_control"]["option"] == "Disabled"
+
+    async def test_uses_defaults_when_no_config_on_discharge(self, mock_hass):
         """Without overrides, all entity IDs come from SOLAX_ENTITY_DEFAULTS."""
         inv = SolaXInverter(mock_hass, {})
-        await inv.async_set_charge_limit(0)
+        _install_noop_store(inv)
+        await inv.async_set_discharge(1.0)
 
         calls = mock_hass.services.async_call.call_args_list
         assert calls[0].args[2]["entity_id"] == SELECT_ENTITY
@@ -270,23 +439,57 @@ class TestEntityResolution:
         assert calls[4].args[2]["entity_id"] == TRIGGER_ENTITY
 
 
-class TestKWToWConversion:
-    """kW→W conversion for the active_power register."""
+class TestKWToAmpsConversion:
+    """kW→A conversion für battery_charge_max_current (Phase 12)."""
 
     async def test_fractional_kw_charge(self, inverter, mock_hass):
-        """2.5 kW charge → +2500 W."""
+        """2.5 kW Charge @ 400V Default → 6.25 A auf battery_charge_max_current."""
+        # states.get → None → keine kaputten MagicMock-Floats; max_a-Fallback = 30 A
+        mock_hass.states.get = MagicMock(return_value=None)
         await inverter.async_set_charge_limit(2.5)
         payloads = _calls_by_entity(mock_hass)
-        assert payloads[ACTIVE_POWER_ENTITY]["value"] == 2500
+        assert payloads[MAX_CURRENT_ENTITY]["value"] == pytest.approx(6.25, rel=0.01)
+
+    async def test_small_charge_value(self, inverter, mock_hass):
+        """0.1 kW @ 400V Default → 0.25 A."""
+        mock_hass.states.get = MagicMock(return_value=None)
+        await inverter.async_set_charge_limit(0.1)
+        payloads = _calls_by_entity(mock_hass)
+        assert payloads[MAX_CURRENT_ENTITY]["value"] == pytest.approx(0.25, rel=0.01)
+
+
+class TestKWToWConversionDischarge:
+    """Discharge bleibt kW→W (Mode-1-Pfad)."""
 
     async def test_fractional_kw_discharge(self, inverter, mock_hass):
-        """1.5 kW discharge → −1500 W."""
+        """1.5 kW Discharge → −1500 W."""
         await inverter.async_set_discharge(1.5)
         payloads = _calls_by_entity(mock_hass)
         assert payloads[ACTIVE_POWER_ENTITY]["value"] == -1500
 
-    async def test_small_charge_value(self, inverter, mock_hass):
-        """0.1 kW → 100 W."""
-        await inverter.async_set_charge_limit(0.1)
-        payloads = _calls_by_entity(mock_hass)
-        assert payloads[ACTIVE_POWER_ENTITY]["value"] == 100
+
+class TestSolaXStateStore:
+    """SolaXStateStore-Klasse persistiert den Original-Wert."""
+
+    async def test_load_empty_store_yields_none(self, mock_hass):
+        store = SolaXStateStore(mock_hass)
+        store._store = _NoopStore()
+        await store.async_load()
+        assert store.original_current is None
+
+    async def test_save_persists_value(self, mock_hass):
+        store = SolaXStateStore(mock_hass)
+        noop = _NoopStore()
+        store._store = noop
+        await store.async_load()
+        await store.async_save_original_current(27.5)
+        assert noop.saved[-1]["battery_charge_max_current_original"] == 27.5
+        assert store.original_current == 27.5
+
+    async def test_load_returns_existing_value(self, mock_hass):
+        store = SolaXStateStore(mock_hass)
+        noop = _NoopStore()
+        noop._data = {"battery_charge_max_current_original": 30.0}
+        store._store = noop
+        await store.async_load()
+        assert store.original_current == 30.0

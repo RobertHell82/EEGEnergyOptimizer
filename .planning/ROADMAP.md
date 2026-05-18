@@ -33,7 +33,9 @@ Full details: `.planning/milestones/v1.1-telemetry-ROADMAP.md`
 
 ### v1.2 Optimizer-Erweiterungen
 
-- [ ] Phase 11: Dual-Window-Entladung — Zwei unabhängig aktivierbare Entladefenster (Slot A abends, Slot B morgens), Pro-Slot-Hysterese, adaptives B-Ende vor Morgen-Einspeisung
+- [x] Phase 11: Dual-Window-Entladung — Zwei unabhängig aktivierbare Entladefenster (Slot A abends, Slot B morgens), Pro-Slot-Hysterese, adaptives B-Ende vor Morgen-Einspeisung
+- [x] Phase 11.1: PeakShare-Steuerung der Slot-A/B-Fenster (INSERTED) — verified 2026-05-04
+- [ ] Phase 12: SolaX Charge-Block ohne Battery-Idle — `battery_charge_max_current=0` statt Mode-1-Idle bei Morgen-Einspeisung
 
 Full details: `.planning/milestones/v1.2-ROADMAP.md`
 
@@ -51,4 +53,6 @@ Full details: `.planning/milestones/v1.2-ROADMAP.md`
 | 8. HA Reporter-Modul | v1.1 | 4/4 | Complete | 2026-04-29 |
 | 9. Dashboard | v1.1 | 0/0 | Planned | — |
 | 10. Sicherheit & Pflege | v1.1 | 0/0 | Planned | — |
-| 11. Dual-Window-Entladung | v1.2 | 0/0 | Planned | — |
+| 11. Dual-Window-Entladung | v1.2 | 2/2 | Complete | 2026-05-04 |
+| 11.1. PeakShare-Steuerung Slot-A/B (INSERTED) | v1.2 | 2/2 | Complete (UAT pending) | 2026-05-04 |
+| 12. SolaX Charge-Block ohne Battery-Idle | v1.2 | 0/1 | Planned | — |

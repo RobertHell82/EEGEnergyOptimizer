@@ -7,6 +7,48 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## Unreleased
+
+## [1.2.6] - 2026-05-18
+
+> Release konsolidiert die DEV-Iteration 1.2.6-dev-01 (SolaX Charge-Block ohne Battery-Idle + PeakShare Plan-Verriegelung).
+
+### Behoben
+
+- **PeakShare-Mini-Blöcke bei Cache-Refresh.** Ein laufender PeakShare-Entladeplan wurde verworfen, sobald `async_fetch` nach dem 6-h-Cache-Ablauf neue API-Daten zog. Der Recompute lief mit dem inzwischen reduzierten Restspeicher und ggf. veränderten Stündlich-Forecast-Werten — das beste Fenster verschob sich häufig in die Zukunft, und der gerade aktive Discharge brach nach wenigen Minuten in `Normalbetrieb` ab (Live-Bug 17./18.05.2026: Slot A 21:11–21:16, dann 00:00–00:04). Der Plan ist nun verriegelt, solange `now` innerhalb `[plan_start, plan_end)` liegt — sowohl im `async_fetch`-Invalidate-Pfad als auch bei Mitternachts-Datumswechseln in `get_discharge_plan`.
+
+### Geändert
+
+- **SolaX:** Morgen-Einspeisung blockiert jetzt nur noch das Laden statt die Batterie via Mode 1 komplett auf Idle zu setzen. Hausverbrauch wird wieder aus der Batterie gedeckt (bis `selfuse_discharge_min_soc`, typisch 10 %), nicht mehr aus dem Netz. Bringt das SolaX-Verhalten auf gleiches Niveau wie Huawei und Fronius.
+- **SolaX:** `async_stop_forcible` setzt das Lade-Limit jetzt automatisch auf den vor dem Eingriff gespeicherten Originalwert zurück. Persistierung via `homeassistant.helpers.storage.Store` — überlebt HA-Reboots.
+
+### Verhaltensänderung beim Update
+
+Auf SolaX-Anlagen: Während Morgen-Einspeisung wird die Batterie nicht mehr eingefroren. Wenn vorher der SOC bei ~19 % stehengeblieben ist, weil Mode 1 mit `active_power=0` die Batterie komplett stillgelegt hat, entlädt sie jetzt weiter bis zum konfigurierten `selfuse_discharge_min_soc` des Wechselrichters (Default 10 %). Der Original-Wert von `battery_charge_max_current` wird beim ersten Optimizer-Cycle nach dem Update automatisch erkannt und gespeichert.
+
+### Migration
+
+- Config-Schema v17 → v18: Neuer interner Entity-Override-Key `solax_battery_charge_max_current` (Default: `number.solax_inverter_battery_charge_max_current`). Automatisch via `async_migrate_entry` gesetzt — keine User-Aktion nötig.
+
+## [1.2.6-dev-01] - 2026-05-18
+
+### Behoben
+
+- **PeakShare-Mini-Blöcke bei Cache-Refresh.** Ein laufender PeakShare-Entladeplan wurde verworfen, sobald `async_fetch` nach dem 6-h-Cache-Ablauf neue API-Daten zog. Der Recompute lief mit dem inzwischen reduzierten Restspeicher und ggf. veränderten Stündlich-Forecast-Werten — das beste Fenster verschob sich häufig in die Zukunft, und der gerade aktive Discharge brach nach wenigen Minuten in `Normalbetrieb` ab (Live-Bug 17./18.05.2026: Slot A 21:11–21:16, dann 00:00–00:04). Der Plan ist nun verriegelt, solange `now` innerhalb `[plan_start, plan_end)` liegt — sowohl im `async_fetch`-Invalidate-Pfad als auch bei Mitternachts-Datumswechseln in `get_discharge_plan`. (Phase 12)
+
+### Geändert
+
+- **SolaX:** Morgen-Einspeisung blockiert jetzt nur noch das Laden statt die Batterie via Mode 1 komplett auf Idle zu setzen. Hausverbrauch wird wieder aus der Batterie gedeckt (bis `selfuse_discharge_min_soc`, typisch 10 %), nicht mehr aus dem Netz. Bringt das SolaX-Verhalten auf gleiches Niveau wie Huawei und Fronius. (Phase 12)
+- **SolaX:** `async_stop_forcible` setzt das Lade-Limit jetzt automatisch auf den vor dem Eingriff gespeicherten Originalwert zurück. Persistierung via `homeassistant.helpers.storage.Store` — überlebt HA-Reboots. (Phase 12)
+
+### Verhaltensänderung beim Update
+
+Auf SolaX-Anlagen: Während Morgen-Einspeisung wird die Batterie nicht mehr eingefroren. Wenn vorher der SOC bei ~19 % stehengeblieben ist, weil Mode 1 mit `active_power=0` die Batterie komplett stillgelegt hat, entlädt sie jetzt weiter bis zum konfigurierten `selfuse_discharge_min_soc` des Wechselrichters (Default 10 %). Der Original-Wert von `battery_charge_max_current` wird beim ersten Optimizer-Cycle nach dem Update automatisch erkannt und gespeichert.
+
+### Migration
+
+- Config-Schema v17 → v18: Neuer interner Entity-Override-Key `solax_battery_charge_max_current` (Default: `number.solax_inverter_battery_charge_max_current`). Automatisch via `async_migrate_entry` gesetzt — keine User-Aktion nötig.
+
 ## [1.2.5] - 2026-05-11
 
 > Release konsolidiert die DEV-Iteration 1.2.5-dev-01 (Slot-B-Vormittags-Fix).
