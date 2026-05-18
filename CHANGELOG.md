@@ -9,6 +9,10 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 ## Unreleased
 
+### Behoben
+
+- **PeakShare-Mini-Blöcke bei Cache-Refresh.** Ein laufender PeakShare-Entladeplan wurde verworfen, sobald `async_fetch` nach dem 6-h-Cache-Ablauf neue API-Daten zog. Der Recompute lief mit dem inzwischen reduzierten Restspeicher und ggf. veränderten Stündlich-Forecast-Werten — das beste Fenster verschob sich häufig in die Zukunft, und der gerade aktive Discharge brach nach wenigen Minuten in `Normalbetrieb` ab (Live-Bug 17./18.05.2026: Slot A 21:11–21:16, dann 00:00–00:04). Der Plan ist nun verriegelt, solange `now` innerhalb `[plan_start, plan_end)` liegt — sowohl im `async_fetch`-Invalidate-Pfad als auch bei Mitternachts-Datumswechseln in `get_discharge_plan`. (Phase 12)
+
 ### Geändert
 
 - **SolaX:** Morgen-Einspeisung blockiert jetzt nur noch das Laden statt die Batterie via Mode 1 komplett auf Idle zu setzen. Hausverbrauch wird wieder aus der Batterie gedeckt (bis `selfuse_discharge_min_soc`, typisch 10 %), nicht mehr aus dem Netz. Bringt das SolaX-Verhalten auf gleiches Niveau wie Huawei und Fronius. (Phase 12)

@@ -887,6 +887,232 @@ class TestPeakShareCacheSchema:
 
 
 # ---------------------------------------------------------------------------
+# Phase 12 — Plan-Verriegelung bei laufender Discharge
+# ---------------------------------------------------------------------------
+
+class TestPeakSharePlanLock:
+    """Plan-Lock: ein laufender PeakShare-Plan (now in [start, end)) darf
+    nicht durch async_fetch-Invalidate oder einen Mitternachts-Datumswechsel
+    in get_discharge_plan ueberschrieben werden.
+
+    Hintergrund: Live-Bug 17./18.05.2026, Slot A wurde zweimal jeweils nur
+    5 Min aktiv (21:11–21:16, 00:00–00:04). Ursache: 6h-Cache-Refresh in
+    async_fetch loeschte den aktiven Plan, und beim Recompute rutschte das
+    Fenster wegen veraenderter SOC- und Forecast-Inputs in die Zukunft.
+    """
+
+    def test_get_discharge_plan_keeps_active_plan_across_date_rollover(self):
+        """now liegt im Plan-Window, aber today_str ist neuer Tag (Past-Midnight).
+
+        Der Plan wurde gestern berechnet (computed_dates["a"] = "2026-05-17"),
+        aber now = 18.05 00:00:19 fällt noch in [23:04, 00:04). Der Plan muss
+        zurueckgegeben werden — kein Recompute.
+        """
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+        )
+        ps = PeakShareProvider(MagicMock(), entry_id="test")
+        plan = (
+            datetime(2026, 5, 17, 23, 4, tzinfo=timezone.utc),
+            datetime(2026, 5, 18, 0, 4, tzinfo=timezone.utc),
+        )
+        ps._discharge_plan = {"a": plan, "b": None}
+        ps._discharge_plan_date = "2026-05-17"
+        ps._discharge_plan_computed_dates = {"a": "2026-05-17", "b": None}
+        # now ist past midnight, today_str waere "2026-05-18" — Cache-Marker
+        # wuerde NICHT treffen. Der Plan-Lock muss greifen.
+        now = datetime(2026, 5, 18, 0, 0, 19, tzinfo=timezone.utc)
+        result = ps.get_discharge_plan(
+            community="BEG",
+            available_kwh=3.0,
+            discharge_power_kw=3.0,
+            sunset_time=None,
+            now=now,
+            slot="a",
+        )
+        assert result == plan
+        # Compute-Marker wird auf today aufgefrischt
+        assert ps._discharge_plan_computed_dates["a"] == "2026-05-18"
+
+    def test_get_discharge_plan_recomputes_when_plan_expired(self):
+        """now liegt NACH plan_end → Lock greift nicht, Recompute laeuft."""
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+        )
+        ps = PeakShareProvider(MagicMock(), entry_id="test")
+        # Abgelaufener Plan im Cache
+        ps._discharge_plan = {
+            "a": (
+                datetime(2026, 5, 17, 21, 11, tzinfo=timezone.utc),
+                datetime(2026, 5, 17, 22, 11, tzinfo=timezone.utc),
+            ),
+            "b": None,
+        }
+        ps._discharge_plan_date = "2026-05-17"
+        # Marker bewusst zurueckgesetzt, simuliert async_fetch-Invalidate
+        ps._discharge_plan_computed_dates = {"a": None, "b": None}
+        # Kein Cache → kein Recompute-Result moeglich; wir pruefen nur,
+        # dass der Lock NICHT greift (sonst waere result == altem Plan).
+        now = datetime(2026, 5, 17, 23, 0, tzinfo=timezone.utc)
+        result = ps.get_discharge_plan(
+            community="BEG",
+            available_kwh=3.0,
+            discharge_power_kw=3.0,
+            sunset_time=None,
+            now=now,
+            slot="a",
+        )
+        # Ohne API-Cache und mit abgelaufenem Plan → None
+        assert result is None
+
+    def test_get_discharge_plan_recomputes_when_plan_in_future(self):
+        """now liegt VOR plan_start → Lock greift nicht."""
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+        )
+        ps = PeakShareProvider(MagicMock(), entry_id="test")
+        ps._discharge_plan = {
+            "a": (
+                datetime(2026, 5, 17, 23, 0, tzinfo=timezone.utc),
+                datetime(2026, 5, 18, 0, 0, tzinfo=timezone.utc),
+            ),
+            "b": None,
+        }
+        ps._discharge_plan_date = "2026-05-17"
+        ps._discharge_plan_computed_dates = {"a": None, "b": None}
+        # now liegt vor plan_start, Lock darf nicht greifen
+        now = datetime(2026, 5, 17, 21, 0, tzinfo=timezone.utc)
+        result = ps.get_discharge_plan(
+            community="BEG",
+            available_kwh=3.0,
+            discharge_power_kw=3.0,
+            sunset_time=None,
+            now=now,
+            slot="a",
+        )
+        assert result is None  # ohne API-Cache wird nichts neu berechnet
+
+    def test_async_fetch_preserves_active_plan_on_refresh(self):
+        """async_fetch-Invalidate-Pfad bewahrt laufenden Plan.
+
+        Simulation des in-process Invalidate-Pattern aus async_fetch:
+        Plan A laeuft gerade, Plan B ist abgelaufen → A bleibt, B wird
+        weggeworfen.
+        """
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+        )
+        ps = PeakShareProvider(MagicMock(), entry_id="test")
+        active_plan = (
+            datetime(2026, 5, 17, 21, 0, tzinfo=timezone.utc),
+            datetime(2026, 5, 17, 22, 0, tzinfo=timezone.utc),
+        )
+        expired_plan = (
+            datetime(2026, 5, 17, 10, 0, tzinfo=timezone.utc),
+            datetime(2026, 5, 17, 11, 0, tzinfo=timezone.utc),
+        )
+        ps._discharge_plan = {"a": active_plan, "b": expired_plan}
+        ps._discharge_plan_date = "2026-05-17"
+        ps._discharge_plan_computed_dates = {
+            "a": "2026-05-17",
+            "b": "2026-05-17",
+        }
+
+        # Manueller Invalidate-Pfad wie in async_fetch (Slot A bewahrt).
+        now = datetime(2026, 5, 17, 21, 15, tzinfo=timezone.utc)
+        preserved_plan = {"a": None, "b": None}
+        preserved_computed: dict[str, str | None] = {"a": None, "b": None}
+        for slot_key in ("a", "b"):
+            existing = ps._discharge_plan.get(slot_key)
+            if existing is None:
+                continue
+            plan_start, plan_end = existing
+            if plan_start <= now < plan_end:
+                preserved_plan[slot_key] = existing
+                preserved_computed[slot_key] = (
+                    ps._discharge_plan_computed_dates.get(slot_key)
+                )
+        ps._discharge_plan = preserved_plan
+        ps._discharge_plan_computed_dates = preserved_computed
+
+        assert ps._discharge_plan["a"] == active_plan
+        assert ps._discharge_plan["b"] is None
+        assert ps._discharge_plan_computed_dates["a"] == "2026-05-17"
+        assert ps._discharge_plan_computed_dates["b"] is None
+
+    @pytest.mark.asyncio
+    async def test_async_fetch_keeps_running_plan_end_to_end(self):
+        """End-to-end: async_fetch mit erfolgreicher API-Antwort bewahrt
+        laufenden Slot-A-Plan.
+        """
+        from unittest.mock import patch
+        from custom_components.eeg_energy_optimizer.peakshare import (
+            PeakShareProvider,
+        )
+
+        ps = PeakShareProvider(MagicMock(), entry_id="test")
+        # Storage abschalten — kein async_save-Aufruf noetig
+        ps._store = None
+        # Cache-Time bewusst NICHT setzen → Fetch wird versucht
+        active_plan = (
+            datetime(2026, 5, 17, 21, 0, tzinfo=timezone.utc),
+            datetime(2026, 5, 17, 22, 0, tzinfo=timezone.utc),
+        )
+        ps._discharge_plan = {"a": active_plan, "b": None}
+        ps._discharge_plan_date = "2026-05-17"
+        ps._discharge_plan_computed_dates = {"a": "2026-05-17", "b": None}
+
+        # _utcnow im peakshare-Modul mocken, sodass now im Plan-Window liegt
+        now_in_window = datetime(2026, 5, 17, 21, 15, tzinfo=timezone.utc)
+
+        # Mock session.get -> Response mit gueltigen API-Daten
+        api_payload = {
+            "communities": [
+                {
+                    "name": "BEG",
+                    "hours": [
+                        {
+                            "timestamp": "2026-05-17T22:00:00+00:00",
+                            "deficitKwh": 5.0,
+                        }
+                    ],
+                }
+            ]
+        }
+
+        class _Resp:
+            status = 200
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def json(self):
+                return api_payload
+
+        class _Session:
+            def get(self, *args, **kwargs):
+                return _Resp()
+
+        with patch(
+            "custom_components.eeg_energy_optimizer.peakshare._utcnow",
+            return_value=now_in_window,
+        ), patch(
+            "custom_components.eeg_energy_optimizer.peakshare.async_get_clientsession",
+            return_value=_Session(),
+        ):
+            await ps.async_fetch()
+
+        # Active Plan A bleibt erhalten
+        assert ps._discharge_plan["a"] == active_plan
+        assert ps._discharge_plan_computed_dates["a"] == "2026-05-17"
+        # Slot B wird neu (None nach Invalidate, kein laufender Plan)
+        assert ps._discharge_plan["b"] is None
+
+
+# ---------------------------------------------------------------------------
 # Plan 11.1-01 — PeakShare-Aufruf in _evaluate_slot_a/_evaluate_slot_b
 # ---------------------------------------------------------------------------
 

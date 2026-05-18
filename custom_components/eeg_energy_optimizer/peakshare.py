@@ -272,15 +272,51 @@ class PeakShareProvider:
                             # Invalidate discharge plan so it recalculates
                             # with fresh data on next cycle.
                             # Phase 11: dict-Schema (beide Slots werden neu berechnet).
-                            self._discharge_plan = {"a": None, "b": None}
-                            self._discharge_plan_date = None
-                            # Phase 11.1: Per-Slot-Compute-Tracking konsistent
-                            # zurücksetzen — sonst trifft der dict-Cache-Hit
-                            # auf einen veralteten "berechnet"-Marker.
-                            self._discharge_plan_computed_dates = {
+                            # Phase 12: laufende Plans (now in [plan_start, plan_end))
+                            # werden bewahrt — sonst entstehen Mini-Blöcke, wenn der
+                            # 6h-Cache-Refresh mitten in einer aktiven Discharge greift
+                            # und das neu berechnete Fenster in die Zukunft rutscht
+                            # (Live-Bug 17.05.2026: Slot A 21:11–21:16 / 00:00–00:04).
+                            local_now = _as_local(now)
+                            preserved_plan: dict[
+                                str, tuple[datetime, datetime] | None
+                            ] = {"a": None, "b": None}
+                            preserved_computed: dict[str, str | None] = {
                                 "a": None,
                                 "b": None,
                             }
+                            for slot_key in ("a", "b"):
+                                existing = self._discharge_plan.get(slot_key)
+                                if existing is None:
+                                    continue
+                                plan_start, plan_end = existing
+                                if plan_start <= local_now < plan_end:
+                                    preserved_plan[slot_key] = existing
+                                    preserved_computed[slot_key] = (
+                                        self._discharge_plan_computed_dates.get(
+                                            slot_key
+                                        )
+                                    )
+                                    _LOGGER.info(
+                                        "PeakShare: aktiver Plan (Slot %s, "
+                                        "%s–%s) wird trotz Cache-Refresh "
+                                        "beibehalten",
+                                        slot_key.upper(),
+                                        plan_start.strftime("%H:%M"),
+                                        plan_end.strftime("%H:%M"),
+                                    )
+                            self._discharge_plan = preserved_plan
+                            self._discharge_plan_date = (
+                                self._discharge_plan_date
+                                if any(
+                                    v is not None for v in preserved_plan.values()
+                                )
+                                else None
+                            )
+                            # Phase 11.1: Per-Slot-Compute-Tracking konsistent
+                            # zurücksetzen — sonst trifft der dict-Cache-Hit
+                            # auf einen veralteten "berechnet"-Marker.
+                            self._discharge_plan_computed_dates = preserved_computed
                             if self._store is not None:
                                 await self._store.async_save(
                                     {
@@ -375,6 +411,22 @@ class PeakShareProvider:
                 Wenn None, wird ``compute_hard_cutoff`` genutzt (Legacy).
         """
         today_str = now.strftime("%Y-%m-%d")
+
+        # Phase 12: Aktiver Plan ist verriegelt. Wenn ein vorhandener Plan
+        # gerade läuft (now ∈ [plan_start, plan_end)), nicht neu berechnen —
+        # auch dann nicht, wenn der Per-Slot-Cache-Marker veraltet ist
+        # (z.B. Mitternachts-Datumswechsel in der Past-Midnight-Phase von
+        # Slot A). Verhindert Mini-Blöcke wie 21:11–21:16 / 00:00–00:04,
+        # wo veränderte SOC- oder API-Daten ein neues Fenster in die Zukunft
+        # geschoben haben und der Slot abrupt zurück in Normal kippte.
+        active = self._discharge_plan.get(slot)
+        if active is not None:
+            plan_start, plan_end = active
+            if plan_start <= now < plan_end:
+                # Compute-Marker auffrischen, damit Folge-Cycles am selben
+                # Tag direkt den schnellen Cache-Hit unten treffen.
+                self._discharge_plan_computed_dates[slot] = today_str
+                return active
 
         # Phase 11.1: Per-Slot-Compute-Hit. Wenn DIESER Slot heute schon
         # berechnet wurde (auch None-Resultat), liefere den gecachten Wert
