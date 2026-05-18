@@ -21,6 +21,7 @@ from .const import (
     CONF_BATTERY_SOC_SENSOR,
     CONF_FORECAST_SOURCE,
     CONF_INVERTER_TYPE,
+    CONF_PV_PEAK_KWP,
     CONF_PV_POWER_SENSOR,
     CONF_PV_POWER_SENSOR_2,
     CONF_BATTERY_POWER_SENSOR,
@@ -165,6 +166,23 @@ def _resolve_battery_capacity_kwh(hass, config) -> float | None:
         return None
 
 
+def _resolve_pv_peak_kwp(config) -> float | None:
+    """Liest die optionale Anlagen-Spitzenleistung (kWp) aus der Config.
+
+    Wird ins Profile-Payload mitgesendet, damit das Backend serverseitige
+    Sanity-Caps (z. B. ``predicted_pv_kwh ≤ 2 × pv_peak_kwp``) anwenden kann.
+    Nicht gesetzt → ``None`` (Backend nimmt dann keine Caps an).
+    """
+    raw = config.get(CONF_PV_PEAK_KWP)
+    if raw in (None, ""):
+        return None
+    try:
+        val = float(raw)
+    except (ValueError, TypeError):
+        return None
+    return val if val > 0 else None
+
+
 _APP_VERSION_CACHE: str | None = None
 
 
@@ -243,7 +261,7 @@ def _build_telemetry_profile(hass, entry, identity_registered_at):
         "ha_version": HA_VERSION,
         "inverter_type": config.get(CONF_INVERTER_TYPE),
         "battery_capacity_kwh": _resolve_battery_capacity_kwh(hass, config),
-        "pv_peak_kwp": None,                # D-24
+        "pv_peak_kwp": _resolve_pv_peak_kwp(config),
         "forecast_provider": config.get(CONF_FORECAST_SOURCE),
         "country_iso": getattr(hass.config, "country", None),
         "settings": settings,
@@ -301,47 +319,65 @@ def _build_snapshot_payload(decision, mode_str, now):
 def _build_block_predictions(decision):
     """Captured beim Block-Start — predicted-Werte für späteren Outcome-Vergleich (W-1).
 
-    Skaliert ``predicted_pv_kwh`` / ``predicted_consumption_kwh`` linear über
-    24h auf die geplante Block-Dauer. Verbessert die Vergleichbarkeit mit
-    ``actual_*_kwh`` (Trapez über das Block-Fenster) signifikant gegenüber
-    dem rohen Tagesforecast. Backwards-kompatibel: ohne ``planned_block_end``
-    bleibt fraction=1.0 (Legacy-Pfad / Tests).
+    Pro Block-Typ ein eigenes Schema:
+
+    - **Morgen-Einspeisung** (Sunrise-1h .. morning_end_time): Tagesforecast
+      linear über die geplante Block-Dauer skaliert (Tagesforecast × min(block_h/24, 1)).
+      Ohne ``planned_block_end`` → ``predicted_* = None``, statt unskaliert den
+      vollen Tagesforecast mitzusenden (Backend ist null-tolerant).
+    - **Abend-Entladung** (Sonnenuntergang .. ~04:00): PV definitionsgemäß 0,
+      ``predicted_consumption_kwh = discharge_demand_overnight_kwh`` —
+      dieser Wert ist bereits block-spezifisch (Slot-Start bis Sonnenaufgang+1h),
+      keine Skalierung nötig.
     """
-    if decision.zustand == STATE_MORGEN_EINSPEISUNG:
-        day_pv = float(decision.morning_pv_today_kwh)
-        day_consumption = float(decision.morning_consumption_kwh)
-    elif decision.zustand == STATE_ABEND_ENTLADUNG:
-        day_pv = float(decision.discharge_pv_tomorrow_kwh)
-        day_consumption = float(decision.discharge_consumption_daylight_kwh)
-    else:
-        day_pv = 0.0
-        day_consumption = 0.0
-
-    fraction = 1.0
-    if decision.planned_block_end and decision.timestamp:
-        try:
-            t_start = datetime.fromisoformat(
-                decision.timestamp.replace("Z", "+00:00")
-            )
-            t_end = datetime.fromisoformat(
-                decision.planned_block_end.replace("Z", "+00:00")
-            )
-            block_h = max(0.0, (t_end - t_start).total_seconds() / 3600.0)
-            fraction = min(block_h / 24.0, 1.0)
-        except (ValueError, TypeError, AttributeError):
-            fraction = 1.0
-
-    predicted_pv = day_pv * fraction
-    predicted_consumption = day_consumption * fraction
-
     soc_start = decision.discharge_soc
     if not soc_start:
         soc_start = (decision.snapshot or {}).get("soc_pct") or 0
-    return {
+    base = {
         "started_at": decision.timestamp,
         "soc_start_pct": int(round(soc_start)),
-        "predicted_pv_kwh": predicted_pv,
-        "predicted_consumption_kwh": predicted_consumption,
+    }
+
+    if decision.zustand == STATE_ABEND_ENTLADUNG:
+        return {
+            **base,
+            "predicted_pv_kwh": 0.0,
+            "predicted_consumption_kwh": float(decision.discharge_demand_overnight_kwh),
+        }
+
+    if decision.zustand != STATE_MORGEN_EINSPEISUNG:
+        return {
+            **base,
+            "predicted_pv_kwh": None,
+            "predicted_consumption_kwh": None,
+        }
+
+    # Morgen-Einspeisung: Tagesforecast × block_h/24 (Approximation).
+    if not (decision.planned_block_end and decision.timestamp):
+        return {
+            **base,
+            "predicted_pv_kwh": None,
+            "predicted_consumption_kwh": None,
+        }
+    try:
+        t_start = datetime.fromisoformat(
+            decision.timestamp.replace("Z", "+00:00")
+        )
+        t_end = datetime.fromisoformat(
+            decision.planned_block_end.replace("Z", "+00:00")
+        )
+        block_h = max(0.0, (t_end - t_start).total_seconds() / 3600.0)
+    except (ValueError, TypeError, AttributeError):
+        return {
+            **base,
+            "predicted_pv_kwh": None,
+            "predicted_consumption_kwh": None,
+        }
+    fraction = min(block_h / 24.0, 1.0)
+    return {
+        **base,
+        "predicted_pv_kwh": float(decision.morning_pv_today_kwh) * fraction,
+        "predicted_consumption_kwh": float(decision.morning_consumption_kwh) * fraction,
     }
 
 PLATFORMS: list[str] = ["sensor", "select"]
@@ -1131,23 +1167,52 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data["telemetry_reporter"] = reporter
         # W-1: snapshot_queue wird vom 60-min Flush gedrained.
         data["snapshot_queue"] = []
+
+        # ----------------------------------------------------------
+        # Bug 3 — Block-State Persistenz
+        # ``block_predictions`` / ``block_samples`` / ``block_actuals_state``
+        # leben sonst nur im Memory und gehen beim HA-Restart verloren.
+        # Folge: derselbe laufende Block wird nach Restart als neuer Block
+        # finalisiert (Restart-Cluster, mehrere Outcomes pro Block) und das
+        # Outcome wird ohne predicted_*/actual_* gesendet (Bug 5 Muster B).
+        # Persistieren via Store, geladen beim Setup.
+        # ----------------------------------------------------------
+        from homeassistant.helpers.storage import Store as _BlockStore
+        block_state_store = _BlockStore(
+            hass, 1, f"{DOMAIN}_{entry.entry_id}_block_state"
+        )
+        try:
+            _block_stored = await block_state_store.async_load()
+        except Exception:
+            _block_stored = None
+            _LOGGER.debug("No persisted block state found")
         # event_type (snake_case) -> {predicted_pv_kwh, predicted_consumption_kwh,
         #                             started_at, soc_start_pct}
-        data["block_predictions"] = {}
+        data["block_predictions"] = (
+            (_block_stored or {}).get("block_predictions") or {}
+        )
         # Hochauflösendes Power-Sampling während eines aktiven Blocks (30s-Cycle).
         # Quelle für outcome.actual_pv_kwh / actual_consumption_kwh — entkoppelt
         # vom 30-/60-min Snapshot-Telemetrie-Pfad, damit der 60-min Flush die
         # Block-Aggregation nicht löscht und kürzere Blocks (< 30 min) trotzdem
         # genug Stützstellen für die Trapezregel haben.
         # event_type (snake_case) -> list[{ts, pv_now_kw, consumption_now_kw, grid_now_kw}]
-        data["block_samples"] = {}
+        data["block_samples"] = (
+            (_block_stored or {}).get("block_samples") or {}
+        )
         # event_type (snake_case) -> {pv_seen, cons_seen, grid_seen, actuals_invalid}
         # Trackt pro Block, ob ein bereits gesehener Sensor mid-block ausfällt
         # (None nach mindestens einem nicht-None-Sample). Outcome trägt dann
         # actuals_invalid=true, damit das Backend zwischen "Sensor nicht
         # konfiguriert" (Wert fehlt von Anfang an) und "Sensor zwischenzeitlich
         # ausgefallen" (Aktuals verfälscht) unterscheiden kann.
-        data["block_actuals_state"] = {}
+        data["block_actuals_state"] = (
+            (_block_stored or {}).get("block_actuals_state") or {}
+        )
+        data["block_state_store"] = block_state_store
+        # Throttle: Sample-Persistenz nicht alle 30s, sonst Disk-I/O-Spam.
+        # Wird in _record_block_sample geprüft.
+        data["block_state_last_save"] = None
         # (category, message_hash) -> last-emit datetime (UTC)
         data["telemetry_failure_dedup"] = {}
         data["telemetry_forecast_none_streak"] = 0
@@ -1263,6 +1328,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             except Exception:  # pragma: no cover
                 _LOGGER.exception("Telemetry: failed to schedule send_state_change")
 
+        async def _save_block_state():
+            """Persistiert Block-State (Bug 3)."""
+            store = data.get("block_state_store")
+            if store is None:
+                return
+            try:
+                await store.async_save({
+                    "version": 1,
+                    "block_predictions": data.get("block_predictions") or {},
+                    "block_samples": data.get("block_samples") or {},
+                    "block_actuals_state": data.get("block_actuals_state") or {},
+                })
+                data["block_state_last_save"] = _now_utc()
+            except Exception as err:
+                _LOGGER.warning("Failed to persist block state: %s", err)
+
+        def _schedule_save_block_state():
+            try:
+                hass.async_create_task(_save_block_state())
+            except Exception:  # pragma: no cover — defensiv
+                _LOGGER.exception("Telemetry: failed to schedule block state save")
+
+        # Den Callback der FeedinStats injizieren — wird nach Outcome-Pop
+        # (also wenn Block-State invalidiert wurde) aufgerufen, damit der
+        # nächste Restart den geräumten State sieht.
+        if hasattr(feedin_stats, "set_block_state_saver"):
+            feedin_stats.set_block_state_saver(_schedule_save_block_state)
+
         def _capture_block_predictions(decision):
             """W-2 — speichert Predictions beim Block-Start für späteren Outcome.
 
@@ -1280,6 +1373,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     "grid_seen": False,
                     "actuals_invalid": False,
                 }
+                # Bug 3 — Block-Start persistieren, damit ein Restart
+                # während des laufenden Blocks die Predictions findet.
+                _schedule_save_block_state()
 
         def _record_block_sample(decision):
             """Erfasst einen Power-Sample während eines aktiven Blocks.
@@ -1323,6 +1419,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     state[seen_key] = True
                 elif state[seen_key]:
                     state["actuals_invalid"] = True
+
+            # Bug 3 — Block-State persistieren, aber throttled (alle 5 min),
+            # damit Disk-I/O nicht jeden 30s-Cycle anschlägt.
+            last_save = data.get("block_state_last_save")
+            now_ts = _now_utc()
+            if last_save is None or (now_ts - last_save).total_seconds() >= 300:
+                _schedule_save_block_state()
 
         def _on_snapshot_tick(now):
             """D-14 — alle 30 min (xx:00, xx:30) ein Snapshot in den Queue schreiben."""

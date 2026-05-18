@@ -506,8 +506,12 @@ def test_outcome_emitted_on_block_end_with_predictions():
 def test_outcome_event_type_uses_normalize_state():
     from custom_components.eeg_energy_optimizer import _normalize_state
 
-    # Morning session
+    # Morning session — predictions vorhanden, sonst greift Bug-5-Skip
     stats, reporter, data = _make_outcome_stats()
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": "2026-04-15T05:30:00+00:00",
+        "soc_start_pct": 90,
+    }
     _open_morning_session(stats)
     stats._close_session(datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc))
     assert reporter.send_outcome.call_count == 1
@@ -516,6 +520,10 @@ def test_outcome_event_type_uses_normalize_state():
 
     # Evening session — fresh stats, fresh reporter mock
     stats2, reporter2, data2 = _make_outcome_stats()
+    data2["block_predictions"]["abend_entladung"] = {
+        "started_at": "2026-04-15T18:00:00+00:00",
+        "soc_start_pct": 80,
+    }
     _open_evening_session(stats2)
     stats2._close_session(datetime(2026, 4, 15, 21, 0, tzinfo=timezone.utc))
     assert reporter2.send_outcome.call_count == 1
@@ -615,25 +623,38 @@ def test_outcome_window_filters_snapshots_by_block_range():
 
 
 # ---------------------------------------------------------------------------
-# b) Silent emission when block_predictions empty (still emits with None values)
+# b) Bug 5 — Outcome wird gar nicht emittiert, wenn weder Predictions noch
+#    Block-Samples vorliegen (Post-Restart-Fall, früher all-null Outcomes)
 # ---------------------------------------------------------------------------
-def test_outcome_silent_when_no_predictions():
+def test_outcome_skipped_when_no_predictions_and_no_samples():
+    """Bug 5 Muster B — kein Predictions-Capture (z.B. Restart mitten im Block)
+    UND keine Block-Samples → Outcome wäre nur Metadaten. Statt einen
+    All-Null-Record ans Backend zu schicken: skippen, State aufräumen."""
     stats, reporter, data = _make_outcome_stats()
-    # No block_predictions entry — ended_at missing started_at fallback
     _open_morning_session(stats, start_iso="2026-04-15T05:30:00+00:00")
     stats._close_session(datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc))
+    assert reporter.send_outcome.call_count == 0
+    # State trotzdem aufgeräumt, damit ein Folge-Block sauber startet
+    assert "morgen_einspeisung" not in data["block_predictions"]
+    assert "morgen_einspeisung" not in data["block_samples"]
+
+
+def test_outcome_emitted_when_samples_present_but_predictions_missing():
+    """Bug 5 — Wenn block_samples mind. 1 Eintrag haben, ist der Outcome
+    nützlich (peak_power, actual_*) auch wenn predictions fehlen."""
+    stats, reporter, data = _make_outcome_stats()
+    started = datetime(2026, 4, 15, 5, 30, tzinfo=timezone.utc)
+    ended = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
+    data["block_samples"]["morgen_einspeisung"] = [
+        {"ts": (started + timedelta(minutes=30)).isoformat(),
+         "pv_now_kw": 2.0, "consumption_now_kw": 0.4, "grid_now_kw": 1.0},
+    ]
+    _open_morning_session(stats, start_iso=started.isoformat())
+    stats._close_session(ended)
     assert reporter.send_outcome.call_count == 1
     payload = reporter.send_outcome.call_args.args[0]
     assert payload["event_type"] == "morgen_einspeisung"
-    # NULL-tolerant: alle nicht-bestimmbaren Metriken fehlen im Payload
     assert "predicted_pv_kwh" not in payload
-    assert "predicted_consumption_kwh" not in payload
-    assert "actual_pv_kwh" not in payload
-    assert "actual_consumption_kwh" not in payload
-    assert "peak_power_kw" not in payload
-    # Pflichtfelder sind weiterhin gesetzt
-    assert payload["started_at"]
-    assert payload["ended_at"]
     assert payload["terminated_by"] == "block_end"
 
 
@@ -786,7 +807,12 @@ def test_outcome_no_actuals_invalid_when_state_missing():
     """Wenn kein State-Eintrag existiert (z.B. Tests ohne den neuen Hook),
     bleibt das Feld weg — backwards-kompatibel."""
     stats, reporter, data = _make_outcome_stats()
-    # Kein "block_actuals_state"-Eintrag für diesen event_type
+    # Kein "block_actuals_state"-Eintrag für diesen event_type, aber
+    # Predictions vorhanden (sonst greift Bug-5-Skip).
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": "2026-04-15T05:30:00+00:00",
+        "soc_start_pct": 90,
+    }
     _open_morning_session(stats)
     stats._close_session(datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc))
 
@@ -910,26 +936,29 @@ def test_outcome_skip_does_not_affect_other_event_type_state():
 
 
 # ---------------------------------------------------------------------------
-# h) _build_block_predictions — Block-Skalierung (predicted_*_kwh)
+# h) _build_block_predictions — Block-spezifische Predictions
 # ---------------------------------------------------------------------------
-def test_build_block_predictions_scales_pv_and_consumption_to_block_window():
-    """Mit ``planned_block_end`` skaliert _build_block_predictions PV und Verbrauch
-    linear über 24h auf die Block-Dauer. 6h-Block → 25% des Tagesforecasts."""
+def test_build_block_predictions_abend_uses_zero_pv_and_overnight_consumption():
+    """Bug 1 — Abend-Block: predicted_pv = 0.0 (kein PV nach Sonnenuntergang),
+    predicted_consumption = discharge_demand_overnight_kwh (block-spezifisch,
+    keine 24h-Skalierung)."""
     from custom_components.eeg_energy_optimizer import _build_block_predictions
     from custom_components.eeg_energy_optimizer.optimizer import Decision
 
     decision = Decision()
     decision.zustand = STATE_ABEND_ENTLADUNG
     decision.timestamp = "2026-04-15T20:00:00+00:00"
-    decision.planned_block_end = "2026-04-16T02:00:00+00:00"  # 6h Block
+    decision.planned_block_end = "2026-04-16T02:00:00+00:00"
+    # Diese (PV-morgen / Daylight-morgen) dürfen das Outcome NICHT erreichen:
     decision.discharge_pv_tomorrow_kwh = 24.0
     decision.discharge_consumption_daylight_kwh = 12.0
+    # Diese ist der korrekte Block-Bedarf:
+    decision.discharge_demand_overnight_kwh = 4.5
     decision.discharge_soc = 80
 
     predictions = _build_block_predictions(decision)
-    # 6h / 24h = 0.25 → predicted = day * 0.25
-    assert predictions["predicted_pv_kwh"] == pytest.approx(6.0, rel=1e-9)
-    assert predictions["predicted_consumption_kwh"] == pytest.approx(3.0, rel=1e-9)
+    assert predictions["predicted_pv_kwh"] == 0.0
+    assert predictions["predicted_consumption_kwh"] == pytest.approx(4.5)
     assert predictions["soc_start_pct"] == 80
 
 
@@ -952,57 +981,162 @@ def test_build_block_predictions_morning_einspeisung_scales():
     assert predictions["predicted_consumption_kwh"] == pytest.approx(2.0, rel=1e-9)
 
 
-def test_build_block_predictions_legacy_no_planned_end_keeps_full_day_forecast():
-    """Backwards-Kompatibilität: ohne ``planned_block_end`` keine Skalierung
-    (fraction=1.0). Alte Tests + Fallback-Pfade bleiben unverändert."""
+def test_build_block_predictions_morning_no_planned_end_returns_none():
+    """Bug 2 — Ohne planned_block_end keine Skalierung → predicted_* = None
+    (NICHT mehr fraction=1.0, das hatte den vollen Tagesforecast als Block-
+    Wert ans Backend geliefert)."""
     from custom_components.eeg_energy_optimizer import _build_block_predictions
     from custom_components.eeg_energy_optimizer.optimizer import Decision
 
     decision = Decision()
-    decision.zustand = STATE_ABEND_ENTLADUNG
-    decision.timestamp = "2026-04-15T20:00:00+00:00"
-    # Kein planned_block_end gesetzt → fraction bleibt 1.0
-    decision.discharge_pv_tomorrow_kwh = 24.0
-    decision.discharge_consumption_daylight_kwh = 12.0
-    decision.discharge_soc = 80
+    decision.zustand = STATE_MORGEN_EINSPEISUNG
+    decision.timestamp = "2026-04-15T05:30:00+00:00"
+    # Kein planned_block_end gesetzt
+    decision.morning_pv_today_kwh = 32.0
+    decision.morning_consumption_kwh = 16.0
 
     predictions = _build_block_predictions(decision)
-    assert predictions["predicted_pv_kwh"] == 24.0
-    assert predictions["predicted_consumption_kwh"] == 12.0
+    assert predictions["predicted_pv_kwh"] is None
+    assert predictions["predicted_consumption_kwh"] is None
 
 
-def test_build_block_predictions_caps_fraction_at_one():
+def test_build_block_predictions_morning_caps_fraction_at_one():
     """planned_block_end > 24h nach started_at darf fraction nicht > 1.0 setzen."""
     from custom_components.eeg_energy_optimizer import _build_block_predictions
     from custom_components.eeg_energy_optimizer.optimizer import Decision
 
     decision = Decision()
-    decision.zustand = STATE_ABEND_ENTLADUNG
-    decision.timestamp = "2026-04-15T20:00:00+00:00"
-    decision.planned_block_end = "2026-04-17T20:00:00+00:00"  # 48h (unrealistic, defensive)
-    decision.discharge_pv_tomorrow_kwh = 24.0
-    decision.discharge_consumption_daylight_kwh = 12.0
+    decision.zustand = STATE_MORGEN_EINSPEISUNG
+    decision.timestamp = "2026-04-15T05:30:00+00:00"
+    decision.planned_block_end = "2026-04-17T05:30:00+00:00"  # 48h (defensive)
+    decision.morning_pv_today_kwh = 32.0
+    decision.morning_consumption_kwh = 16.0
     decision.discharge_soc = 80
 
     predictions = _build_block_predictions(decision)
-    # Capped at fraction=1.0
-    assert predictions["predicted_pv_kwh"] == 24.0
-    assert predictions["predicted_consumption_kwh"] == 12.0
+    assert predictions["predicted_pv_kwh"] == 32.0
+    assert predictions["predicted_consumption_kwh"] == 16.0
 
 
-def test_build_block_predictions_invalid_planned_end_falls_back_to_legacy():
-    """Bei kaputtem ``planned_block_end`` (parsefehler) fallback auf fraction=1.0."""
+def test_build_block_predictions_morning_invalid_planned_end_returns_none():
+    """Bei kaputtem ``planned_block_end`` (Parsefehler) → predicted_* = None
+    statt vollem Tagesforecast (Bug 2)."""
+    from custom_components.eeg_energy_optimizer import _build_block_predictions
+    from custom_components.eeg_energy_optimizer.optimizer import Decision
+
+    decision = Decision()
+    decision.zustand = STATE_MORGEN_EINSPEISUNG
+    decision.timestamp = "2026-04-15T05:30:00+00:00"
+    decision.planned_block_end = "not-a-date"
+    decision.morning_pv_today_kwh = 32.0
+    decision.morning_consumption_kwh = 16.0
+
+    predictions = _build_block_predictions(decision)
+    assert predictions["predicted_pv_kwh"] is None
+    assert predictions["predicted_consumption_kwh"] is None
+
+
+def test_build_block_predictions_abend_ignores_planned_end_for_pv():
+    """Abend-Block: planned_block_end beeinflusst predicted_pv NICHT — der ist
+    immer 0.0 (definitionsgemäß kein PV nach Sonnenuntergang)."""
     from custom_components.eeg_energy_optimizer import _build_block_predictions
     from custom_components.eeg_energy_optimizer.optimizer import Decision
 
     decision = Decision()
     decision.zustand = STATE_ABEND_ENTLADUNG
     decision.timestamp = "2026-04-15T20:00:00+00:00"
-    decision.planned_block_end = "not-a-date"
+    # Kein planned_block_end gesetzt — für Abend irrelevant
     decision.discharge_pv_tomorrow_kwh = 24.0
-    decision.discharge_consumption_daylight_kwh = 12.0
+    decision.discharge_demand_overnight_kwh = 5.0
+    decision.discharge_soc = 80
 
     predictions = _build_block_predictions(decision)
-    assert predictions["predicted_pv_kwh"] == 24.0
-    assert predictions["predicted_consumption_kwh"] == 12.0
+    assert predictions["predicted_pv_kwh"] == 0.0
+    assert predictions["predicted_consumption_kwh"] == 5.0
+
+
+# ---------------------------------------------------------------------------
+# i) Bug 4 — Outcome-Timestamps konsistent in UTC
+# ---------------------------------------------------------------------------
+def test_outcome_normalizes_started_at_to_utc_when_local_tz():
+    """Bug 4 — historisch kam ``started_at`` aus ``decision.timestamp`` (lokale
+    tz, z.B. +02:00 CEST), während ``ended_at`` immer UTC war. Der Mix führte
+    am Backend zu falscher Tageszuordnung. Beide Felder müssen jetzt ``+00:00``
+    tragen."""
+    stats, reporter, data = _make_outcome_stats()
+    # Lokal-tz Started: 07:30 CEST = 05:30 UTC
+    started_local_iso = "2026-04-15T07:30:00+02:00"
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": started_local_iso,
+        "soc_start_pct": 90,
+    }
+    ended = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
+    _open_morning_session(stats, start_iso=started_local_iso)
+    stats._close_session(ended)
+
+    payload = reporter.send_outcome.call_args.args[0]
+    # Beide ISO-Strings in UTC: enden auf +00:00
+    assert payload["started_at"].endswith("+00:00"), payload["started_at"]
+    assert payload["ended_at"].endswith("+00:00"), payload["ended_at"]
+    # Inhaltlich: 07:30+02:00 → 05:30+00:00
+    assert payload["started_at"].startswith("2026-04-15T05:30:00")
+
+
+def test_outcome_started_at_already_utc_is_idempotent():
+    """Bereits UTC-getaggte Strings bleiben in UTC (idempotent)."""
+    stats, reporter, data = _make_outcome_stats()
+    data["block_predictions"]["morgen_einspeisung"] = {
+        "started_at": "2026-04-15T05:30:00+00:00",
+        "soc_start_pct": 90,
+    }
+    ended = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
+    _open_morning_session(stats, start_iso="2026-04-15T05:30:00+00:00")
+    stats._close_session(ended)
+
+    payload = reporter.send_outcome.call_args.args[0]
+    assert payload["started_at"].startswith("2026-04-15T05:30:00")
+    assert payload["started_at"].endswith("+00:00")
+
+
+# ---------------------------------------------------------------------------
+# j) Bonus — pv_peak_kwp im Profile-Payload
+# ---------------------------------------------------------------------------
+def test_resolve_pv_peak_kwp_reads_config_value():
+    """Wenn ``CONF_PV_PEAK_KWP`` gesetzt ist, gibt der Resolver einen float
+    zurück. Leer / fehlend / 0 / negativ → None."""
+    from custom_components.eeg_energy_optimizer import _resolve_pv_peak_kwp
+
+    assert _resolve_pv_peak_kwp({"pv_peak_kwp": 9.9}) == 9.9
+    assert _resolve_pv_peak_kwp({"pv_peak_kwp": "12.5"}) == 12.5
+    assert _resolve_pv_peak_kwp({"pv_peak_kwp": None}) is None
+    assert _resolve_pv_peak_kwp({"pv_peak_kwp": ""}) is None
+    assert _resolve_pv_peak_kwp({"pv_peak_kwp": 0}) is None
+    assert _resolve_pv_peak_kwp({"pv_peak_kwp": -1.0}) is None
+    assert _resolve_pv_peak_kwp({"pv_peak_kwp": "abc"}) is None
+    assert _resolve_pv_peak_kwp({}) is None
+
+
+# ---------------------------------------------------------------------------
+# k) Bug 4 helper — _to_utc_iso direkt
+# ---------------------------------------------------------------------------
+def test_to_utc_iso_normalizes_various_inputs():
+    """_to_utc_iso: lokale tz → UTC, Z-Suffix → +00:00, naive → UTC,
+    leer/kaputt → None."""
+    from custom_components.eeg_energy_optimizer.statistics import _to_utc_iso
+
+    # Lokale tz
+    out = _to_utc_iso("2026-04-15T07:30:00+02:00")
+    assert out is not None and out.startswith("2026-04-15T05:30:00") and out.endswith("+00:00")
+    # Z-Suffix
+    out2 = _to_utc_iso("2026-04-15T05:30:00Z")
+    assert out2 is not None and out2.endswith("+00:00")
+    # Bereits UTC
+    assert _to_utc_iso("2026-04-15T05:30:00+00:00") == "2026-04-15T05:30:00+00:00"
+    # Naive (kein tz) → als UTC interpretiert
+    out3 = _to_utc_iso("2026-04-15T05:30:00")
+    assert out3 is not None and out3.endswith("+00:00")
+    # Kaputt
+    assert _to_utc_iso("") is None
+    assert _to_utc_iso(None) is None
+    assert _to_utc_iso("not-a-date") is None
 

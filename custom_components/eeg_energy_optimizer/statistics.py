@@ -29,6 +29,30 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _to_utc_iso(iso_str: str | None) -> str | None:
+    """Normalisiert einen ISO-Timestamp auf UTC (``+00:00``).
+
+    Eingaben:
+      - lokale tz-aware Strings (``...+02:00`` etc.) → konvertiert nach UTC
+      - bereits UTC (``...+00:00`` / ``...Z``) → idempotent
+      - naive Strings → werden als UTC interpretiert (defensiv)
+      - leer / unparsbar → ``None``
+
+    Bug 4 — Mischtimestamps zwischen ``started_at`` (vormals lokale tz aus
+    ``decision.timestamp``) und ``ended_at`` (UTC) führten zu falscher
+    Tageszuordnung am Backend.
+    """
+    if not iso_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(iso_str).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat()
+
+
 def _trapezoid_kwh(samples: list[tuple[datetime, float]]) -> float:
     """Trapezoidal integration of power (kW) over time → energy (kWh).
 
@@ -130,6 +154,10 @@ class FeedinStatistics:
         # der beiden None ist.
         self._reporter: Any = None
         self._data: dict | None = None
+        # Bug 3 — Callback, der Block-State an die Disk persistiert, sobald
+        # FeedinStats nach Outcome-Send/Skip den Memory-State invalidiert hat.
+        # None solange __init__.py es nicht via set_block_state_saver() setzt.
+        self._block_state_saver: Any = None
 
     # ------------------------------------------------------------------
     # Persistence
@@ -204,13 +232,16 @@ class FeedinStatistics:
         # Read grid export power
         grid_export_kw = self._read_grid_export()
 
-        # First cycle: just record timestamp, don't accumulate
+        # First cycle: just record timestamp, don't accumulate.
+        # Bug 3 — Wir schliessen die rehydrierte Session hier NICHT, auch
+        # wenn stats_key None ist: Beim Boot ist die select-Entity ggf.
+        # noch nicht hydratisiert (mode=MODE_AUS → decision.ausführung=False
+        # → stats_key=None), was zu einem falschen Block-Ende führt
+        # (Restart-Cluster). Sobald der zweite Cycle einen stabilen Zustand
+        # liefert, übernimmt die normale Logik darunter das Schließen.
         if self._first_cycle:
             self._first_cycle = False
             self._last_update_utc = now_utc
-            # If no active state, ensure no stale session
-            if stats_key is None:
-                self._close_session(now_local)
             return
 
         # Calculate elapsed time
@@ -357,6 +388,15 @@ class FeedinStatistics:
         self._reporter = reporter
         self._data = data
 
+    def set_block_state_saver(self, saver: Any) -> None:
+        """Wire einen sync Callback ein, der den Block-State persistiert.
+
+        Wird nach Outcome-Send/Skip aufgerufen, damit der nächste Restart
+        nicht denselben (bereits abgeschlossenen) Block erneut finalisiert.
+        Implementierung lebt in __init__.py — hier nur die Schnittstelle.
+        """
+        self._block_state_saver = saver
+
     def _maybe_send_outcome(
         self,
         session: dict,
@@ -410,9 +450,32 @@ class FeedinStatistics:
                 d = data.get(key)
                 if isinstance(d, dict):
                     d.pop(event_type, None)
+            self._persist_block_state()
             return
 
         predictions = (data.get("block_predictions") or {}).get(event_type)
+        block_samples_map = data.get("block_samples")
+        block_samples_present = (
+            isinstance(block_samples_map, dict)
+            and bool(block_samples_map.get(event_type))
+        )
+
+        # Bug 5: Wenn weder Predictions (Block-Start verpasst, z.B. nach
+        # Restart) noch Block-Samples vorliegen, ist der Outcome ohne
+        # Forecast-Vergleichswert — Backend hätte nur Metadaten. State
+        # trotzdem aufräumen, damit der nächste echte Block sauber startet.
+        if predictions is None and not block_samples_present:
+            _LOGGER.debug(
+                "Telemetry: outcome geskippt — keine Predictions + keine Samples "
+                "(post-restart oder Capture verpasst, event_type=%s)",
+                event_type,
+            )
+            for key in ("block_predictions", "block_samples", "block_actuals_state"):
+                d = data.get(key)
+                if isinstance(d, dict):
+                    d.pop(event_type, None)
+            self._persist_block_state()
+            return
 
         # SOC-Ende: bevorzugt aus dem optimizer.last_decision.snapshot — das ist
         # der genaueste Wert (Zyklus, in dem Block beendet wurde).
@@ -492,10 +555,18 @@ class FeedinStatistics:
         actuals_state = (data.get("block_actuals_state") or {}).get(event_type) or {}
         actuals_invalid = bool(actuals_state.get("actuals_invalid"))
 
+        # Bug 4 — beide ISO-Strings konsistent in UTC. ``started_at`` kommt
+        # historisch aus ``decision.timestamp`` (lokale tz), ``ended_at`` war
+        # immer UTC. Mischbetrieb hat das Tages-Bucketing am Backend verfälscht.
+        started_at_utc = _to_utc_iso(started_at_str) or _to_utc_iso(
+            session.get("start_utc")
+        )
+        ended_at_utc = _to_utc_iso(ended_at_dt.isoformat())
+
         payload: dict = {
             "event_type": event_type,
-            "started_at": started_at_str if started_at_str else session.get("start_utc", ""),
-            "ended_at": ended_at_dt.isoformat(),
+            "started_at": started_at_utc or "",
+            "ended_at": ended_at_utc or ended_at_dt.isoformat(),
             "duration_minutes": int(duration_min),
             "grid_export_kwh": float(round(kwh, 3)),
             "peak_power_kw": peak_power_kw,
@@ -530,12 +601,24 @@ class FeedinStatistics:
         bas = data.get("block_actuals_state")
         if isinstance(bas, dict):
             bas.pop(event_type, None)
+        # Bug 3 — Persistenz nachziehen, damit ein Restart nicht denselben
+        # bereits gesendeten Block erneut finalisiert.
+        self._persist_block_state()
 
         # Fire-and-forget — Reporter handled Buffer/Retry bei Fehler.
         try:
             self._hass.async_create_task(self._reporter.send_outcome(payload))
         except Exception:  # pragma: no cover — defensiv
             _LOGGER.exception("Telemetry: failed to schedule send_outcome")
+
+    def _persist_block_state(self) -> None:
+        """Bug 3 — Block-State-Saver triggern, falls injiziert."""
+        if self._block_state_saver is None:
+            return
+        try:
+            self._block_state_saver()
+        except Exception:  # pragma: no cover — defensiv
+            _LOGGER.exception("Telemetry: block state save callback failed")
 
     # ------------------------------------------------------------------
     # Query methods (for WebSocket API and sensors)
