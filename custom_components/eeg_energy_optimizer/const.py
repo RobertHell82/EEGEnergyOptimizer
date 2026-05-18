@@ -6,6 +6,10 @@ CONF_INVERTER_TYPE = "inverter_type"
 CONF_BATTERY_SOC_SENSOR = "battery_soc_sensor"
 CONF_BATTERY_CAPACITY_SENSOR = "battery_capacity_sensor"
 CONF_BATTERY_CAPACITY_KWH = "battery_capacity_kwh"
+# Optional: Anlagen-Spitzenleistung in kWp. Wird ins Profile-Payload an
+# das Telemetrie-Backend mitgesendet (Sanity-Caps gegen unrealistische
+# predicted_pv_kwh-Werte). Wenn nicht gesetzt → null im Payload.
+CONF_PV_PEAK_KWP = "pv_peak_kwp"
 CONF_PV_POWER_SENSOR = "pv_power_sensor"
 CONF_GRID_POWER_SENSOR = "grid_power_sensor"
 CONF_BATTERY_POWER_SENSOR = "battery_power_sensor"

@@ -9,6 +9,44 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 ## Unreleased
 
+## [1.2.7] - 2026-05-18
+
+> Release konsolidiert die DEV-Iteration 1.2.7-dev-01 (Telemetry Backend-Quality Fixes).
+
+### Behoben
+
+- **Telemetrie: Abend-Outcome enthielt PV-Forecast für morgen.** `_build_block_predictions` schrieb für `abend_entladung` `predicted_pv_kwh = discharge_pv_tomorrow_kwh` (Tages-PV-Prognose nächster Tag) und `predicted_consumption_kwh = discharge_consumption_daylight_kwh` ins Outcome — beide Werte gelten für den nächsten Tag, nicht für den Abend-Block (Sonnenuntergang → 04:00). Folge: 50/55 Abend-Outcomes mit `avg(predicted_pv_kwh) = 25,56 kWh` bei `avg(actual) = 0,23`. Jetzt: `predicted_pv_kwh = 0.0`, `predicted_consumption_kwh = discharge_demand_overnight_kwh` (block-spezifisch).
+- **Telemetrie: voller Tagesforecast statt Block-Skalierung.** Bei leerem `planned_block_end` (mehrere Fallback-Pfade in `_compute_planned_block_end` lieferten `""` — z. B. `compute_hard_cutoff = None`, PeakShare-Parse-Fehler) blieb die fraction-Skalierung bei `1.0` und der gesamte 24h-Forecast landete als Block-Wert ins Outcome (Production-Belege mit `predicted_pv_kwh` = 102.3 / 119.2 / 87.3 kWh in 5–15 min Blöcken). Jetzt: ohne valides `planned_block_end` werden `predicted_*` als `None` gesetzt (Backend ist null-tolerant). Skalierungspfad bleibt nur für Morgen-Einspeisung aktiv.
+- **Telemetrie: Restart-Cluster (mehrere Outcomes pro echtem Block).** `block_predictions` / `block_samples` / `block_actuals_state` lebten ausschließlich im Memory und gingen beim HA-Restart verloren, während `FeedinStats._current_session` aus dem `Store` rehydriert wurde. Beim Boot-Race (Mode noch `MODE_AUS`, weil die `select`-Entity noch nicht hydratisiert war) feuerte der erste Cycle fälschlich ein Block-Ende. Folge: derselbe Abend-Block produzierte 4–6 Outcomes mit identischen `predicted_*`. Jetzt: dedizierter Store `{DOMAIN}_{entry_id}_block_state` persistiert alle drei Strukturen (sofort bei Block-Start/Ende, throttled alle 5 min während der Sample-Phase). `FeedinStats.async_update` überspringt im ersten Cycle nach Restart das `_close_session`.
+- **Telemetrie: Zeitzonen-Inkonsistenz `started_at` ↔ `ended_at`.** `started_at` kam aus `decision.timestamp` (lokale tz, z. B. `+02:00 CEST`), `ended_at` war hart UTC (`+00:00`). Mischbetrieb im selben Outcome führte am Backend zu falscher Tageszuordnung beim `substr(ts, 1, 10)`-Bucketing. Jetzt: Helper `_to_utc_iso` normalisiert beide Felder konsistent auf UTC.
+- **Telemetrie: Outcomes mit allen 4 Forecast-Feldern NULL.** Wenn weder Predictions (`_capture_block_predictions` lief nicht — z. B. nach Restart, da `prev_zustand = None` ≠ `STATE_NORMAL`) noch Block-Samples vorlagen, wurde trotzdem ein nutzloser Metadaten-Outcome ans Backend gesendet (22 Records in der Production-Stichprobe). Jetzt: early return mit State-Cleanup, wenn beide Quellen fehlen — Backend-Forecast-MAE-Statistik bleibt sauber.
+
+### Geändert
+
+- **Telemetrie-Profile-Payload trägt jetzt `pv_peak_kwp`.** Neue optionale Konfigurationsoption „PV-Spitzenleistung (kWp)" im Setup-Wizard (PV-Sensor-Step). Wird ins Profile-Payload mitgesendet, sodass das Backend serverseitige Sanity-Caps anwenden kann (z. B. `predicted_pv_kwh ≤ 2 × pv_peak_kwp`). Leer lassen wenn unbekannt — Backend nimmt dann keine Caps an. Bestehende Installationen bleiben unverändert, bis der Wert manuell im Wizard ergänzt wird.
+
+### Nicht verhaltensrelevant
+
+Alle Fixes betreffen ausschließlich den Telemetrie-Pfad (Predictions, Outcomes, Profile). Die Lade-/Entlade-Steuerung (`_should_block_charging`, `_should_discharge`, PeakShare-Plan-Logik) ist davon nicht berührt — die operativen Forecasts in `Snapshot` werden nicht skaliert und nicht über die Block-Capture-Pfade gelesen.
+
+## [1.2.7-dev-01] - 2026-05-18
+
+### Behoben
+
+- **Telemetrie: Abend-Outcome enthielt PV-Forecast für morgen.** `_build_block_predictions` schrieb für `abend_entladung` `predicted_pv_kwh = discharge_pv_tomorrow_kwh` (Tages-PV-Prognose nächster Tag) und `predicted_consumption_kwh = discharge_consumption_daylight_kwh` ins Outcome — beide Werte gelten für den nächsten Tag, nicht für den Abend-Block (Sonnenuntergang → 04:00). Folge: 50/55 Abend-Outcomes mit `avg(predicted_pv_kwh) = 25,56 kWh` bei `avg(actual) = 0,23`. Jetzt: `predicted_pv_kwh = 0.0`, `predicted_consumption_kwh = discharge_demand_overnight_kwh` (block-spezifisch).
+- **Telemetrie: voller Tagesforecast statt Block-Skalierung.** Bei leerem `planned_block_end` (mehrere Fallback-Pfade in `_compute_planned_block_end` lieferten `""` — z. B. `compute_hard_cutoff = None`, PeakShare-Parse-Fehler) blieb die fraction-Skalierung bei `1.0` und der gesamte 24h-Forecast landete als Block-Wert ins Outcome (Production-Belege mit `predicted_pv_kwh` = 102.3 / 119.2 / 87.3 kWh in 5–15 min Blöcken). Jetzt: ohne valides `planned_block_end` werden `predicted_*` als `None` gesetzt (Backend ist null-tolerant). Skalierungspfad bleibt nur für Morgen-Einspeisung aktiv.
+- **Telemetrie: Restart-Cluster (mehrere Outcomes pro echtem Block).** `block_predictions` / `block_samples` / `block_actuals_state` lebten ausschließlich im Memory und gingen beim HA-Restart verloren, während `FeedinStats._current_session` aus dem `Store` rehydriert wurde. Beim Boot-Race (Mode noch `MODE_AUS`, weil die `select`-Entity noch nicht hydratisiert war) feuerte der erste Cycle fälschlich ein Block-Ende. Folge: derselbe Abend-Block produzierte 4–6 Outcomes mit identischen `predicted_*`. Jetzt: dedizierter Store `{DOMAIN}_{entry_id}_block_state` persistiert alle drei Strukturen (sofort bei Block-Start/Ende, throttled alle 5 min während der Sample-Phase). `FeedinStats.async_update` überspringt im ersten Cycle nach Restart das `_close_session`.
+- **Telemetrie: Zeitzonen-Inkonsistenz `started_at` ↔ `ended_at`.** `started_at` kam aus `decision.timestamp` (lokale tz, z. B. `+02:00 CEST`), `ended_at` war hart UTC (`+00:00`). Mischbetrieb im selben Outcome führte am Backend zu falscher Tageszuordnung beim `substr(ts, 1, 10)`-Bucketing. Jetzt: Helper `_to_utc_iso` normalisiert beide Felder konsistent auf UTC.
+- **Telemetrie: Outcomes mit allen 4 Forecast-Feldern NULL.** Wenn weder Predictions (`_capture_block_predictions` lief nicht — z. B. nach Restart, da `prev_zustand = None` ≠ `STATE_NORMAL`) noch Block-Samples vorlagen, wurde trotzdem ein nutzloser Metadaten-Outcome ans Backend gesendet (22 Records in der Production-Stichprobe). Jetzt: early return mit State-Cleanup, wenn beide Quellen fehlen — Backend-Forecast-MAE-Statistik bleibt sauber.
+
+### Geändert
+
+- **Telemetrie-Profile-Payload trägt jetzt `pv_peak_kwp`.** Neue optionale Konfigurationsoption „PV-Spitzenleistung (kWp)" im Setup-Wizard (PV-Sensor-Step). Wird ins Profile-Payload mitgesendet, sodass das Backend serverseitige Sanity-Caps anwenden kann (z. B. `predicted_pv_kwh ≤ 2 × pv_peak_kwp`). Leer lassen wenn unbekannt — Backend nimmt dann keine Caps an. Bestehende Installationen bleiben unverändert, bis der Wert manuell im Wizard ergänzt wird.
+
+### Nicht verhaltensrelevant
+
+Alle Fixes betreffen ausschließlich den Telemetrie-Pfad (Predictions, Outcomes, Profile). Die Lade-/Entlade-Steuerung (`_should_block_charging`, `_should_discharge`, PeakShare-Plan-Logik) ist davon nicht berührt — die operativen Forecasts in `Snapshot` werden nicht skaliert und nicht über die Block-Capture-Pfade gelesen.
+
 ## [1.2.6] - 2026-05-18
 
 > Release konsolidiert die DEV-Iteration 1.2.6-dev-01 (SolaX Charge-Block ohne Battery-Idle + PeakShare Plan-Verriegelung).

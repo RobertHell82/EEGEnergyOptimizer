@@ -60,6 +60,7 @@ const WIZARD_DEFAULTS = {
   battery_soc_sensor: "",
   battery_capacity_sensor: "",
   battery_capacity_kwh: 10,
+  pv_peak_kwp: "",
   pv_power_sensor: "",
   battery_power_sensor: "",
   grid_power_sensor: "",
@@ -2682,6 +2683,14 @@ class EegOptimizerPanel extends HTMLElement {
           pvHelp,
           "sensor"
         )}
+        <div class="field-group" style="margin-top:12px">
+          <label>PV-Spitzenleistung (kWp, optional)</label>
+          <input type="number" data-field="pv_peak_kwp"
+                 value="${this._wizardData.pv_peak_kwp || ""}"
+                 min="0" max="200" step="0.1"
+                 placeholder="z.B. 9.9">
+          <div class="help-text">Anlagen-Spitzenleistung in kWp. Wird f&uuml;r serverseitige Plausibilit&auml;tspr&uuml;fung der Forecast-Werte verwendet. Leer lassen wenn unbekannt.</div>
+        </div>
         ${froniusSelected ? `
           <p style="font-size:12px;color:var(--secondary-text-color);margin:8px 0 4px;line-height:1.5">
             Fronius liefert Batterie- und Netzleistung als <strong>zwei getrennte, immer positive Sensoren</strong>
