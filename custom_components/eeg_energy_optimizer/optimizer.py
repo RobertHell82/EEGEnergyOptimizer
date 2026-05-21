@@ -353,6 +353,7 @@ class Decision:
     morning_battery_kwh: float = 0.0
     morning_end_time: str = ""
     morning_sunrise_tomorrow: str = ""
+    morning_hysteresis_active: bool = False
 
     # Discharge status card fields
     discharge_status: str = "deaktiviert"
@@ -777,13 +778,24 @@ class EEGOptimizer:
             "battery_kwh": 0.0,
             "end_time": end_time_str,
             "sunrise_tomorrow": "",
+            "hysteresis_active": False,
         }
 
         if not self._enable_morning_delay:
             return result
 
-        # bedarf already includes buffer on consumption (not on battery)
-        result["threshold_kwh"] = bedarf
+        # Spiegelt die Hysterese-Logik aus _should_block_charging: war die
+        # Morgen-Einspeisung heute schon mal aktiv und ist jetzt nicht mehr
+        # aktiv, verlangt die Re-Aktivierung pv > bedarf × 1.1. Die Karte
+        # muss dieselbe Schwelle anzeigen, sonst meldet sie "aktiv" obwohl
+        # der Optimizer (korrekt) Normalbetrieb fährt.
+        is_reactivation = (
+            self._morning_activated_date is not None
+            and self._last_eval_zustand != STATE_MORGEN_EINSPEISUNG
+        )
+        effective_threshold = bedarf * 1.1 if is_reactivation else bedarf
+        result["threshold_kwh"] = effective_threshold
+        result["hysteresis_active"] = is_reactivation
         pv_today = snap.pv_remaining_today_kwh if snap.pv_remaining_today_kwh is not None else 0.0
         result["pv_today_kwh"] = pv_today
 
@@ -821,12 +833,15 @@ class EEGOptimizer:
             result["sunrise_tomorrow"] = f"~{tomorrow_sunrise.strftime('%H:%M')}"
 
         if in_window:
-            if pv_today > bedarf:
+            if pv_today > effective_threshold:
                 result["status"] = "aktiv"
                 result["reason"] = f"Ladung blockiert bis {end_time_str}"
             else:
                 result["status"] = "nicht_aktiv"
-                result["reason"] = "PV reicht nicht für Bedarf + Puffer"
+                if is_reactivation:
+                    result["reason"] = "Hysterese aktiv — PV unter erhöhter Schwelle (×1.1)"
+                else:
+                    result["reason"] = "PV reicht nicht für Bedarf + Puffer"
         else:
             # Outside window: check if tomorrow's conditions would trigger
             pv_tomorrow = snap.pv_tomorrow_kwh if snap.pv_tomorrow_kwh is not None else 0.0
@@ -1724,6 +1739,7 @@ class EEGOptimizer:
             morning_battery_kwh=round(morning_info["battery_kwh"], 1),
             morning_end_time=morning_info["end_time"],
             morning_sunrise_tomorrow=morning_info["sunrise_tomorrow"],
+            morning_hysteresis_active=morning_info["hysteresis_active"],
             # Discharge status card fields
             discharge_status=discharge_info["status"],
             discharge_reasons=discharge_info["reasons"],

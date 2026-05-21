@@ -4580,6 +4580,8 @@ class EegOptimizerPanel extends HTMLElement {
     const consumption = ma.morning_consumption_kwh != null ? Number(ma.morning_consumption_kwh) : 0;
     const buffer = ma.morning_buffer_kwh != null ? Number(ma.morning_buffer_kwh) : 0;
     const battery = ma.morning_battery_kwh != null ? Number(ma.morning_battery_kwh) : 0;
+    const hyst = !!ma.morning_hysteresis_active;
+    const baseDemand = consumption + buffer + battery;
     const pvOk = pvVal > threshold;
     const isFutureView = mStatus === "morgen_erwartet" || mStatus === "morgen_nicht_erwartet";
     const pvLabel = isFutureView ? "PV-Prognose morgen" : "PV-Prognose heute";
@@ -4592,12 +4594,18 @@ class EegOptimizerPanel extends HTMLElement {
     const demandMarkerPct = Math.max(0, Math.min(100, (threshold / scaleMax) * 100));
     const tileColor = pvOk ? "var(--success-color, #4caf50)" : "var(--error-color, #f44336)";
 
+    const hystBadge = hyst
+      ? `<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;
+          background:var(--warning-color,#ff9800);color:#fff;font-size:11px;font-weight:500"
+          title="Eine erneute Aktivierung erfordert PV > Bedarf × 1.1 (Hysterese aktiv)">+10 % Hysterese</span>`
+      : "";
+
     const open = this._morningTile1Open;
     const tileDetails = open ? `
       <div class="cond-tile-details-body">
         <strong>${demandLabel} ${fmtDe(threshold, 1)} kWh</strong> =
         ${fmtDe(consumption + buffer, 1)} kWh (Tagesverbrauch inkl. Sicherheitspuffer) +
-        ${fmtDe(battery, 1)} kWh (Batterieladung)
+        ${fmtDe(battery, 1)} kWh (Batterieladung)${hyst ? `<br>× 1.1 Hysterese → <strong>${fmtDe(threshold, 1)} kWh</strong> (Basis ${fmtDe(baseDemand, 1)} kWh)` : ""}
       </div>` : "";
 
     return `
@@ -4606,6 +4614,7 @@ class EegOptimizerPanel extends HTMLElement {
         <div class="cond-tile-header">
           <span class="${pvOk ? "check" : "cross"}" style="font-size:18px">${pvOk ? "✓" : "✗"}</span>
           <span class="cond-tile-title">PV-Deckung</span>
+          ${hystBadge}
         </div>
         <div class="cond-tile-sub">${pvOk ? "PV deckt den Bedarf" : "PV reicht nicht für den Bedarf"}</div>
         <div class="cond-tile-bar">

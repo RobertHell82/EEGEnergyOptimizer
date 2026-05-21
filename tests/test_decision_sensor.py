@@ -36,6 +36,7 @@ def _make_decision(**overrides):
         "morning_battery_kwh": 0.0,
         "morning_end_time": "",
         "morning_sunrise_tomorrow": "",
+        "morning_hysteresis_active": False,
         # Discharge status card
         "discharge_status": "deaktiviert",
         "discharge_reasons": [],

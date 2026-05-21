@@ -9,6 +9,16 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 ## Unreleased
 
+## [1.2.7-dev-02] - 2026-05-21
+
+### Behoben
+
+- **Morgen-Einspeisungs-Karte zeigte fälschlich „aktiv" während Hysterese blockierte.** `_morning_delay_status` (Status-Karte) prüfte `pv_today > bedarf`, während `_should_block_charging` bei Reaktivierung am selben Tag die strengere Schwelle `pv_today > bedarf × 1.1` anlegt. Folge: Karte meldete grün „● AKTIV — Ladung blockiert bis 11:00", obwohl der Optimizer korrekt im Normalbetrieb war und die Batterie weiter aus PV-Überschuss lud (Live-Beispiel 21.05.2026 Traun: PV-Prognose 35,3 kWh, Bedarf 33,2 kWh, Hysterese-Schwelle 36,5 kWh — Karte „aktiv", `ladung_blockiert=false`, Inverter `Max. Ladeleistung = 5000 W`). Jetzt: Karte spiegelt dieselbe Hysterese-Logik wie der Block-Pfad, neues Decision-Feld `morning_hysteresis_active` + Sensor-Attribut, Frontend zeigt orange „+10 % Hysterese"-Badge analog zur Discharge-Karte; Threshold-Anzeige und Details-Body geben Basis-Bedarf und ×1.1-Schwelle aus.
+
+### Nicht verhaltensrelevant
+
+Reine Anzeige-Korrektur. Die Lade-Steuerung (`_should_block_charging`, Inverter-Befehle) war bereits korrekt und ist nicht berührt. Drei neue Unit-Tests in `TestHysteresis` decken den Karten-Pfad gegen den Block-Pfad ab; Suite 477 passed.
+
 ## [1.2.7] - 2026-05-18
 
 > Release konsolidiert die DEV-Iteration 1.2.7-dev-01 (Telemetry Backend-Quality Fixes).
