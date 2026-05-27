@@ -79,8 +79,6 @@ class SolarEdgeInverter(InverterBase):
         self._original_discharge_limit: float | None = None
         self._extra_original_control_modes: dict[str, str] = {}
         self._extra_original_discharge_limits: dict[str, float] = {}
-        self._timeout_set = False
-        self._extra_timeout_set: set[str] = set()
         self._snapshot_original_values()
 
     def _read_max_discharge_power(self, prefix: str | None = None) -> float | None:
@@ -306,15 +304,15 @@ class SolarEdgeInverter(InverterBase):
         # Command entities need time to become available after mode switch
         await self._wait_for_available("storage_command_mode")
         await asyncio.sleep(3)
-        # Set command timeout once — persists in NVRAM, no need to repeat or restore
-        if not self._timeout_set:
-            try:
-                await self._wait_for_available("storage_command_timeout")
-                await self._set_number("storage_command_timeout", COMMAND_TIMEOUT_SECONDS)
-                self._timeout_set = True
-                await asyncio.sleep(3)
-            except Exception:
-                _LOGGER.warning("SolarEdge: could not set command_timeout (non-critical)")
+        # Re-assert command timeout every session — the inverter resets it to its
+        # 3600s default on each Remote-Control entry, so a once-only write does
+        # not survive and the command would auto-revert after 1h.
+        try:
+            await self._wait_for_available("storage_command_timeout")
+            await self._set_number("storage_command_timeout", COMMAND_TIMEOUT_SECONDS)
+            await asyncio.sleep(3)
+        except Exception:
+            _LOGGER.warning("SolarEdge: could not set command_timeout (non-critical)")
 
     async def _ensure_remote_control_extra(self, prefix: str) -> None:
         """Ensure an additional inverter is in Remote Control mode."""
@@ -326,14 +324,13 @@ class SolarEdgeInverter(InverterBase):
         await self._set_select("storage_control_mode", CONTROL_MODE_REMOTE, prefix=prefix)
         await self._wait_for_available("storage_command_mode", prefix=prefix)
         await asyncio.sleep(3)
-        if prefix not in self._extra_timeout_set:
-            try:
-                await self._wait_for_available("storage_command_timeout", prefix=prefix)
-                await self._set_number("storage_command_timeout", COMMAND_TIMEOUT_SECONDS, prefix=prefix)
-                self._extra_timeout_set.add(prefix)
-                await asyncio.sleep(3)
-            except Exception:
-                _LOGGER.warning("SolarEdge: could not set command_timeout on %s (non-critical)", prefix)
+        # Re-assert command timeout every session (inverter resets it to 3600s default)
+        try:
+            await self._wait_for_available("storage_command_timeout", prefix=prefix)
+            await self._set_number("storage_command_timeout", COMMAND_TIMEOUT_SECONDS, prefix=prefix)
+            await asyncio.sleep(3)
+        except Exception:
+            _LOGGER.warning("SolarEdge: could not set command_timeout on %s (non-critical)", prefix)
 
     async def async_set_charge_limit(self, power_kw: float) -> bool:
         """Block or limit battery charging.
