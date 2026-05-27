@@ -862,6 +862,7 @@ class EntscheidungsSensor(SensorEntity):
             "morning_battery_kwh": round(decision.morning_battery_kwh, 1),
             "morning_end_time": decision.morning_end_time,
             "morning_sunrise_tomorrow": decision.morning_sunrise_tomorrow,
+            "morning_hysteresis_active": decision.morning_hysteresis_active,
             # Discharge status card
             "discharge_status": decision.discharge_status,
             "discharge_reasons": decision.discharge_reasons,

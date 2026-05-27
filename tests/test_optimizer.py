@@ -843,6 +843,96 @@ class TestHysteresis:
         )
         assert opt._should_block_charging(snap)[0] is True
 
+    def test_morning_status_card_reflects_hysteresis_threshold(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Anzeige-Bug Fix: _morning_delay_status muss bei Reaktivierung dieselbe
+        ×1.1-Schwelle nutzen wie _should_block_charging.
+
+        Vorher: Karte zeigte "aktiv" obwohl ladung_blockiert=False (PV>bedarf, aber
+        unter Hysterese-Schwelle). Jetzt: "nicht_aktiv" + hysteresis_active=True.
+        """
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc)
+
+        opt._morning_activated_date = now.strftime("%Y-%m-%d")
+        opt._last_eval_zustand = STATE_NORMAL  # heute aktiv gewesen, jetzt deaktiviert
+
+        # bedarf = daylight(7.0)*1.25 + missing_battery(5.0) = 13.75
+        # Hysterese-Schwelle = 13.75 * 1.1 = 15.125
+        # PV 14.5: > 13.75 (alter Bug → "aktiv") aber < 15.125 (korrekt: "nicht_aktiv")
+        snap = _make_snapshot(
+            now=now,
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=14.5,
+            consumption_today_daylight_kwh=7.0,
+            battery_soc=50.0,
+            battery_capacity_kwh=10.0,
+        )
+        bedarf = opt._calc_energiebedarf(snap)
+        result = opt._morning_delay_status(snap, bedarf)
+
+        assert result["hysteresis_active"] is True
+        assert result["threshold_kwh"] == pytest.approx(15.125)
+        assert result["status"] == "nicht_aktiv"
+        # Konsistenzcheck mit dem eigentlichen Block-Pfad
+        assert opt._should_block_charging(snap)[0] is False
+
+    def test_morning_status_card_active_when_pv_exceeds_hysteresis(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Bei Reaktivierung mit PV > bedarf × 1.1: Karte zeigt korrekt "aktiv"."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc)
+
+        opt._morning_activated_date = now.strftime("%Y-%m-%d")
+        opt._last_eval_zustand = STATE_NORMAL
+
+        # PV 16.0 > Hysterese-Schwelle 15.125
+        snap = _make_snapshot(
+            now=now,
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=16.0,
+            consumption_today_daylight_kwh=7.0,
+            battery_soc=50.0,
+            battery_capacity_kwh=10.0,
+        )
+        bedarf = opt._calc_energiebedarf(snap)
+        result = opt._morning_delay_status(snap, bedarf)
+
+        assert result["hysteresis_active"] is True
+        assert result["status"] == "aktiv"
+        assert opt._should_block_charging(snap)[0] is True
+
+    def test_morning_status_card_first_activation_no_hysteresis_flag(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Erstaktivierung am Tag: keine Hysterese, normale Schwelle (bedarf)."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc)
+
+        # _morning_activated_date = None → keine Reaktivierung
+        snap = _make_snapshot(
+            now=now,
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=14.5,  # > 13.75 (bedarf), egal ob unter ×1.1
+            consumption_today_daylight_kwh=7.0,
+            battery_soc=50.0,
+            battery_capacity_kwh=10.0,
+        )
+        bedarf = opt._calc_energiebedarf(snap)
+        result = opt._morning_delay_status(snap, bedarf)
+
+        assert result["hysteresis_active"] is False
+        assert result["threshold_kwh"] == pytest.approx(13.75)
+        assert result["status"] == "aktiv"
+
     def test_hysteresis_does_not_apply_on_different_day(
         self, mock_hass, mock_inverter, mock_coordinator, mock_provider
     ):
