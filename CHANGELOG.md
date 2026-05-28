@@ -9,6 +9,27 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 ## Unreleased
 
+## [1.2.9-dev-01] - 2026-05-28
+
+### Hinzugefügt
+
+- **SolarEdge Multi-Inverter: kapazitätsgewichteter Combined-SOC + Summenkapazität.** Bei Setups mit mehreren SolarEdge-Invertern (i1+i2+…) liefert die `solaredge_modbus_multi`-Integration pro Inverter einen eigenen `b1_state_of_energy`/`b1_maximum_energy`. Der Optimizer las bisher nur den ersten (i1) → falscher Maßstab, der die Slot-B-Entladung zu früh stoppte (Live-Befund 28.05.2026 Linzner: i1=44 % / i2=19 %, gewichtet 34,6 % — Optimizer sah aber „44 %" und plante mit `available_kwh = (44−min)/100 × 24.25 kWh` statt mit 38.8 kWh Summenkapazität). Neue optionale `InverterBase.get_combined_battery_state()` mit SolarEdge-Override: `combined_soc = Σ(soc_i × cap_i) / Σ(cap_i)`, `combined_cap = Σ(cap_i)`. Optimizer-Snapshot überstimmt damit Config-Sensor + manuelle Kapazität automatisch. Default `(None, None)` für Single-Battery-Driver (Huawei/Fronius/SolaX) — unverändertes Verhalten.
+- **Zwei neue HA-Sensoren für SolarEdge-Multi:** `sensor.eeg_energy_optimizer_combined_soc` (% gewichtet, `device_class: battery`) und `sensor.eeg_energy_optimizer_combined_capacity` (kWh Summe). Werden nur registriert, wenn der Driver `get_combined_battery_state()` non-None liefert. Single-Battery-Setups bekommen keine zusätzlichen Entities.
+- **Wizard kennt SolarEdge-Sonderfall.** Step 3 (Batteriesensoren) zeigt bei `inverter_type=solaredge_storedge` nur einen Info-Block statt der SOC-/Kapazitäts-Eingaben; Validation skippt die Pflichtfelder, Auto-Detection befüllt `battery_soc_sensor`/`battery_capacity_sensor` nicht mehr mit i1-Sensoren, beim Save trägt der Wizard die pinned Combined-Sensor-IDs ein.
+- **Migration v18 → v19.** Bestehende SolarEdge-Entries werden beim Reload automatisch auf die Combined-Sensor-IDs umgestellt. Andere Inverter unverändert. `battery_capacity_kwh` bleibt aus Nachvollziehbarkeit in der Config.
+
+### Geändert
+
+- **SolarEdge `async_set_discharge` verteilt Power proportional zur freien Restkapazität.** Bisher: `power_kw / num_inverters` (stur halbiert). Bei ungleichen Batterien (z. B. i1=24.25 kWh / i2=14.55 kWh, Backup je 20 %) erreichte die kleinere viel früher das Backup-Limit, danach lief nur i1 weiter — Slot-B-Energie unausgeschöpft. Neu: pro Inverter `usable_kwh = max(0, (soc − backup) / 100 × cap)`, Power-Anteil proportional zur Summe, gecappt auf `max_discharge_power` pro Inverter, mit iterativer Cap-Redistribution. Fallback auf Equal-Split, falls ein Sensor unavailable. Effekt: Beide Batterien erreichen ungefähr gleichzeitig die Backup-Reserve — ~14.8 kWh statt ~10 kWh in 2 h bei `discharge_power_kw=8`.
+
+### Behoben
+
+- **SolarEdge: `_resolve_entity_for_prefix` kannte keine Suffix-Varianten.** Bei i2 wurde z. B. `number.solaredge_i2_storage_backup_reserve` gesucht, in vielen Installationen heißt die Entity aber `number.solaredge_i2_backup_reserve` (ohne `storage_`-Präfix). Der Resolver fiel auf den Default ohne Prefix zurück → falsche/fehlende Reads. `SOLAREDGE_SUFFIX_VARIANTS` wird nun auch im Prefix-Pfad konsultiert, analog zum primären Resolver.
+
+### Nicht verhaltensrelevant
+
+3 neue Migration-Tests (v19 SolarEdge / Other / Idempotenz), 16 neue SolarEdge-Driver-Tests (Distribution + Combined-State), `mock_inverter`-Fixture liefert `get_combined_battery_state() → (None, None)` als sauberen Default. Suite **480 passed, 31 skipped**.
+
 ## [1.2.7-dev-02] - 2026-05-21
 
 ### Behoben

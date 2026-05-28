@@ -95,6 +95,10 @@ def mock_inverter():
     inv.async_set_discharge = AsyncMock(return_value=True)
     inv.async_stop_forcible = AsyncMock(return_value=True)
     inv.is_available = True
+    # Default-Verhalten der Base-Klasse: kein Driver-side Combined-State.
+    # MagicMock würde sonst ein unpackbares Mock-Objekt liefern → TypeError
+    # im Optimizer-Snapshot (silent durch try/except, aber unsauber im Test).
+    inv.get_combined_battery_state = MagicMock(return_value=(None, None))
     return inv
 
 

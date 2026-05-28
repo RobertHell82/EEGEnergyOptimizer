@@ -32,7 +32,9 @@ from .const import (
     CONF_GRID_POWER_IMPORT_SENSOR,
     CONF_LOOKBACK_WEEKS,
     CONF_TELEMETRY_ENABLED,
+    COMBINED_BATTERY_CAPACITY_SENSOR_ID,
     COMBINED_BATTERY_POWER_SENSOR_ID,
+    COMBINED_BATTERY_SOC_SENSOR_ID,
     COMBINED_GRID_POWER_SENSOR_ID,
     CONSUMPTION_SENSOR,
     DEFAULT_LOOKBACK_WEEKS,
@@ -999,6 +1001,25 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "number.solax_inverter_battery_charge_max_current",
         )
         hass.config_entries.async_update_entry(entry, data=new_data, version=18)
+
+    if entry.version < 19:
+        # v19 — SolarEdge: Auto-Switch auf Driver-side Combined-SOC/Capacity.
+        # Bei SolarEdge liefert jeder Modbus-Inverter nur den SOC seiner
+        # eigenen Batterie. Der Optimizer-Snapshot überstimmt das jetzt via
+        # InverterBase.get_combined_battery_state(), aber das Frontend liest
+        # den SOC weiterhin direkt aus battery_soc_sensor. Diese Migration
+        # zeigt beide Sensor-Felder auf die neuen synthetischen Combined-
+        # Entities um, sodass UI und Optimizer denselben Wert sehen — auch
+        # bei Single-Inverter-SolarEdge (Combined liefert dann nur i1's SOC).
+        # Andere Inverter (Huawei, Fronius, SolaX): unverändert.
+        new_data = {**entry.data}
+        if new_data.get("inverter_type") == "solaredge_storedge":
+            new_data["battery_soc_sensor"] = COMBINED_BATTERY_SOC_SENSOR_ID
+            new_data["battery_capacity_sensor"] = COMBINED_BATTERY_CAPACITY_SENSOR_ID
+            # Manueller Capacity-Fallback ist nicht mehr nötig — Driver
+            # summiert die echten Sensorwerte. Setze ihn aber nicht zurück,
+            # damit der User seine Konfiguration nachvollziehen kann.
+        hass.config_entries.async_update_entry(entry, data=new_data, version=19)
 
     return True
 

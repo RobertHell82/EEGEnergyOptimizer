@@ -81,29 +81,33 @@ class SolarEdgeInverter(InverterBase):
         self._extra_original_discharge_limits: dict[str, float] = {}
         self._snapshot_original_values()
 
-    def _read_max_discharge_power(self, prefix: str | None = None) -> float | None:
-        """Read hardware max discharge power from b1_max_discharge_power sensor.
+    def _read_sensor_float(self, entity_id: str) -> float | None:
+        """Read an entity state and parse as float. Returns None if unavailable."""
+        state = self._hass.states.get(entity_id)
+        if state is None or state.state in ("unavailable", "unknown", None):
+            return None
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return None
 
-        This sensor is always available (doesn't require Remote Control mode).
-        Returns value in Watts, or None if not found.
-        Falls back to suffix scan if prefix-based lookup fails.
+    def _read_battery_sensor(self, suffix: str, prefix: str | None = None) -> float | None:
+        """Read a per-inverter battery sensor (e.g. b1_maximum_energy).
+
+        Resolution order:
+        1. Direct prefix-based lookup: sensor.{prefix}{suffix}
+        2. Suffix scan, optionally constrained to prefix
+        Returns None if not found or unavailable.
         """
         pfx = prefix or self._prefix
-        # Try direct prefix-based lookup first
         if pfx:
-            entity_id = f"sensor.{pfx}b1_max_discharge_power"
-            state = self._hass.states.get(entity_id)
-            if state and state.state not in ("unavailable", "unknown"):
-                try:
-                    return float(state.state)
-                except (ValueError, TypeError):
-                    pass
-        # Fallback: scan all sensors for b1_max_discharge_power
+            v = self._read_sensor_float(f"sensor.{pfx}{suffix}")
+            if v is not None:
+                return v
         for state in self._hass.states.async_all("sensor"):
-            if (state.entity_id.endswith("b1_max_discharge_power")
+            if (state.entity_id.endswith(suffix)
                     and "solaredge" in state.entity_id
                     and state.state not in ("unavailable", "unknown")):
-                # If looking for a specific prefix, check it matches
                 if pfx and pfx not in state.entity_id:
                     continue
                 try:
@@ -111,6 +115,144 @@ class SolarEdgeInverter(InverterBase):
                 except (ValueError, TypeError):
                     pass
         return None
+
+    def _read_max_discharge_power(self, prefix: str | None = None) -> float | None:
+        """Read hardware max discharge power from b1_max_discharge_power sensor.
+
+        This sensor is always available (doesn't require Remote Control mode).
+        Returns value in Watts, or None if not found.
+        """
+        return self._read_battery_sensor("b1_max_discharge_power", prefix)
+
+    def _read_battery_capacity_kwh(self, prefix: str | None = None) -> float | None:
+        """Read battery maximum energy capacity per inverter (kWh)."""
+        return self._read_battery_sensor("b1_maximum_energy", prefix)
+
+    def _read_battery_soc_pct(self, prefix: str | None = None) -> float | None:
+        """Read battery state of energy per inverter (%)."""
+        return self._read_battery_sensor("b1_state_of_energy", prefix)
+
+    def _read_backup_reserve_pct(self, prefix: str | None = None) -> float | None:
+        """Read backup_reserve % for the given inverter (default: primary)."""
+        if prefix and prefix != self._prefix:
+            entity_id = self._resolve_entity_for_prefix(prefix, "storage_backup_reserve")
+        else:
+            entity_id = self._resolve_entity("storage_backup_reserve")
+        return self._read_sensor_float(entity_id)
+
+    def get_combined_battery_state(self) -> tuple[float | None, float | None]:
+        """Return capacity-weighted SOC and total capacity across all inverters.
+
+        Reads b1_state_of_energy and b1_maximum_energy per inverter prefix
+        (i1, i2, …). The weighted SOC is computed as:
+
+            combined_soc = Σ(soc_i × capacity_i) / Σ(capacity_i)
+
+        Returns (None, None) if any sensor is unavailable — Optimizer then
+        falls back to the configured battery_soc_sensor.
+        """
+        prefixes = [self._prefix] + list(self._extra_prefixes)
+        if not prefixes or not any(prefixes):
+            return (None, None)
+        total_cap = 0.0
+        weighted = 0.0
+        for pfx in prefixes:
+            if not pfx:
+                continue
+            cap = self._read_battery_capacity_kwh(pfx)
+            soc = self._read_battery_soc_pct(pfx)
+            if cap is None or soc is None or cap <= 0:
+                _LOGGER.debug(
+                    "SolarEdge: combined battery state unavailable — %s "
+                    "(cap=%s, soc=%s)", pfx, cap, soc,
+                )
+                return (None, None)
+            total_cap += cap
+            weighted += soc * cap
+        if total_cap <= 0:
+            return (None, None)
+        return (weighted / total_cap, total_cap)
+
+    def _compute_discharge_distribution(
+        self, total_kw: float, prefixes: list[str]
+    ) -> dict[str, float] | None:
+        """Compute per-inverter discharge power proportional to usable energy.
+
+        For each inverter:
+            usable_kwh = max(0, (soc_pct - backup_pct) / 100 × capacity_kwh)
+            max_kw     = max_discharge_power_w / 1000
+
+        Returns dict {prefix: power_kw} sized so that:
+        - Σ power ≈ total_kw (subject to per-inverter caps)
+        - Allocations proportional to usable_kwh
+        - Excess from capped inverters redistributed to those with headroom
+
+        Returns None if any required sensor is unavailable — caller falls
+        back to equal split (legacy behavior).
+        """
+        inverters = []
+        for prefix in prefixes:
+            capacity = self._read_battery_capacity_kwh(prefix)
+            soc = self._read_battery_soc_pct(prefix)
+            backup = self._read_backup_reserve_pct(prefix)
+            max_pw_w = self._read_max_discharge_power(prefix)
+            if any(v is None for v in (capacity, soc, backup, max_pw_w)):
+                _LOGGER.debug(
+                    "SolarEdge: %s missing sensor for proportional split "
+                    "(capacity=%s, soc=%s, backup=%s, max_power=%s) — fallback to equal",
+                    prefix or "primary", capacity, soc, backup, max_pw_w,
+                )
+                return None
+            inverters.append({
+                "prefix": prefix,
+                "usable_kwh": max(0.0, capacity * (soc - backup) / 100.0),
+                "max_kw": max_pw_w / 1000.0,
+            })
+        return self._distribute_proportional(total_kw, inverters)
+
+    @staticmethod
+    def _distribute_proportional(
+        total_kw: float, inverters: list[dict]
+    ) -> dict[str, float]:
+        """Distribute total_kw proportional to usable_kwh, capped at max_kw.
+
+        Iterative: when an inverter hits its cap, fix it and redistribute the
+        remainder across the still-uncapped pool. Bounded by len(inverters)
+        iterations (each round either caps ≥1 inverter or terminates).
+        """
+        allocated = {inv["prefix"]: 0.0 for inv in inverters}
+        # Fallback: no inverter has usable energy (all at backup reserve)
+        # → equal split, capped per inverter (legacy behavior fallback)
+        pool = [inv for inv in inverters if inv["usable_kwh"] > 0]
+        if not pool:
+            if not inverters:
+                return {}
+            per = total_kw / len(inverters)
+            return {inv["prefix"]: min(per, inv["max_kw"]) for inv in inverters}
+
+        remaining = total_kw
+        for _ in range(len(pool) + 1):
+            if not pool or remaining <= 1e-6:
+                break
+            total_usable = sum(inv["usable_kwh"] for inv in pool)
+            capped_now = []
+            for inv in pool:
+                share = remaining * inv["usable_kwh"] / total_usable
+                headroom = inv["max_kw"] - allocated[inv["prefix"]]
+                if share >= headroom - 1e-6:
+                    allocated[inv["prefix"]] = inv["max_kw"]
+                    capped_now.append(inv)
+            if capped_now:
+                remaining = max(0.0, total_kw - sum(allocated.values()))
+                for inv in capped_now:
+                    pool.remove(inv)
+            else:
+                # All proportional shares fit — finalize
+                for inv in pool:
+                    share = remaining * inv["usable_kwh"] / total_usable
+                    allocated[inv["prefix"]] += share
+                break
+        return allocated
 
     def _snapshot_original_values(self) -> None:
         """Snapshot current values so we can restore them in async_stop_forcible."""
@@ -141,13 +283,24 @@ class SolarEdgeInverter(InverterBase):
                 _LOGGER.debug("SolarEdge: %s max discharge power = %.0f W", prefix, max_discharge)
 
     def _resolve_entity_for_prefix(self, prefix: str, config_key: str) -> str:
-        """Resolve entity ID for a specific inverter prefix (e.g. solaredge_i2_)."""
+        """Resolve entity ID for a specific inverter prefix (e.g. solaredge_i2_).
+
+        Tries default suffix first, then SOLAREDGE_SUFFIX_VARIANTS (e.g.
+        backup_reserve vs storage_backup_reserve — both are valid in different
+        solaredge-modbus-multi versions / configurations).
+        """
         default = SOLAREDGE_ENTITY_DEFAULTS.get(config_key)
         if default:
             domain = default.split(".")[0]
             suffix = default.split("solaredge_", 1)[-1] if "solaredge_" in default else ""
             if suffix:
                 entity_id = f"{domain}.{prefix}{suffix}"
+                state = self._hass.states.get(entity_id)
+                if state is not None:
+                    return entity_id
+            # Try suffix variants (e.g. backup_reserve without storage_ prefix)
+            for variant_suffix in SOLAREDGE_SUFFIX_VARIANTS.get(config_key, []):
+                entity_id = f"{domain}.{prefix}{variant_suffix}"
                 state = self._hass.states.get(entity_id)
                 if state is not None:
                     return entity_id
@@ -378,11 +531,14 @@ class SolarEdgeInverter(InverterBase):
         and stops calling discharge when SOC is reached. backup_reserve
         stays at the user's configured default.
 
-        Multi-inverter: sets all inverters to same mode and discharge limit.
+        Multi-inverter: distributes power proportional to per-inverter usable
+        energy ((soc - backup_reserve) × capacity), capped at each inverter's
+        max_discharge_power. Excess from capped inverters is redistributed.
+        Falls back to equal split when any battery sensor is unavailable.
 
         Sequence per inverter (3s delay between each Modbus write):
         1. storage_control_mode → "Remote Control" + command_timeout (once)
-        2. storage_discharge_limit → power in Watts
+        2. storage_discharge_limit → per-inverter power in Watts
         3. storage_command_mode → "Discharge to Maximize Export"
         """
         try:
@@ -390,13 +546,31 @@ class SolarEdgeInverter(InverterBase):
             for prefix in self._extra_prefixes:
                 await self._ensure_remote_control_extra(prefix)
 
+            all_prefixes = [self._prefix] + list(self._extra_prefixes)
+            distribution = self._compute_discharge_distribution(power_kw, all_prefixes)
+            if distribution is None:
+                # Fallback: equal split (legacy)
+                num_inverters = len(all_prefixes)
+                per_kw = power_kw / num_inverters
+                distribution = {pfx: per_kw for pfx in all_prefixes}
+                _LOGGER.info(
+                    "SolarEdge: discharge equal split (sensor fallback): %.2f kW × %d",
+                    per_kw, num_inverters,
+                )
+            else:
+                _LOGGER.info(
+                    "SolarEdge: discharge proportional split (total %.2f kW): %s",
+                    power_kw,
+                    {pfx or "primary": f"{kw:.2f}kW" for pfx, kw in distribution.items()},
+                )
+
             await self._wait_for_available("storage_discharge_limit")
-            num_inverters = 1 + len(self._extra_prefixes)
-            power_per_inv_w = int(power_kw * 1000 / num_inverters)
-            await self._set_number("storage_discharge_limit", power_per_inv_w)
+            primary_w = int(distribution[self._prefix] * 1000)
+            await self._set_number("storage_discharge_limit", primary_w)
             for prefix in self._extra_prefixes:
                 await self._wait_for_available("storage_discharge_limit", prefix=prefix)
-                await self._set_number("storage_discharge_limit", power_per_inv_w, prefix=prefix)
+                extra_w = int(distribution[prefix] * 1000)
+                await self._set_number("storage_discharge_limit", extra_w, prefix=prefix)
 
             await asyncio.sleep(3)
             await self._set_select(

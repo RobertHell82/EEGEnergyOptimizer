@@ -58,6 +58,11 @@ INVERTER_SIGN_CONVENTIONS = {
 # wizard, backfill, and sensor platform agree on the names.
 COMBINED_BATTERY_POWER_SENSOR_ID = "sensor.eeg_energy_optimizer_battery_power"
 COMBINED_GRID_POWER_SENSOR_ID = "sensor.eeg_energy_optimizer_grid_power"
+# Multi-battery driver-side combined sensors (currently SolarEdge i1+i2+…).
+# Pinned so Wizard, Optimizer-Snapshot, and frontend dashboard agree on the
+# entity names without depending on HA's slugify rules.
+COMBINED_BATTERY_SOC_SENSOR_ID = "sensor.eeg_energy_optimizer_combined_soc"
+COMBINED_BATTERY_CAPACITY_SENSOR_ID = "sensor.eeg_energy_optimizer_combined_capacity"
 
 CONF_FRONIUS_MODBUS_HOST = "fronius_modbus_host"
 CONF_FRONIUS_MODBUS_PORT = "fronius_modbus_port"

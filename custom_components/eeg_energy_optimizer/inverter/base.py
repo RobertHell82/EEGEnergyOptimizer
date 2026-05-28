@@ -56,3 +56,26 @@ class InverterBase(ABC):
     @abstractmethod
     def is_available(self) -> bool:
         """Whether the inverter connection/service is available."""
+
+    # ------------------------------------------------------------------
+    # Optional: combined battery state for multi-inverter setups.
+    # ------------------------------------------------------------------
+    # Bei Multi-Inverter-Setups (aktuell nur SolarEdge mit i1+i2+…) liefert
+    # jede Modbus-Integration nur den SOC einer einzelnen Batterie. Der
+    # Optimizer braucht aber den kapazitätsgewichteten Gesamt-SOC und die
+    # Gesamtkapazität — sonst entlädt er gegen einen falschen Maßstab
+    # ("44 % SOC" bei i1 obwohl gewichtet nur 34.6 %).
+    #
+    # Default: (None, None) → der Driver hat keine Combined-Sicht (Huawei,
+    # Fronius, SolaX: Single-Battery), Optimizer fällt auf den Config-Sensor
+    # battery_soc_sensor + manual capacity zurück. Driver-Override liefert
+    # ein Tupel ⇒ Optimizer überstimmt damit Config-Werte automatisch.
+    def get_combined_battery_state(self) -> tuple[float | None, float | None]:
+        """Return (combined_soc_pct, combined_capacity_kwh) or (None, None).
+
+        Override in Multi-Battery-Drivers (z. B. SolarEdge) to provide a
+        capacity-weighted SOC and the summed nominal capacity. Default
+        (None, None) signals: no driver-side combination available — caller
+        falls back to the configured battery_soc_sensor / battery_capacity_kwh.
+        """
+        return (None, None)
