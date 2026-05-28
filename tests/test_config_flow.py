@@ -88,14 +88,15 @@ class TestConfigFlowMetadata:
     def test_version_in_sync_with_migration(self):
         """VERSION must match the highest migration target in __init__.py.
 
-        Latest migration: v18 (Phase 12 — solax_battery_charge_max_current
-        Entity-Override-Key für den neuen Charge-Block-Pfad).
+        Latest migration: v19 (SolarEdge — battery_soc_sensor und
+        battery_capacity_sensor automatisch auf die Driver-Combined-Sensoren
+        umstellen, damit Frontend und Optimizer denselben Wert sehen).
         """
-        assert EegEnergyOptimizerConfigFlow.VERSION == 18
+        assert EegEnergyOptimizerConfigFlow.VERSION == 19
 
-    def test_config_flow_version_is_18(self):
-        """Smoke: VERSION wurde von 17 auf 18 angehoben."""
-        assert EegEnergyOptimizerConfigFlow.VERSION == 18
+    def test_config_flow_version_is_19(self):
+        """Smoke: VERSION wurde von 18 auf 19 angehoben."""
+        assert EegEnergyOptimizerConfigFlow.VERSION == 19
 
 
 class TestStepUser:

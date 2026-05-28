@@ -529,6 +529,21 @@ class EEGOptimizer:
         # Battery capacity (sensor or manual fallback)
         capacity_kwh = self._resolve_capacity()
 
+        # Multi-inverter override: bei SolarEdge mit 2+ Invertern liefert der
+        # Driver einen kapazitätsgewichteten Gesamt-SOC + Summenkapazität.
+        # Ohne Override würde der Config-Sensor (nur i1) den Optimizer gegen
+        # einen falschen Maßstab rechnen lassen (z. B. "44 %" obwohl gewichtet
+        # nur 34.6 %). Default-Driver liefern (None, None) — Verhalten
+        # unverändert.
+        try:
+            inv_soc, inv_cap = self._inverter.get_combined_battery_state()
+            if inv_soc is not None:
+                battery_soc = inv_soc
+            if inv_cap is not None:
+                capacity_kwh = inv_cap
+        except Exception:
+            _LOGGER.debug("Combined battery state read failed", exc_info=True)
+
         # PV forecasts
         forecast = self._provider.get_forecast()
         pv_remaining = forecast.remaining_today_kwh

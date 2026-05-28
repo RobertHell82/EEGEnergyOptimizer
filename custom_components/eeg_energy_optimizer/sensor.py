@@ -38,7 +38,9 @@ from .const import (
     CONF_PV_POWER_SENSOR_2,
     CONF_UPDATE_INTERVAL_FAST,
     CONF_UPDATE_INTERVAL_SLOW,
+    COMBINED_BATTERY_CAPACITY_SENSOR_ID,
     COMBINED_BATTERY_POWER_SENSOR_ID,
+    COMBINED_BATTERY_SOC_SENSOR_ID,
     COMBINED_GRID_POWER_SENSOR_ID,
     CONSUMPTION_SENSOR,
     DEFAULT_DISCHARGE_A_START_TIME,
@@ -113,6 +115,7 @@ except ImportError:
     class SensorDeviceClass:  # type: ignore[no-redef]
         ENERGY = "energy"
         POWER = "power"
+        BATTERY = "battery"
 
     class SensorStateClass:  # type: ignore[no-redef]
         MEASUREMENT = "measurement"
@@ -1005,6 +1008,90 @@ class GridPowerCombinedSensor(SensorEntity):
         self._attr_native_value = round((e or 0.0) - (i or 0.0), 3)
 
 
+class CombinedBatterySocSensor(SensorEntity):
+    """Capacity-weighted SOC across all batteries managed by the inverter.
+
+    Wird nur registriert, wenn der Driver get_combined_battery_state() einen
+    Wert liefert (aktuell: SolarEdge mit ≥ 2 Invertern). Spiegelt exakt den
+    Wert, den der Optimizer intern nutzt — damit das UI nicht "44 %" zeigt,
+    während der Optimizer mit "34.6 %" rechnet.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Batterie-Ladestand kombiniert"
+    _attr_native_unit_of_measurement = "%"
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_icon = "mdi:battery-sync"
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, hass: Any, entry: Any, inverter: Any) -> None:
+        self.hass = hass
+        self._inverter = inverter
+        # Pin entity_id so wizard + frontend can reference it as a constant.
+        self.entity_id = COMBINED_BATTERY_SOC_SENSOR_ID
+        self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_combined_soc"
+        self._attr_device_info = _device_info(entry.entry_id)
+        self._attr_native_value: float | None = None
+        self._attr_extra_state_attributes: dict[str, Any] = {}
+
+    async def async_update(self) -> None:
+        try:
+            soc, cap = self._inverter.get_combined_battery_state()
+        except Exception:
+            soc, cap = (None, None)
+        if soc is None:
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {
+                "hinweis": "Combined-SOC nicht verfügbar",
+            }
+            return
+        self._attr_native_value = round(soc, 1)
+        self._attr_extra_state_attributes = {
+            "kombinierte_kapazitaet_kwh": round(cap, 2) if cap is not None else None,
+            "berechnung": "Σ(SOC_i × kapazität_i) / Σ(kapazität_i)",
+        }
+
+
+class CombinedBatteryCapacitySensor(SensorEntity):
+    """Total nominal battery capacity across all inverters (kWh).
+
+    Wird nur registriert, wenn Driver get_combined_battery_state() liefert.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Batterie-Kapazität kombiniert"
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_icon = "mdi:battery-high"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: Any, entry: Any, inverter: Any) -> None:
+        self.hass = hass
+        self._inverter = inverter
+        self.entity_id = COMBINED_BATTERY_CAPACITY_SENSOR_ID
+        self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_combined_capacity"
+        self._attr_device_info = _device_info(entry.entry_id)
+        self._attr_native_value: float | None = None
+
+    async def async_update(self) -> None:
+        try:
+            _soc, cap = self._inverter.get_combined_battery_state()
+        except Exception:
+            cap = None
+        self._attr_native_value = round(cap, 2) if cap is not None else None
+
+
+def _inverter_has_combined_state(inverter: Any) -> bool:
+    """Probe the driver: does it provide a combined SOC/capacity?"""
+    if inverter is None or not hasattr(inverter, "get_combined_battery_state"):
+        return False
+    try:
+        soc, cap = inverter.get_combined_battery_state()
+    except Exception:
+        return False
+    return soc is not None or cap is not None
+
+
 def _has_battery_pair(config: dict) -> bool:
     return bool(
         config.get(CONF_BATTERY_POWER_CHARGE_SENSOR)
@@ -1094,6 +1181,19 @@ async def async_setup_entry(
     inverter = data.get("inverter")
     register_writes_sensor = RegisterWritesSensor(hass, entry, inverter)
 
+    # Combined SOC/Capacity sensors — only created when the driver actually
+    # provides them (multi-battery setups, currently only SolarEdge i1+i2+…).
+    # Single-battery drivers (Huawei, Fronius, SolaX) return (None, None)
+    # from get_combined_battery_state() → no extra entities.
+    if _inverter_has_combined_state(inverter):
+        combined_soc_sensor = CombinedBatterySocSensor(hass, entry, inverter)
+        combined_capacity_sensor = CombinedBatteryCapacitySensor(
+            hass, entry, inverter
+        )
+    else:
+        combined_soc_sensor = None
+        combined_capacity_sensor = None
+
     # Sensor 18: Entscheidungs-Sensor (updated by optimizer timer, not by fast/slow timers)
     decision_sensor = EntscheidungsSensor(entry.entry_id)
     data["decision_sensor"] = decision_sensor
@@ -1119,6 +1219,8 @@ async def async_setup_entry(
            feedin_morning_sensor, feedin_evening_sensor]
         + ([combined_battery_sensor] if combined_battery_sensor else [])
         + ([combined_grid_sensor] if combined_grid_sensor else [])
+        + ([combined_soc_sensor] if combined_soc_sensor else [])
+        + ([combined_capacity_sensor] if combined_capacity_sensor else [])
     )
 
     async_add_entities(slow_sensors + fast_sensors + [decision_sensor], False)

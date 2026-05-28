@@ -1492,6 +1492,12 @@ class EegOptimizerPanel extends HTMLElement {
         return true;
       }
       case 3: // Batterie
+        // SolarEdge: SOC + Kapazität werden vom Driver kombiniert über alle
+        // i1/i2/...-Inverter berechnet — Pflichtfelder entfallen, der Save-
+        // Handler setzt die Combined-Sensor-IDs automatisch ein.
+        if (this._wizardData.inverter_type === "solaredge_storedge") {
+          return true;
+        }
         if (!this._wizardData.battery_soc_sensor) {
           this._showValidationError("SOC-Sensor ist erforderlich.");
           return false;
@@ -1541,6 +1547,17 @@ class EegOptimizerPanel extends HTMLElement {
 
     try {
       this._wizardData.setup_complete = true;
+      // SolarEdge: SOC + Kapazität laufen über die Driver-Combined-Sensoren.
+      // Wir tragen die pinned IDs explizit ein, damit das Frontend (Energy-
+      // Flow-Diagramm liest battery_soc_sensor direkt) und der Optimizer-
+      // Snapshot konsistent denselben Wert sehen.
+      if (this._wizardData.inverter_type === "solaredge_storedge") {
+        this._wizardData.battery_soc_sensor = "sensor.eeg_energy_optimizer_combined_soc";
+        this._wizardData.battery_capacity_sensor = "sensor.eeg_energy_optimizer_combined_capacity";
+        // Manueller Capacity-Fallback wird nicht mehr genutzt — Driver liefert
+        // die Summe direkt. Bewusst nicht gelöscht, damit der User seine
+        // ursprüngliche Eingabe in der Config nachvollziehen kann.
+      }
       const saveData = { ...this._wizardData };
       delete saveData.consumption_sensor;
       await this._hass.callWS({
@@ -2028,7 +2045,15 @@ class EegOptimizerPanel extends HTMLElement {
       if (this._detectedSensors.detected && this._detectedSensors.sensors) {
         // Pre-fill detected sensors only if user hasn't already chosen values
         const sensors = this._detectedSensors.sensors;
+        // SolarEdge: SOC + Kapazität laufen über die Driver-Combined-Sensoren —
+        // Auto-Detection darf hier nicht den einzelnen i1-Sensor eintragen
+        // (das würde den Wizard-Save-Pfad untergraben).
+        const isSolarEdge = this._wizardData.inverter_type === "solaredge_storedge";
+        const skipKeys = isSolarEdge
+          ? new Set(["battery_soc_sensor", "battery_capacity_sensor"])
+          : new Set();
         for (const [key, val] of Object.entries(sensors)) {
+          if (skipKeys.has(key)) continue;
           if (!this._wizardData[key]) {
             this._wizardData[key] = val;
           }
@@ -2916,6 +2941,38 @@ class EegOptimizerPanel extends HTMLElement {
     const detected = this._detectedSensors && this._detectedSensors.detected;
 
     let detectionInfo = "";
+
+    // SolarEdge: Driver berechnet SOC + Kapazität kapazitätsgewichtet über
+    // alle Inverter (i1, i2, ...). Wizard zeigt nur einen Info-Block; die
+    // Combined-Sensor-IDs werden beim Save automatisch eingetragen.
+    if (this._wizardData.inverter_type === "solaredge_storedge") {
+      const detectedPrefixes = [];
+      if (this._wizardData.pv_power_sensor) detectedPrefixes.push("i1");
+      if (this._wizardData.pv_power_sensor_2) detectedPrefixes.push("i2");
+      const prefixInfo = detectedPrefixes.length > 0
+        ? `Erkannte Inverter: <strong>${detectedPrefixes.join(", ")}</strong>`
+        : "Inverter-Erkennung läuft …";
+      return `
+        <div style="display:flex;gap:12px;padding:14px;border-left:3px solid var(--primary-color);background:var(--secondary-background-color);border-radius:6px">
+          <ha-icon icon="mdi:battery-sync" style="--mdc-icon-size:28px;color:var(--primary-color);flex-shrink:0"></ha-icon>
+          <div>
+            <strong>SOC und Kapazität werden automatisch ermittelt.</strong>
+            <div class="help-text" style="margin-top:6px">
+              Bei SolarEdge liest die Integration die Werte pro Inverter
+              direkt aus den b1-Sensoren der <code>solaredge_modbus_multi</code>-
+              Integration und kombiniert sie:
+              <ul style="margin:6px 0 4px 18px">
+                <li>SOC = Σ(SOC<sub>i</sub> × Kapazität<sub>i</sub>) / Σ(Kapazität<sub>i</sub>)</li>
+                <li>Kapazität = Σ(Kapazität<sub>i</sub>)</li>
+              </ul>
+              ${prefixInfo}.
+              <br>Es werden zwei neue Sensoren angelegt:
+              <code>sensor.eeg_energy_optimizer_combined_soc</code> und
+              <code>sensor.eeg_energy_optimizer_combined_capacity</code>.
+            </div>
+          </div>
+        </div>`;
+    }
 
     const socHelp =
       "Der SOC-Sensor zeigt den aktuellen Ladestand deiner Batterie in Prozent.";
