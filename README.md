@@ -67,6 +67,8 @@ Die Integration minimiert Schreibvorgänge: Im Worst Case (jeden Tag Morgen-Bloc
 5. "Hinzufügen" klicken und "EEG Energy Optimizer" installieren
 6. Home Assistant neu starten
 
+Ausführliche Schritt-für-Schritt-Anleitungen (inkl. HACS-Installation, Wechselrichter-Anbindung und PV-Prognose-Einrichtung) gibt es in der **[Dokumentation](docs/README.md)**.
+
 ## Konfiguration
 
 Nach der Installation die Integration hinzufügen:

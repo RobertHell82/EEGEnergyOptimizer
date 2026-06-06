@@ -1,0 +1,88 @@
+<!-- GENERATED FILE - DO NOT EDIT.
+     Quelle: docs/guides/solax.md
+     Neu generieren mit: python scripts/build_guides.py -->
+<h2 class="guide-title">SolaX Modbus einrichten</h2>
+<h3>1. Unterstützte Wechselrichter</h3>
+<p>Nur <strong>Gen4, Gen5 und Gen6</strong> Wechselrichter werden unterstützt. Ältere Generationen (Gen2/Gen3) haben keine Remote Control Funktion.</p>
+<h3>2. Wechselrichter-Einstellungen</h3>
+<p>Diese Einstellungen müssen am Wechselrichter oder in der SolaX-App korrekt gesetzt sein:</p>
+<table>
+<thead>
+<tr>
+<th>Einstellung</th>
+<th>Wert</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Work Mode</strong></td>
+<td><strong>Self Use</strong> (charger_use_mode = 0)</td>
+</tr>
+<tr>
+<td><strong>Night Charge</strong></td>
+<td><strong>Aus</strong> — sonst lädt die Batterie nachts aus dem Netz</td>
+</tr>
+<tr>
+<td><strong>Smart Schedule / Zeitplan</strong></td>
+<td><strong>Aus</strong> — kollidiert mit der Optimizer-Steuerung</td>
+</tr>
+</tbody>
+</table>
+<div class="guide-alert warning"><p><strong>Wichtig:</strong> Der Work Mode darf <strong>NICHT</strong> auf „Feedin Priority" oder „Force Time Use" stehen! Der EEG Energy Optimizer steuert die Batterie über Remote Control (Mode 1) und setzt voraus, dass der Wechselrichter im Self Use Modus läuft.</p></div>
+
+<h3>3. HACS Integration installieren</h3>
+<p><em><strong>Voraussetzung:</strong> <a href="https://hacs.xyz/">HACS</a> muss installiert sein.</em></p>
+<ol>
+<li>Gehe zu <strong>HACS → Integrationen → Suche „SolaX Inverter Modbus"</strong><br>
+   <em>Repository: <code>wills106/homeassistant-solax-modbus</code></em></li>
+<li>Installiere die Integration und <strong>starte Home Assistant neu</strong></li>
+</ol>
+<h3>4. Integration konfigurieren</h3>
+<ol>
+<li>Gehe zu <strong>Einstellungen → Geräte &amp; Dienste → Integration hinzufügen</strong></li>
+<li>Suche nach <strong>„SolaX Inverter Modbus"</strong></li>
+<li>Gib die <strong>IP-Adresse</strong> des Wechselrichters / WiFi-Dongles ein</li>
+<li>Port: <strong>502</strong> (Standard für Modbus TCP)</li>
+<li>Prüfe, dass <strong>„Gen4+ Inverter"</strong> als Typ ausgewählt ist</li>
+</ol>
+<h3>5. Batterie-Kapazität</h3>
+<p>SolaX stellt <strong>keinen Sensor für die Batteriekapazität</strong> bereit. Du gibst die Kapazität später im Wizard manuell ein (z.B. 5.8 kWh für eine T-BAT 5.8).</p>
+<h3>6. Prüfen</h3>
+<ol>
+<li>Unter <strong>Einstellungen → Integrationen</strong>: SolaX Inverter Modbus zeigt <strong>„geladen"</strong></li>
+<li><strong>Entwicklerwerkzeuge → Zustände</strong>: <code>sensor.solax_*battery_capacity</code> zeigt SOC (0–100%)</li>
+<li><code>button.solax_*remotecontrol_trigger</code> existiert (= Remote Control verfügbar)</li>
+<li>Kehre hierher zurück — der Wechselrichter wird automatisch erkannt</li>
+</ol>
+<p><em><strong>Hinweis:</strong> Der Entity-Prefix variiert je Installation (z.B. <code>solax_inverter_</code> statt <code>solax_</code>). Der EEG Energy Optimizer erkennt den Prefix automatisch.</em></p>
+<h3>Häufige Probleme</h3>
+<table>
+<thead>
+<tr>
+<th>Problem</th>
+<th>Lösung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Connection refused</strong></td>
+<td>WiFi-Dongle nicht erreichbar → IP und Netzwerk prüfen</td>
+</tr>
+<tr>
+<td><strong>Kein remotecontrol_trigger</strong></td>
+<td>Gen2/Gen3 oder X1 Fit (AC-coupled) → nicht unterstützt</td>
+</tr>
+<tr>
+<td><strong>Kommandos ohne Wirkung</strong></td>
+<td>Work Mode auf „Self Use" prüfen, Night Charge und Smart Schedule aus</td>
+</tr>
+<tr>
+<td><strong>Batterie lädt trotz Blockierung</strong></td>
+<td>Lock State prüfen — Passwort <code>2014</code> zum Entsperren</td>
+</tr>
+<tr>
+<td><strong>Sensoren „unavailable" nachts</strong></td>
+<td>Normal — Wechselrichter im Sleep Mode (kein PV, keine Last)</td>
+</tr>
+</tbody>
+</table>
