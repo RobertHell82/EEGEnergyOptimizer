@@ -9,6 +9,19 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 ## Unreleased
 
+## [1.2.11] - 2026-06-06
+
+> Release: Doku-Feinschliff.
+
+### Geändert
+
+- **HACS-Installationsanleitung:** „Get HACS" Add-on als primäre Methode (ohne Terminal), inkl. My-Home-Assistant-Link zum direkten Hinzufügen des Add-on-Repositories; Terminal-Variante bleibt als Alternative.
+- **Huawei-Guide:** Warnhinweis „Nur EINE Modbus-Verbindung gleichzeitig möglich / FusionSolar App komplett schließen" entfernt.
+
+### Nicht verhaltensrelevant
+
+Reine Dokumentationsänderungen, keine Änderungen an Optimizer-/Steuerungslogik.
+
 ## [1.2.10] - 2026-06-06
 
 > Release: Dokumentationsordner mit Enduser-Anleitungen, In-App-Guides aus zentraler Quelle generiert.
