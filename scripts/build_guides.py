@@ -10,7 +10,7 @@ Usage:
 
 Requires: pip install markdown
 
-Markdown conventions (see docs/README.md):
+Markdown conventions (see docs/DEVELOPMENT.md):
     # Title              -> <h2 class="guide-title"> (dialog heading)
     ##/###/####          -> shifted one level down (h3/h4/h5)
     > [!WARNING]         -> <div class="guide-alert warning">

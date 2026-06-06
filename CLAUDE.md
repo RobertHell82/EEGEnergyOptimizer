@@ -192,5 +192,6 @@ Config entry version: 12 (migrations in `__init__.py`)
 - **Never edit `frontend/guide/*.html` directly** — edit the Markdown source and regenerate
 - After changing any file in `docs/guides/` or `docs/images/`: run `python scripts/build_guides.py` and commit both sides
 - CI (`.github/workflows/docs-sync.yml`) runs `build_guides.py --check` and fails on divergence
-- Markdown conventions (alerts, secondary text, image paths) are documented in `docs/README.md`
+- Markdown conventions (alerts, secondary text, image paths) are documented in `docs/DEVELOPMENT.md`
+- `docs/README.md` is the end-user entry page — keep it free of developer notes
 - Installation docs (`docs/installation/`) exist only in `docs/` — they have no panel counterpart
