@@ -11,31 +11,21 @@
 - Ein **GitHub-Konto** (kostenlos) — wird für die Aktivierung von HACS benötigt
 - Zugriff auf die Home Assistant Oberfläche als Administrator
 
-## 1. Terminal-Add-on installieren
+## 1. HACS herunterladen (per „Get HACS" Add-on — kein Terminal nötig)
 
-HACS wird über ein Download-Script installiert. Dafür brauchst du Terminal-Zugriff:
+1. Klicke auf diesen Link, um das HACS Add-on-Repository hinzuzufügen:<br>
+   **[➕ Add-on-Repository in Home Assistant öffnen](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fhacs%2Faddons)**<br>
+   _Alternativ manuell: **Einstellungen → Add-ons → Add-on Store** → Drei-Punkte-Menü oben rechts → **Repositories** → `https://github.com/hacs/addons` eintragen → **Hinzufügen**_
+2. Im **Add-on Store** nach **„Get HACS"** suchen (ggf. Seite neu laden) und das Add-on **installieren**
+3. Das Add-on **starten** — es lädt HACS automatisch herunter (Fortschritt im Log des Add-ons sichtbar)
+4. Danach kann das Add-on **wieder deinstalliert** werden — es wird nur einmalig gebraucht
 
-1. Gehe zu **Einstellungen → Add-ons → Add-on Store**
-2. Suche nach **„Advanced SSH & Web Terminal"** (oder „Terminal & SSH")
-3. Installiere das Add-on und starte es
-4. Öffne das Terminal über die Seitenleiste oder die Add-on-Seite
-
-## 2. HACS herunterladen
-
-Führe im Terminal folgenden Befehl aus:
-
-```bash
-wget -O - https://get.hacs.xyz | bash -
-```
-
-Das Script lädt die aktuelle HACS-Version herunter und legt sie unter `config/custom_components/hacs` ab.
-
-## 3. Home Assistant neu starten
+## 2. Home Assistant neu starten
 
 1. Gehe zu **Einstellungen → System**
 2. Klicke oben rechts auf das **Power-Symbol → Home Assistant neu starten**
 
-## 4. HACS-Integration hinzufügen
+## 3. HACS-Integration hinzufügen
 
 1. Gehe zu **Einstellungen → Geräte & Dienste → Integration hinzufügen**
 2. Suche nach **„HACS"** und wähle es aus
@@ -44,10 +34,23 @@ Das Script lädt die aktuelle HACS-Version herunter und legt sie unter `config/c
 5. Melde dich bei GitHub an und gib den Code ein
 6. Autorisiere HACS — zurück in Home Assistant schließt sich der Dialog automatisch
 
-## 5. Prüfen
+## 4. Prüfen
 
 - In der Seitenleiste erscheint der Eintrag **HACS**
 - Unter **HACS** kannst du jetzt Community-Integrationen suchen und installieren
+
+## Alternative: Installation per Terminal
+
+Falls du das Add-on nicht nutzen kannst oder willst, geht es auch klassisch per Download-Script:
+
+1. **Einstellungen → Add-ons → Add-on Store** → **„Advanced SSH & Web Terminal"** (oder „Terminal & SSH") installieren und starten
+2. Im Terminal ausführen:
+
+   ```bash
+   wget -O - https://get.hacs.xyz | bash -
+   ```
+
+3. Weiter mit Schritt 2 (Neustart) oben
 
 ## Nächster Schritt
 
@@ -57,6 +60,6 @@ Das Script lädt die aktuelle HACS-Version herunter und legt sie unter `config/c
 
 | Problem | Lösung |
 |---|---|
-| HACS taucht nach Neustart nicht unter Integrationen auf | Browser-Cache leeren (Strg+F5), Neustart wirklich durchgeführt? |
-| `wget: command not found` | Anderes Terminal-Add-on verwenden oder `curl -fsSL https://get.hacs.xyz \| bash -` |
+| „Get HACS" taucht im Add-on Store nicht auf | Seite neu laden (Strg+F5); prüfen, ob das Repository `hacs/addons` unter Repositories eingetragen ist |
+| HACS taucht nach Neustart nicht unter Integrationen auf | Browser-Cache leeren (Strg+F5); wurde der Neustart wirklich durchgeführt? |
 | GitHub-Code abgelaufen | Integration erneut hinzufügen, neuen Code anfordern |
