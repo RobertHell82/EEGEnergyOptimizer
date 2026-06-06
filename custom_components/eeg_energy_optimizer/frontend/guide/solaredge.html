@@ -1,0 +1,93 @@
+<!-- GENERATED FILE - DO NOT EDIT.
+     Quelle: docs/guides/solaredge.md
+     Neu generieren mit: python scripts/build_guides.py -->
+<h2 class="guide-title">SolarEdge Modbus Multi einrichten</h2>
+<h3>1. Wechselrichter vorbereiten</h3>
+<p>Modbus TCP muss am Wechselrichter aktiviert sein. Je nach Modell gibt es zwei Varianten:</p>
+<h4>SetApp-Wechselrichter (ohne LCD-Display)</h4>
+<ol>
+<li>Roten <strong>DIP-Schalter</strong> am Wechselrichter kurz (&lt; 5 Sek.) auf <strong>„P"</strong> stellen<br>
+   <em>Aktiviert den WiFi-Direct-Hotspot des Wechselrichters.</em></li>
+<li>Handy-WLAN mit dem Wechselrichter-Hotspot verbinden (Netzwerkname steht auf dem Gerät)</li>
+<li>Im Browser <code>http://172.16.0.1</code> öffnen</li>
+<li><strong>Site Communication</strong> öffnen</li>
+<li><strong>Modbus/TCP</strong> aktivieren</li>
+</ol>
+<div class="guide-alert warning"><p><strong>Zeitfenster:</strong> Die Integration muss sich <strong>innerhalb von 2 Minuten</strong> nach dem Aktivieren verbinden! Danach bleibt der Port offen. Falls zu spät: Modbus TCP aus- und wieder einschalten.</p></div>
+
+<h4>LCD-Wechselrichter (ältere Modelle)</h4>
+<ol>
+<li><strong>„OK"</strong> für 5 Sekunden drücken (Installer-Modus)</li>
+<li>Passwort: <code>12312312</code></li>
+<li><strong>Communications → LAN setup</strong> navigieren</li>
+<li>Modbus/TCP Port konfigurieren</li>
+</ol>
+<div class="guide-alert warning"><p><strong>Wichtig:</strong> SolarEdge erlaubt nur <strong>EINE Modbus-Verbindung</strong> gleichzeitig! Andere Modbus-Integrationen müssen deaktiviert werden.</p></div>
+
+<h3>2. HACS Integration installieren</h3>
+<p><em><strong>Voraussetzung:</strong> <a href="https://hacs.xyz/">HACS</a> muss installiert sein.</em></p>
+<ol>
+<li>Gehe zu <strong>HACS → Integrationen → Suche „SolarEdge Modbus Multi"</strong><br>
+   <em>Repository: <code>WillCodeForCats/solaredge-modbus-multi</code></em></li>
+<li>Installiere die Integration und <strong>starte Home Assistant neu</strong></li>
+</ol>
+<h3>3. Integration konfigurieren</h3>
+<ol>
+<li>Gehe zu <strong>Einstellungen → Geräte &amp; Dienste → Integration hinzufügen</strong></li>
+<li>Suche nach <strong>„SolarEdge Modbus Multi"</strong></li>
+<li>Gib die <strong>IP-Adresse</strong> des Wechselrichters ein</li>
+<li>Port: <strong>1502</strong> (Standard für SolarEdge Modbus TCP)</li>
+<li>Device ID: <strong>1</strong></li>
+</ol>
+<h3>4. Speichersteuerung aktivieren</h3>
+<div class="guide-alert caution"><p><strong>Pflichtschritt!</strong> Ohne diesen Schritt fehlen die Steuerungs-Entities und der EEG Energy Optimizer kann die Batterie nicht steuern.</p></div>
+
+<ol>
+<li>Gehe zu <strong>Einstellungen → Integrationen → SolarEdge Modbus Multi</strong></li>
+<li>Klicke auf das <strong>Drei-Punkte-Menü</strong> → <strong>„Konfigurieren"</strong></li>
+<li>Aktiviere <strong>„Allow StorEdge Control"</strong> (Speichersteuerung)</li>
+<li>Speichern und <strong>Integration neu laden</strong></li>
+</ol>
+<p><em>Nach dem Neuladen sollten diese Entities erscheinen: <code>select.*storage_command_mode</code>, <code>number.*storage_charge_limit</code>, <code>number.*storage_discharge_limit</code></em></p>
+<p><em><strong>Hinweis:</strong> Der EEG Energy Optimizer setzt <code>storage_control_mode</code> bei Bedarf automatisch auf „Remote Control" und stellt den Originalzustand danach wieder her.</em></p>
+<div class="guide-alert note"><p><strong>NVRAM-Schreibvorgänge:</strong> SolarEdge speichert Modbus-Registeränderungen im Flash-Speicher (NVRAM). Der EEG Energy Optimizer minimiert Schreibvorgänge: max. ~12 Writes/Tag (Worst Case), an bewölkten Tagen oder im Winter 0 Writes. Realistisch ~7 Writes/Tag im Jahresdurchschnitt → ~39 Jahre bei 100.000 Flash-Zyklen.</p></div>
+
+<h3>5. Prüfen</h3>
+<ol>
+<li>Unter <strong>Einstellungen → Integrationen</strong>: SolarEdge Modbus Multi zeigt <strong>„geladen"</strong></li>
+<li><strong>Entwicklerwerkzeuge → Zustände</strong>: <code>sensor.solaredge_*_b1_state_of_energy</code> zeigt SOC (0–100%)</li>
+<li><code>select.solaredge_*_storage_command_mode</code> existiert (= Speichersteuerung aktiv)</li>
+<li>Kehre hierher zurück — der Wechselrichter wird automatisch erkannt</li>
+</ol>
+<p><em><strong>Hinweis:</strong> Der Entity-Prefix variiert je Installation (z.B. <code>solaredge_i1_</code> statt <code>solaredge_</code>). Der EEG Energy Optimizer erkennt den Prefix automatisch.</em></p>
+<h3>Häufige Probleme</h3>
+<table>
+<thead>
+<tr>
+<th>Problem</th>
+<th>Lösung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Connection refused</strong></td>
+<td>Modbus TCP nicht aktiviert → Schritt 1 wiederholen</td>
+</tr>
+<tr>
+<td><strong>Connection timeout</strong></td>
+<td>Port 1502 prüfen. Bei SetApp: 2-Minuten-Fenster beachten</td>
+</tr>
+<tr>
+<td><strong>Keine Batterie-Entities</strong></td>
+<td>Options → „Detect Batteries" aktivieren</td>
+</tr>
+<tr>
+<td><strong>Keine Storage-Entities</strong></td>
+<td>„Allow StorEdge Control" in Options nicht aktiviert → Schritt 4</td>
+</tr>
+<tr>
+<td><strong>Verbindung bricht ab</strong></td>
+<td>Nur EINE Modbus-Verbindung möglich — andere Integrationen deaktivieren</td>
+</tr>
+</tbody>
+</table>

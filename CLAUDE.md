@@ -184,3 +184,14 @@ Config entry version: 12 (migrations in `__init__.py`)
 - The optimizer calculates every cycle but only executes inverter commands when mode is "Ein"
 - Config changes trigger full integration reload via `_async_update_listener`
 - `__pycache__/` directories should be added to `.gitignore`
+
+## Documentation Sync (docs/ ↔ Panel)
+
+- `docs/guides/*.md` + `docs/images/**` are the **single source of truth** for the in-app guides ("Anleitung" dialogs in the panel)
+- `scripts/build_guides.py` converts them to HTML fragments in `custom_components/eeg_energy_optimizer/frontend/guide/` (requires `pip install markdown`); the panel fetches these at runtime
+- **Never edit `frontend/guide/*.html` directly** — edit the Markdown source and regenerate
+- After changing any file in `docs/guides/` or `docs/images/`: run `python scripts/build_guides.py` and commit both sides
+- CI (`.github/workflows/docs-sync.yml`) runs `build_guides.py --check` and fails on divergence
+- Markdown conventions (alerts, secondary text, image paths) are documented in `docs/DEVELOPMENT.md`
+- `docs/README.md` is the end-user entry page — keep it free of developer notes
+- Installation docs (`docs/installation/`) exist only in `docs/` — they have no panel counterpart

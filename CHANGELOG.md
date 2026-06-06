@@ -9,6 +9,23 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 ## Unreleased
 
+## [1.2.10] - 2026-06-06
+
+> Release: Dokumentationsordner mit Enduser-Anleitungen, In-App-Guides aus zentraler Quelle generiert.
+
+### Hinzugefügt
+
+- **`docs/`-Ordner als zentrale Dokumentation.** Enduser-Einstiegsseite (`docs/README.md`) mit Schritt-für-Schritt-Anleitungen: HACS-Installation, Installation der EEG-Integration über HACS, sowie alle 7 Einrichtungs-Guides (Huawei, Huawei-Kapazitätssensor, Fronius, SolaX, SolarEdge, Solcast, Forecast.Solar) als Markdown — auf GitHub direkt lesbar inkl. Screenshots. Entwickler-Hinweise separat in `docs/DEVELOPMENT.md`.
+- **Single Source of Truth + Sync-Guard.** `docs/guides/` + `docs/images/` sind die einzige Quelle der In-App-Anleitungen. `scripts/build_guides.py` generiert daraus die HTML-Fragmente für das Panel (`--check`-Modus für Verifikation); GitHub Action `docs-sync.yml` schlägt bei Divergenz fehl. Redundanter Root-Ordner `guide screenshots/` entfernt (nach `docs/images/` konsolidiert).
+
+### Geändert
+
+- **Panel lädt Anleitungen zur Laufzeit.** `DIALOG_CONTENT` enthält nur noch Datei-Referenzen; die „Anleitung"-Dialoge laden die generierten HTML-Fragmente per `fetch()` von `/eeg_optimizer_panel/guide/` (mit Cache, Lade- und Fehlerzustand). ~430 Zeilen Inline-HTML aus dem Panel-JS entfernt, Guide-Styling zentral als CSS (inkl. Alert-Boxen aus GitHub-Alert-Syntax).
+
+### Nicht verhaltensrelevant
+
+Keine Änderungen an der Optimizer-/Steuerungslogik. Suite 496 passed, 31 skipped.
+
 ## [1.2.9] - 2026-05-28
 
 > Release konsolidiert die DEV-Iteration 1.2.9-dev-01 (SolarEdge Multi-Inverter Combined-SOC + proportionale Discharge-Verteilung).

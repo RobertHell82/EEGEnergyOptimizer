@@ -134,438 +134,16 @@ const FORECAST_SOLAR_DEFAULTS = {
   forecast_tomorrow_entity: "sensor.energy_production_tomorrow",
 };
 
+// Guide-Dialoge — Inhalte werden aus docs/guides/*.md generiert (scripts/build_guides.py)
+// und zur Laufzeit von /eeg_optimizer_panel/guide/<datei> geladen.
 const DIALOG_CONTENT = {
-  huawei: {
-    title: "Huawei Solar Integration einrichten",
-    content: `
-      <h3 style="margin:16px 0 8px">1. Wechselrichter vorbereiten</h3>
-      <p style="margin-bottom:8px">Modbus TCP muss am Wechselrichter aktiviert sein, damit Home Assistant zugreifen kann:</p>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Handy-WLAN mit dem Wechselrichter-Hotspot verbinden (<code>SUN2000-&lt;Seriennummer&gt;</code>)
-          <br><span style="color:var(--secondary-text-color)">Passwort steht auf dem Dongle-Aufkleber. Mobile Daten am Handy deaktivieren!</span>
-        </li>
-        <li><strong>FusionSolar App</strong> oder <strong>SUN2000 App</strong> &ouml;ffnen &rarr; <strong>Ger&auml;te-Inbetriebnahme</strong></li>
-        <li>Login als <strong>Installer</strong> mit Passwort <code>00000a</code>
-          <br><span style="color:var(--secondary-text-color)">Standard-Passwort (6 Zeichen). Falls ge&auml;ndert: aktuelles Installer-Passwort verwenden.</span>
-        </li>
-        <li><strong>Einstellungen &rarr; Kommunikationskonfiguration &rarr; Dongle-Parameter</strong></li>
-        <li>Modbus-TCP auf <strong>&ldquo;Aktivieren (uneingeschr&auml;nkt)&rdquo;</strong> setzen</li>
-      </ol>
-      <div style="background:var(--warning-color,#ff9800);color:#fff;padding:8px 12px;border-radius:8px;margin:12px 0;font-size:13px">
-        <strong>&#9888; Wichtig:</strong> Nur EINE Modbus-Verbindung gleichzeitig m&ouml;glich! FusionSolar App komplett schlie&szlig;en (nicht nur minimieren) bevor die HA-Integration gestartet wird.
-      </div>
-      <h3 style="margin:16px 0 8px">2. HACS Integration installieren</h3>
-      <p style="margin-bottom:8px;color:var(--secondary-text-color)"><strong>Voraussetzung:</strong> <a href="https://hacs.xyz/" target="_blank">HACS</a> muss installiert sein.</p>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Gehe zu <strong>HACS &rarr; Integrationen &rarr; Suche &ldquo;Huawei Solar&rdquo;</strong>
-          <br><span style="color:var(--secondary-text-color)">Repository: wlcrs/huawei_solar</span>
-        </li>
-        <li>Installiere die Integration und <strong>starte Home Assistant neu</strong></li>
-      </ol>
-      <h3 style="margin:16px 0 8px">3. Integration konfigurieren</h3>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Gehe zu <strong>Einstellungen &rarr; Ger&auml;te &amp; Dienste &rarr; Integration hinzuf&uuml;gen</strong></li>
-        <li>Suche nach <strong>&ldquo;Huawei Solar&rdquo;</strong></li>
-        <li>W&auml;hle <strong>Netzwerk</strong> als Verbindungstyp</li>
-        <li>Gib die <strong>IP-Adresse</strong> des Wechselrichters/Dongles ein</li>
-        <li>Port: <strong>6607</strong> (neuere Firmware) oder <strong>502</strong> (EMMA / &auml;ltere Firmware)</li>
-        <li>Slave ID: <strong>1</strong> (Standard, bei Problemen 0 versuchen)</li>
-        <li><strong>Elevated Permissions: MUSS aktiviert werden!</strong>
-          <br><span style="color:var(--secondary-text-color)">Ohne Elevated Permissions keine Batteriesteuerung &mdash; der EEG Energy Optimizer kann dann nicht steuern.</span>
-        </li>
-        <li>Installer-Passwort: <code>00000a</code> eingeben</li>
-      </ol>
-      <p style="margin:8px 0;color:var(--secondary-text-color);font-size:13px"><strong>Elevated Permissions vergessen?</strong> Unter Einstellungen &rarr; Integrationen &rarr; Huawei Solar &rarr; Drei-Punkte-Men&uuml; &rarr; &ldquo;Neu konfigurieren&rdquo; nachtr&auml;glich aktivieren.</p>
-      <h3 style="margin:16px 0 8px">4. Pr&uuml;fen</h3>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Unter <strong>Einstellungen &rarr; Integrationen</strong>: Huawei Solar zeigt <strong>&ldquo;geladen&rdquo;</strong></li>
-        <li><strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: <code>sensor.battery_state_of_capacity</code> zeigt SOC (0&ndash;100%)</li>
-        <li><code>number.batteries_maximale_ladeleistung</code> existiert (= Elevated Permissions aktiv)</li>
-        <li>Kehre hierher zur&uuml;ck &mdash; der Wechselrichter wird automatisch erkannt</li>
-      </ol>
-      <h3 style="margin:16px 0 8px">H&auml;ufige Probleme</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Connection refused</strong></td>
-          <td style="padding:4px 8px">Modbus TCP nicht aktiviert &rarr; Schritt 1 wiederholen</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Connection timeout</strong></td>
-          <td style="padding:4px 8px">Port 6607 statt 502 versuchen (oder umgekehrt)</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Keine Batterie-Entities</strong></td>
-          <td style="padding:4px 8px">Elevated Permissions fehlen &rarr; neu konfigurieren</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Permission denied</strong></td>
-          <td style="padding:4px 8px">Passwort <code>00000a</code> oder <code>0000000a</code> (8 Zeichen) versuchen</td>
-        </tr>
-        <tr>
-          <td style="padding:4px 8px"><strong>Verbindung bricht ab</strong></td>
-          <td style="padding:4px 8px">FusionSolar App komplett schlie&szlig;en, nicht nur minimieren</td>
-        </tr>
-      </table>`,
-  },
-  solcast: {
-    title: "Solcast Solar einrichten",
-    content: `
-      <style>.guide-img { max-width:100%; border-radius:8px; margin:8px 0 12px; border:1px solid var(--divider-color); cursor:pointer; } .guide-img:hover { opacity:0.9; }</style>
-      <h3 style="margin:16px 0 8px">1. Registrierung bei Solcast</h3>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Gehe auf <a href="https://toolkit.solcast.com.au/" target="_blank">toolkit.solcast.com.au</a> um Dich zu registrieren.</li>
-        <li>W&auml;hle dort den Accounttyp <strong>Home User</strong>.
-          <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/01_Home_User.png" alt="Home User w&auml;hlen">
-        </li>
-        <li>W&auml;hle <strong>Hobbyist</strong>, gib Deine Daten ein und klicke auf <strong>Submit</strong>.
-          <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/02_Registration.png" alt="Registrierung">
-        </li>
-        <li>W&auml;hle ein Passwort und klicke auf <strong>Submit</strong>.</li>
-        <li>Du erh&auml;ltst eine E-Mail zur Best&auml;tigung &mdash; &ouml;ffne den Link darin.</li>
-        <li>Melde Dich mit dem neuen Benutzer an.</li>
-        <li>Klicke auf <strong>&ldquo;Add your first Home PV System to get started&rdquo;</strong>.
-          <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/03_Add_PV_System.png" alt="PV System hinzuf&uuml;gen">
-        </li>
-        <li>Daten der PV-Anlage erfassen:
-          <ul style="margin:4px 0;padding-left:16px">
-            <li><strong>Capacity (kW)</strong> &mdash; Anlagenleistung in kWp (z.B. 10)</li>
-            <li><strong>Tilt</strong> &mdash; Dachneigung in Grad (typisch 30&ndash;35&deg;)</li>
-            <li><strong>Azimuth</strong> &mdash; Ausrichtung: 0&deg;=Nord, -90&deg;=Ost, &plusmn;180&deg;=S&uuml;d, 90&deg;=West</li>
-          </ul>
-          Auf <strong>Submit</strong> klicken.
-          <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/04_Save_PV_System.png" alt="PV System speichern">
-        </li>
-        <li><strong>Mehrere Ausrichtungen (Ost/West)?</strong> Klicke auf <strong>&ldquo;Add another PV System&rdquo;</strong> und erfasse die zweite Dachfl&auml;che separat. Beide nutzen denselben API-Key.</li>
-        <li>&Ouml;ffne oben rechts das Men&uuml; neben dem Benutzernamen und klicke auf <strong>Your API Key</strong>.</li>
-        <li>Kopiere den angezeigten Key f&uuml;r sp&auml;ter.
-          <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/05_API_Key.png" alt="API Key kopieren">
-        </li>
-      </ol>
-      <h3 style="margin:16px 0 8px">2. Installation der Integration</h3>
-      <p style="margin-bottom:8px;color:var(--secondary-text-color)"><strong>Voraussetzung:</strong> <a href="https://hacs.xyz/" target="_blank">HACS</a> muss installiert sein (Solcast ist eine Custom Integration, kein HA-Standard).</p>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Gehe zu <strong>HACS &rarr; Integrationen &rarr; Suche &ldquo;Solcast PV Forecast&rdquo;</strong></li>
-        <li>Installiere die Integration und starte Home Assistant neu.</li>
-        <li>Unter <strong>Einstellungen &rarr; Ger&auml;te &amp; Dienste &rarr; Solcast Solar</strong> hinzuf&uuml;gen.</li>
-        <li>Gib den zuvor kopierten API-Key ein, lasse die restlichen Einstellungen wie vorausgew&auml;hlt und klicke auf <strong>OK</strong>.</li>
-        <li>Aktiviere die deaktivierten Prognose-Sensoren f&uuml;r die Tage 3 bis 7: Klicke den Sensor an, dann auf das Zahnrad und stelle ihn auf <strong>Aktiviert</strong>.
-          <br><img class="guide-img" src="/eeg_optimizer_panel/guide/solcast/06_Prognosesensoren.png" alt="Sensoren aktivieren">
-        </li>
-      </ol>
-      <h3 style="margin:16px 0 8px">3. Pr&uuml;fen</h3>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Warte 1&ndash;2 Minuten nach der Einrichtung</li>
-        <li>Pr&uuml;fe unter <strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: Suche nach <code>solcast</code></li>
-        <li>Die Sensoren <code>sensor.solcast_pv_forecast_prognose_fuer_heute</code> und <code>sensor.solcast_pv_forecast_prognose_fuer_morgen</code> sollten kWh-Werte zeigen</li>
-        <li>Kehre hierher zur&uuml;ck &mdash; die Sensoren werden automatisch zugeordnet</li>
-      </ol>`,
-  },
-  forecast_solar: {
-    title: "Forecast.Solar einrichten",
-    content: `
-      <h3 style="margin:16px 0 8px">1. Integration hinzuf&uuml;gen</h3>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Gehe zu <strong>Einstellungen &rarr; Ger&auml;te &amp; Dienste &rarr; Integration hinzuf&uuml;gen</strong></li>
-        <li>Suche nach <strong>&ldquo;Forecast.Solar&rdquo;</strong></li>
-        <li>Klicke auf <strong>Forecast.Solar</strong></li>
-      </ol>
-      <h3 style="margin:16px 0 8px">2. Anlagendaten eingeben</h3>
-      <p style="margin-bottom:8px">Forecast.Solar berechnet die Prognose anhand deiner PV-Anlage:</p>
-      <table style="width:100%;border-collapse:collapse;margin:8px 0 16px;font-size:14px">
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:6px 8px"><strong>Name</strong></td>
-          <td style="padding:6px 8px">Frei w&auml;hlbar, z.B. &ldquo;PV S&uuml;d&rdquo;</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:6px 8px"><strong>API Key</strong></td>
-          <td style="padding:6px 8px">Leer lassen (kostenlos) oder dein Forecast.Solar API-Key</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:6px 8px"><strong>Latitude / Longitude</strong></td>
-          <td style="padding:6px 8px">Automatisch aus HA-Konfiguration &mdash; pr&uuml;fen, nicht &auml;ndern</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:6px 8px"><strong>Dachneigung (Declination)</strong></td>
-          <td style="padding:6px 8px">Neigung in Grad. Typisch DACH-Region: <strong>30&ndash;35&deg;</strong>, Flachdach: 0&ndash;10&deg;</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:6px 8px"><strong>Azimuth</strong></td>
-          <td style="padding:6px 8px">
-            Himmelsrichtung der Module:<br>
-            <strong>0&deg; = Nord</strong>, 90&deg; = Ost, <strong>180&deg; = S&uuml;d</strong>, 270&deg; = West<br>
-            <span style="color:var(--secondary-text-color)">Achtung: HA nutzt Kompass-Konvention (0=Nord), nicht die Forecast.Solar-Website (0=S&uuml;d)!</span>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:6px 8px"><strong>Leistung (kWp)</strong></td>
-          <td style="padding:6px 8px">
-            Anlagenleistung <strong>in Watt</strong>, nicht kWp!<br>
-            Beispiel: 10 kWp &rarr; <strong>10000</strong> eingeben
-          </td>
-        </tr>
-      </table>
-      <p style="margin:4px 0 0;color:var(--secondary-text-color);font-size:13px"><strong>Tipp:</strong> Die h&auml;ufigsten Fehler sind falscher Azimuth (S&uuml;d = 180&deg;, nicht 0&deg;) und kWp statt Watt.</p>
-      <h3 style="margin:16px 0 8px">3. Mehrere Ausrichtungen (Ost/West)</h3>
-      <p style="margin-bottom:8px">Bei Modulen in verschiedene Richtungen die Integration <strong>mehrmals hinzuf&uuml;gen</strong> &mdash; einmal pro Ausrichtung (z.B. &ldquo;PV Ost&rdquo; mit Azimuth 90&deg; und &ldquo;PV West&rdquo; mit 270&deg;).</p>
-      <p style="color:var(--secondary-text-color);font-size:13px">Die zweite Instanz erstellt Sensoren mit <code>_2</code> Suffix (z.B. <code>sensor.energy_production_tomorrow_2</code>).</p>
-      <h3 style="margin:16px 0 8px">4. Pr&uuml;fen</h3>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Warte 1&ndash;2 Minuten nach der Einrichtung</li>
-        <li>Pr&uuml;fe unter <strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: Suche nach <code>energy_production</code></li>
-        <li>Die Sensoren <code>sensor.energy_production_today_remaining</code> und <code>sensor.energy_production_tomorrow</code> sollten kWh-Werte zeigen</li>
-        <li>Kehre hierher zur&uuml;ck &mdash; die Sensoren werden automatisch zugeordnet</li>
-      </ol>
-      <p style="margin:12px 0 4px;color:var(--secondary-text-color);font-size:13px"><strong>Kostenlose Version:</strong> 12 Abrufe/Stunde, Prognose f&uuml;r heute + morgen, 1h-Aufl&ouml;sung &mdash; vollkommen ausreichend f&uuml;r den EEG Energy Optimizer.</p>`,
-  },
-  capacity_sensor: {
-    title: "Huawei Akkukapazität-Sensor aktivieren",
-    content: `
-      <p style="margin-bottom:12px">Der Sensor für die Akkukapazität ist bei Huawei Solar standardmäßig deaktiviert (Diagnostic-Sensor). So aktivierst du ihn:</p>
-      <ol style="padding-left:20px;line-height:2">
-        <li>Gehe zu <strong>Einstellungen → Geräte &amp; Dienste</strong></li>
-        <li>Klicke auf <strong>Huawei Solar</strong></li>
-        <li>Klicke auf dein <strong>Batterie-Gerät</strong> (z.B. "LUNA2000")</li>
-        <li>Scrolle nach unten zur Entitäten-Liste</li>
-        <li>Klicke oben rechts auf <strong>"Entitäten die nicht auf dem Dashboard angezeigt werden"</strong> (oder den Filter für deaktivierte Entitäten)</li>
-        <li>Suche nach <strong>"Akkukapazität"</strong> oder <strong>"Storage Rated Capacity"</strong></li>
-        <li>Klicke auf die Entität und dann auf <strong>"Aktivieren"</strong></li>
-        <li>Warte ca. 30 Sekunden bis der Sensor Daten liefert</li>
-      </ol>
-      <p style="margin-top:12px;color:var(--secondary-text-color)">Der Sensor heißt typischerweise <code>sensor.batterien_akkukapazitat</code> und zeigt die Kapazität in Wh an (z.B. 15000 für 15 kWh).</p>
-      <p style="margin-top:8px;color:var(--secondary-text-color)"><strong>Tipp:</strong> Wenn du den Sensor nicht findest, kannst du die Kapazität auch manuell eingeben.</p>`,
-  },
-  solax: {
-    title: "SolaX Modbus einrichten",
-    content: `
-      <h3 style="margin:16px 0 8px">1. Unterst&uuml;tzte Wechselrichter</h3>
-      <p style="margin-bottom:8px">Nur <strong>Gen4, Gen5 und Gen6</strong> Wechselrichter werden unterst&uuml;tzt. &Auml;ltere Generationen (Gen2/Gen3) haben keine Remote Control Funktion.</p>
-      <h3 style="margin:16px 0 8px">2. Wechselrichter-Einstellungen</h3>
-      <p style="margin-bottom:8px">Diese Einstellungen m&uuml;ssen am Wechselrichter oder in der SolaX-App korrekt gesetzt sein:</p>
-      <table style="width:100%;border-collapse:collapse;margin:8px 0 16px;font-size:14px">
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:6px 8px"><strong>Work Mode</strong></td>
-          <td style="padding:6px 8px"><strong>Self Use</strong> (charger_use_mode = 0)</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:6px 8px"><strong>Night Charge</strong></td>
-          <td style="padding:6px 8px"><strong>Aus</strong> &mdash; sonst l&auml;dt die Batterie nachts aus dem Netz</td>
-        </tr>
-        <tr>
-          <td style="padding:6px 8px"><strong>Smart Schedule / Zeitplan</strong></td>
-          <td style="padding:6px 8px"><strong>Aus</strong> &mdash; kollidiert mit der Optimizer-Steuerung</td>
-        </tr>
-      </table>
-      <div style="background:var(--warning-color,#ff9800);color:#fff;padding:8px 12px;border-radius:8px;margin:12px 0;font-size:13px">
-        <strong>&#9888; Wichtig:</strong> Der Work Mode darf <strong>NICHT</strong> auf &ldquo;Feedin Priority&rdquo; oder &ldquo;Force Time Use&rdquo; stehen! Der EEG Energy Optimizer steuert die Batterie &uuml;ber Remote Control (Mode 1) und setzt voraus, dass der Wechselrichter im Self Use Modus l&auml;uft.
-      </div>
-      <h3 style="margin:16px 0 8px">3. HACS Integration installieren</h3>
-      <p style="margin-bottom:8px;color:var(--secondary-text-color)"><strong>Voraussetzung:</strong> <a href="https://hacs.xyz/" target="_blank">HACS</a> muss installiert sein.</p>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Gehe zu <strong>HACS &rarr; Integrationen &rarr; Suche &ldquo;SolaX Inverter Modbus&rdquo;</strong>
-          <br><span style="color:var(--secondary-text-color)">Repository: wills106/homeassistant-solax-modbus</span>
-        </li>
-        <li>Installiere die Integration und <strong>starte Home Assistant neu</strong></li>
-      </ol>
-      <h3 style="margin:16px 0 8px">4. Integration konfigurieren</h3>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Gehe zu <strong>Einstellungen &rarr; Ger&auml;te &amp; Dienste &rarr; Integration hinzuf&uuml;gen</strong></li>
-        <li>Suche nach <strong>&ldquo;SolaX Inverter Modbus&rdquo;</strong></li>
-        <li>Gib die <strong>IP-Adresse</strong> des Wechselrichters / WiFi-Dongles ein</li>
-        <li>Port: <strong>502</strong> (Standard f&uuml;r Modbus TCP)</li>
-        <li>Pr&uuml;fe, dass <strong>&ldquo;Gen4+ Inverter&rdquo;</strong> als Typ ausgew&auml;hlt ist</li>
-      </ol>
-      <h3 style="margin:16px 0 8px">5. Batterie-Kapazit&auml;t</h3>
-      <p style="margin-bottom:8px">SolaX stellt <strong>keinen Sensor f&uuml;r die Batteriekapazit&auml;t</strong> bereit. Du gibst die Kapazit&auml;t sp&auml;ter im Wizard manuell ein (z.B. 5.8 kWh f&uuml;r eine T-BAT 5.8).</p>
-      <h3 style="margin:16px 0 8px">6. Pr&uuml;fen</h3>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Unter <strong>Einstellungen &rarr; Integrationen</strong>: SolaX Inverter Modbus zeigt <strong>&ldquo;geladen&rdquo;</strong></li>
-        <li><strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: <code>sensor.solax_*battery_capacity</code> zeigt SOC (0&ndash;100%)</li>
-        <li><code>button.solax_*remotecontrol_trigger</code> existiert (= Remote Control verf&uuml;gbar)</li>
-        <li>Kehre hierher zur&uuml;ck &mdash; der Wechselrichter wird automatisch erkannt</li>
-      </ol>
-      <p style="margin:4px 0;color:var(--secondary-text-color);font-size:13px"><strong>Hinweis:</strong> Der Entity-Prefix variiert je Installation (z.B. <code>solax_inverter_</code> statt <code>solax_</code>). Der EEG Energy Optimizer erkennt den Prefix automatisch.</p>
-      <h3 style="margin:16px 0 8px">H&auml;ufige Probleme</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Connection refused</strong></td>
-          <td style="padding:4px 8px">WiFi-Dongle nicht erreichbar &rarr; IP und Netzwerk pr&uuml;fen</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Kein remotecontrol_trigger</strong></td>
-          <td style="padding:4px 8px">Gen2/Gen3 oder X1 Fit (AC-coupled) &rarr; nicht unterst&uuml;tzt</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Kommandos ohne Wirkung</strong></td>
-          <td style="padding:4px 8px">Work Mode auf &ldquo;Self Use&rdquo; pr&uuml;fen, Night Charge und Smart Schedule aus</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Batterie l&auml;dt trotz Blockierung</strong></td>
-          <td style="padding:4px 8px">Lock State pr&uuml;fen &mdash; Passwort <code>2014</code> zum Entsperren</td>
-        </tr>
-        <tr>
-          <td style="padding:4px 8px"><strong>Sensoren &ldquo;unavailable&rdquo; nachts</strong></td>
-          <td style="padding:4px 8px">Normal &mdash; Wechselrichter im Sleep Mode (kein PV, keine Last)</td>
-        </tr>
-      </table>`,
-  },
-  solaredge: {
-    title: "SolarEdge Modbus Multi einrichten",
-    content: `
-      <h3 style="margin:16px 0 8px">1. Wechselrichter vorbereiten</h3>
-      <p style="margin-bottom:8px">Modbus TCP muss am Wechselrichter aktiviert sein. Je nach Modell gibt es zwei Varianten:</p>
-      <h4 style="margin:12px 0 4px">SetApp-Wechselrichter (ohne LCD-Display)</h4>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Roten <strong>DIP-Schalter</strong> am Wechselrichter kurz (< 5 Sek.) auf <strong>&ldquo;P&rdquo;</strong> stellen
-          <br><span style="color:var(--secondary-text-color)">Aktiviert den WiFi-Direct-Hotspot des Wechselrichters.</span>
-        </li>
-        <li>Handy-WLAN mit dem Wechselrichter-Hotspot verbinden (Netzwerkname steht auf dem Ger&auml;t)</li>
-        <li>Im Browser <code>http://172.16.0.1</code> &ouml;ffnen</li>
-        <li><strong>Site Communication</strong> &ouml;ffnen</li>
-        <li><strong>Modbus/TCP</strong> aktivieren</li>
-      </ol>
-      <div style="background:var(--warning-color,#ff9800);color:#fff;padding:8px 12px;border-radius:8px;margin:12px 0;font-size:13px">
-        <strong>&#9888; Zeitfenster:</strong> Die Integration muss sich <strong>innerhalb von 2 Minuten</strong> nach dem Aktivieren verbinden! Danach bleibt der Port offen. Falls zu sp&auml;t: Modbus TCP aus- und wieder einschalten.
-      </div>
-      <h4 style="margin:12px 0 4px">LCD-Wechselrichter (&auml;ltere Modelle)</h4>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li><strong>&ldquo;OK&rdquo;</strong> f&uuml;r 5 Sekunden dr&uuml;cken (Installer-Modus)</li>
-        <li>Passwort: <code>12312312</code></li>
-        <li><strong>Communications &rarr; LAN setup</strong> navigieren</li>
-        <li>Modbus/TCP Port konfigurieren</li>
-      </ol>
-      <div style="background:var(--warning-color,#ff9800);color:#fff;padding:8px 12px;border-radius:8px;margin:12px 0;font-size:13px">
-        <strong>&#9888; Wichtig:</strong> SolarEdge erlaubt nur <strong>EINE Modbus-Verbindung</strong> gleichzeitig! Andere Modbus-Integrationen m&uuml;ssen deaktiviert werden.
-      </div>
-      <h3 style="margin:16px 0 8px">2. HACS Integration installieren</h3>
-      <p style="margin-bottom:8px;color:var(--secondary-text-color)"><strong>Voraussetzung:</strong> <a href="https://hacs.xyz/" target="_blank">HACS</a> muss installiert sein.</p>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Gehe zu <strong>HACS &rarr; Integrationen &rarr; Suche &ldquo;SolarEdge Modbus Multi&rdquo;</strong>
-          <br><span style="color:var(--secondary-text-color)">Repository: WillCodeForCats/solaredge-modbus-multi</span>
-        </li>
-        <li>Installiere die Integration und <strong>starte Home Assistant neu</strong></li>
-      </ol>
-      <h3 style="margin:16px 0 8px">3. Integration konfigurieren</h3>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Gehe zu <strong>Einstellungen &rarr; Ger&auml;te &amp; Dienste &rarr; Integration hinzuf&uuml;gen</strong></li>
-        <li>Suche nach <strong>&ldquo;SolarEdge Modbus Multi&rdquo;</strong></li>
-        <li>Gib die <strong>IP-Adresse</strong> des Wechselrichters ein</li>
-        <li>Port: <strong>1502</strong> (Standard f&uuml;r SolarEdge Modbus TCP)</li>
-        <li>Device ID: <strong>1</strong></li>
-      </ol>
-      <h3 style="margin:16px 0 8px">4. Speichersteuerung aktivieren</h3>
-      <div style="background:var(--error-color,#db4437);color:#fff;padding:8px 12px;border-radius:8px;margin:0 0 12px;font-size:13px">
-        <strong>&#9888; Pflichtschritt!</strong> Ohne diesen Schritt fehlen die Steuerungs-Entities und der EEG Energy Optimizer kann die Batterie nicht steuern.
-      </div>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Gehe zu <strong>Einstellungen &rarr; Integrationen &rarr; SolarEdge Modbus Multi</strong></li>
-        <li>Klicke auf das <strong>Drei-Punkte-Men&uuml;</strong> &rarr; <strong>&ldquo;Konfigurieren&rdquo;</strong></li>
-        <li>Aktiviere <strong>&ldquo;Allow StorEdge Control&rdquo;</strong> (Speichersteuerung)</li>
-        <li>Speichern und <strong>Integration neu laden</strong></li>
-      </ol>
-      <p style="margin:8px 0;color:var(--secondary-text-color);font-size:13px">Nach dem Neuladen sollten diese Entities erscheinen: <code>select.*storage_command_mode</code>, <code>number.*storage_charge_limit</code>, <code>number.*storage_discharge_limit</code></p>
-      <p style="margin:4px 0;color:var(--secondary-text-color);font-size:13px"><strong>Hinweis:</strong> Der EEG Energy Optimizer setzt <code>storage_control_mode</code> bei Bedarf automatisch auf &ldquo;Remote Control&rdquo; und stellt den Originalzustand danach wieder her.</p>
-      <div style="background:var(--info-color,#039be5);color:#fff;padding:8px 12px;border-radius:8px;margin:8px 0 12px;font-size:13px">
-        <strong>&#9432; NVRAM-Schreibvorg&auml;nge:</strong> SolarEdge speichert Modbus-Register&auml;nderungen im Flash-Speicher (NVRAM). Der EEG Energy Optimizer minimiert Schreibvorg&auml;nge: max. ~12 Writes/Tag (Worst Case), an bew&ouml;lkten Tagen oder im Winter 0 Writes. Realistisch ~7 Writes/Tag im Jahresdurchschnitt &rarr; ~39 Jahre bei 100.000 Flash-Zyklen.
-      </div>
-      <h3 style="margin:16px 0 8px">5. Pr&uuml;fen</h3>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Unter <strong>Einstellungen &rarr; Integrationen</strong>: SolarEdge Modbus Multi zeigt <strong>&ldquo;geladen&rdquo;</strong></li>
-        <li><strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: <code>sensor.solaredge_*_b1_state_of_energy</code> zeigt SOC (0&ndash;100%)</li>
-        <li><code>select.solaredge_*_storage_command_mode</code> existiert (= Speichersteuerung aktiv)</li>
-        <li>Kehre hierher zur&uuml;ck &mdash; der Wechselrichter wird automatisch erkannt</li>
-      </ol>
-      <p style="margin:4px 0;color:var(--secondary-text-color);font-size:13px"><strong>Hinweis:</strong> Der Entity-Prefix variiert je Installation (z.B. <code>solaredge_i1_</code> statt <code>solaredge_</code>). Der EEG Energy Optimizer erkennt den Prefix automatisch.</p>
-      <h3 style="margin:16px 0 8px">H&auml;ufige Probleme</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Connection refused</strong></td>
-          <td style="padding:4px 8px">Modbus TCP nicht aktiviert &rarr; Schritt 1 wiederholen</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Connection timeout</strong></td>
-          <td style="padding:4px 8px">Port 1502 pr&uuml;fen. Bei SetApp: 2-Minuten-Fenster beachten</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Keine Batterie-Entities</strong></td>
-          <td style="padding:4px 8px">Options &rarr; &ldquo;Detect Batteries&rdquo; aktivieren</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Keine Storage-Entities</strong></td>
-          <td style="padding:4px 8px">&ldquo;Allow StorEdge Control&rdquo; in Options nicht aktiviert &rarr; Schritt 4</td>
-        </tr>
-        <tr>
-          <td style="padding:4px 8px"><strong>Verbindung bricht ab</strong></td>
-          <td style="padding:4px 8px">Nur EINE Modbus-Verbindung m&ouml;glich &mdash; andere Integrationen deaktivieren</td>
-        </tr>
-      </table>`,
-  },
-  fronius: {
-    title: "Fronius Gen24 einrichten",
-    content: `
-      <h3 style="margin:16px 0 8px">1. Fronius Integration in Home Assistant</h3>
-      <p style="margin-bottom:8px">Die native Fronius Integration wird f&uuml;r das Lesen der Sensoren (PV, Batterie, SOC, Netz) ben&ouml;tigt:</p>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Wird normalerweise <strong>automatisch via Auto-Discovery</strong> erkannt
-          <br><span style="color:var(--secondary-text-color)">Falls nicht: Einstellungen &rarr; Ger&auml;te &amp; Dienste &rarr; Integration hinzuf&uuml;gen &rarr; &ldquo;Fronius&rdquo;</span>
-        </li>
-        <li>IP-Adresse des Wechselrichters angeben</li>
-        <li>Die <strong>Solar API</strong> muss im Fronius Web-Interface aktiviert sein (Standard ab FW 1.14.1)</li>
-      </ol>
-
-      <h3 style="margin:16px 0 8px">2. Modbus TCP am Wechselrichter aktivieren</h3>
-      <p style="margin-bottom:8px">Der EEG Energy Optimizer steuert die Batterie &uuml;ber Modbus TCP (SunSpec Model 124). Daf&uuml;r muss Modbus am Wechselrichter aktiviert werden:</p>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Fronius Web-Interface &ouml;ffnen: <code>http://&lt;IP des Wechselrichters&gt;</code></li>
-        <li><strong>Communication &rarr; Modbus &rarr; Aktivieren</strong></li>
-        <li>Mode: <strong>TCP Server</strong></li>
-        <li>SunSpec Model Type: <strong>int + SF</strong>
-          <br><span style="color:var(--secondary-text-color)">Wichtig: Nicht &ldquo;float&rdquo; w&auml;hlen &mdash; die Register-Adressen unterscheiden sich!</span>
-        </li>
-        <li>Port: <strong>502</strong> (Standard)</li>
-        <li><strong>Allow Control via Modbus: EIN</strong>
-          <br><span style="color:var(--secondary-text-color)">Ohne diese Einstellung werden alle Schreibzugriffe abgelehnt!</span>
-        </li>
-      </ol>
-      <div style="background:var(--warning-color,#ff9800);color:#fff;padding:8px 12px;border-radius:8px;margin:12px 0;font-size:13px">
-        <strong>&#9888; Wichtig:</strong> Alle Scheduled (Dis)Charging Zeitpl&auml;ne im Web-Interface deaktivieren! Modbus und Web-Interface konkurrieren &mdash; der h&ouml;here Wert gewinnt.
-      </div>
-      <div style="background:var(--info-color,#2196f3);color:#fff;padding:8px 12px;border-radius:8px;margin:12px 0;font-size:13px">
-        <strong>&#9432; Hinweis:</strong> Der Wechselrichter beh&auml;lt Modbus-Einstellungen (z.B. Lade-/Entladesperre) auch nach einem Absturz oder Neustart des Optimizers bei, bis ein neuer Schreibbefehl kommt oder der Wechselrichter selbst neu gestartet wird. Im Normalbetrieb stellt der Optimizer den Ausgangszustand automatisch wieder her.
-      </div>
-
-      <h3 style="margin:16px 0 8px">3. Firmware</h3>
-      <ul style="padding-left:20px;line-height:1.8">
-        <li><strong>Minimum:</strong> >= 1.34.6-1</li>
-        <li><strong>Empfohlen:</strong> >= 1.40.0</li>
-      </ul>
-
-      <h3 style="margin:16px 0 8px">4. Pr&uuml;fen</h3>
-      <ol style="padding-left:20px;line-height:1.8">
-        <li>Unter <strong>Einstellungen &rarr; Integrationen</strong>: Fronius zeigt <strong>&ldquo;geladen&rdquo;</strong></li>
-        <li><strong>Entwicklerwerkzeuge &rarr; Zust&auml;nde</strong>: Suche nach <code>power_photovoltaics</code> / <code>pv_leistung</code> und <code>state_of_charge</code> / <code>ladezustand</code></li>
-        <li>Kehre hierher zur&uuml;ck &mdash; die Sensoren werden automatisch erkannt</li>
-      </ol>
-
-      <h3 style="margin:16px 0 8px">H&auml;ufige Probleme</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Modbus Connection refused</strong></td>
-          <td style="padding:4px 8px">Modbus TCP nicht aktiviert oder &ldquo;Allow Control&rdquo; nicht EIN &rarr; Schritt 2 wiederholen</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Alle Werte 0 oder unsinnig</strong></td>
-          <td style="padding:4px 8px">Falscher SunSpec-Modus &rarr; &ldquo;int + SF&rdquo; statt &ldquo;float&rdquo; einstellen</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--divider-color)">
-          <td style="padding:4px 8px"><strong>Keine Fronius-Sensoren in HA</strong></td>
-          <td style="padding:4px 8px">Fronius Integration pr&uuml;fen: Solar API im Web-Interface aktiviert?</td>
-        </tr>
-        <tr>
-          <td style="padding:4px 8px"><strong>Steuerung funktioniert manchmal nicht</strong></td>
-          <td style="padding:4px 8px">Scheduled Charging/Discharging im Web-Interface deaktivieren (konkurriert mit Modbus)</td>
-        </tr>
-      </table>`,
-  },
+  huawei: { file: "huawei.html" },
+  solcast: { file: "solcast.html" },
+  forecast_solar: { file: "forecast_solar.html" },
+  capacity_sensor: { file: "capacity_sensor.html" },
+  solax: { file: "solax.html" },
+  solaredge: { file: "solaredge.html" },
+  fronius: { file: "fronius.html" },
 };
 
 // Suppress HA-internal unhandled promise rejections that crash the panel
@@ -616,6 +194,7 @@ class EegOptimizerPanel extends HTMLElement {
     this._detectedSensors = null;
     this._wizardLoading = false;
     this._showDialog = null;
+    this._guideCache = {};
     this._activeInfoModal = null;
     this._infoImageZoomed = false;
     this._entityPickerLoaded = false;
@@ -1004,8 +583,7 @@ class EegOptimizerPanel extends HTMLElement {
         this._finishWizard();
         break;
       case "show-dialog":
-        this._showDialog = DIALOG_CONTENT[dataset?.dialog] || null;
-        this._render();
+        this._openGuideDialog(dataset?.dialog);
         break;
       case "close-dialog":
         this._showDialog = null;
@@ -3826,13 +3404,43 @@ class EegOptimizerPanel extends HTMLElement {
 
   /* ── Dialog overlay ───────────────────────────── */
 
+  _openGuideDialog(key) {
+    const meta = DIALOG_CONTENT[key];
+    if (!meta) {
+      this._showDialog = null;
+      this._render();
+      return;
+    }
+    this._showDialog = { key };
+    this._render();
+    if (this._guideCache[key]) return;
+    fetch(`/eeg_optimizer_panel/guide/${meta.file}`)
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((html) => {
+        this._guideCache[key] = html;
+        if (this._showDialog?.key === key) this._render();
+      })
+      .catch(() => {
+        // Nicht cachen — erneutes Öffnen versucht den Download noch einmal
+        if (this._showDialog?.key === key) {
+          this._showDialog.error = true;
+          this._render();
+        }
+      });
+  }
+
   _renderDialog() {
     if (!this._showDialog) return "";
+    const html = this._guideCache[this._showDialog.key];
+    const body = html != null
+      ? `<div class="guide-content">${html}</div>`
+      : this._showDialog.error
+        ? `<p style="color:var(--error-color,#db4437)">Anleitung konnte nicht geladen werden. Bitte Dialog schließen und erneut öffnen.</p>`
+        : `<p style="color:var(--secondary-text-color)">Anleitung wird geladen…</p>`;
     return `
       <div class="dialog-overlay">
         <div class="dialog-card">
-          <h2 style="margin-top:0">${this._showDialog.title}</h2>
-          ${this._showDialog.content}
+          ${body}
           <div style="text-align:right;margin-top:16px">
             <button class="btn-primary" data-action="close-dialog">Schließen</button>
           </div>
@@ -5713,6 +5321,23 @@ class EegOptimizerPanel extends HTMLElement {
           background: var(--card-background-color); border-radius: 12px;
           padding: 24px; max-width: 700px; width: 92%; max-height: 85vh; overflow-y: auto;
         }
+        /* Guide-Inhalte (generiert aus docs/guides/*.md) */
+        .guide-content h2.guide-title { margin-top: 0; }
+        .guide-content h3 { margin: 16px 0 8px; }
+        .guide-content h4 { margin: 12px 0 4px; }
+        .guide-content ol, .guide-content ul { padding-left: 20px; line-height: 1.8; margin: 8px 0; }
+        .guide-content li > p { margin: 4px 0; }
+        .guide-content table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0 16px; }
+        .guide-content th, .guide-content td { padding: 4px 8px; border-bottom: 1px solid var(--divider-color); text-align: left; }
+        .guide-content img { max-width: 100%; border-radius: 8px; margin: 8px 0 12px; border: 1px solid var(--divider-color); }
+        .guide-content em { color: var(--secondary-text-color); font-style: normal; }
+        .guide-content code { font-size: 13px; }
+        .guide-alert { padding: 8px 12px; border-radius: 8px; margin: 12px 0; font-size: 13px; color: #fff; }
+        .guide-alert p { margin: 0; }
+        .guide-alert.warning { background: var(--warning-color, #ff9800); }
+        .guide-alert.note { background: var(--info-color, #2196f3); }
+        .guide-alert.caution { background: var(--error-color, #db4437); }
+        .guide-alert em, .guide-alert code { color: inherit; }
         .summary-section { margin-bottom: 16px; }
         .summary-section h3 { font-size: 16px; color: var(--primary-color); margin-bottom: 8px; }
         .summary-row {

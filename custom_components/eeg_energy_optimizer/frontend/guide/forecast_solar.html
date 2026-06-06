@@ -1,0 +1,58 @@
+<!-- GENERATED FILE - DO NOT EDIT.
+     Quelle: docs/guides/forecast_solar.md
+     Neu generieren mit: python scripts/build_guides.py -->
+<h2 class="guide-title">Forecast.Solar einrichten</h2>
+<h3>1. Integration hinzufügen</h3>
+<ol>
+<li>Gehe zu <strong>Einstellungen → Geräte &amp; Dienste → Integration hinzufügen</strong></li>
+<li>Suche nach <strong>„Forecast.Solar"</strong></li>
+<li>Klicke auf <strong>Forecast.Solar</strong></li>
+</ol>
+<h3>2. Anlagendaten eingeben</h3>
+<p>Forecast.Solar berechnet die Prognose anhand deiner PV-Anlage:</p>
+<table>
+<thead>
+<tr>
+<th>Feld</th>
+<th>Wert</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Name</strong></td>
+<td>Frei wählbar, z.B. „PV Süd"</td>
+</tr>
+<tr>
+<td><strong>API Key</strong></td>
+<td>Leer lassen (kostenlos) oder dein Forecast.Solar API-Key</td>
+</tr>
+<tr>
+<td><strong>Latitude / Longitude</strong></td>
+<td>Automatisch aus HA-Konfiguration — prüfen, nicht ändern</td>
+</tr>
+<tr>
+<td><strong>Dachneigung (Declination)</strong></td>
+<td>Neigung in Grad. Typisch DACH-Region: <strong>30–35°</strong>, Flachdach: 0–10°</td>
+</tr>
+<tr>
+<td><strong>Azimuth</strong></td>
+<td>Himmelsrichtung der Module:<br><strong>0° = Nord</strong>, 90° = Ost, <strong>180° = Süd</strong>, 270° = West<br><em>Achtung: HA nutzt Kompass-Konvention (0=Nord), nicht die Forecast.Solar-Website (0=Süd)!</em></td>
+</tr>
+<tr>
+<td><strong>Leistung (kWp)</strong></td>
+<td>Anlagenleistung <strong>in Watt</strong>, nicht kWp!<br>Beispiel: 10 kWp → <strong>10000</strong> eingeben</td>
+</tr>
+</tbody>
+</table>
+<p><em><strong>Tipp:</strong> Die häufigsten Fehler sind falscher Azimuth (Süd = 180°, nicht 0°) und kWp statt Watt.</em></p>
+<h3>3. Mehrere Ausrichtungen (Ost/West)</h3>
+<p>Bei Modulen in verschiedene Richtungen die Integration <strong>mehrmals hinzufügen</strong> — einmal pro Ausrichtung (z.B. „PV Ost" mit Azimuth 90° und „PV West" mit 270°).</p>
+<p><em>Die zweite Instanz erstellt Sensoren mit <code>_2</code> Suffix (z.B. <code>sensor.energy_production_tomorrow_2</code>).</em></p>
+<h3>4. Prüfen</h3>
+<ol>
+<li>Warte 1–2 Minuten nach der Einrichtung</li>
+<li>Prüfe unter <strong>Entwicklerwerkzeuge → Zustände</strong>: Suche nach <code>energy_production</code></li>
+<li>Die Sensoren <code>sensor.energy_production_today_remaining</code> und <code>sensor.energy_production_tomorrow</code> sollten kWh-Werte zeigen</li>
+<li>Kehre hierher zurück — die Sensoren werden automatisch zugeordnet</li>
+</ol>
+<p><em><strong>Kostenlose Version:</strong> 12 Abrufe/Stunde, Prognose für heute + morgen, 1h-Auflösung — vollkommen ausreichend für den EEG Energy Optimizer.</em></p>
