@@ -12,9 +12,6 @@ Modbus TCP muss am Wechselrichter aktiviert sein, damit Home Assistant zugreifen
 4. **Einstellungen → Kommunikationskonfiguration → Dongle-Parameter**
 5. Modbus-TCP auf **„Aktivieren (uneingeschränkt)"** setzen
 
-> [!WARNING]
-> **Wichtig:** Nur EINE Modbus-Verbindung gleichzeitig möglich! FusionSolar App komplett schließen (nicht nur minimieren) bevor die HA-Integration gestartet wird.
-
 ## 2. HACS Integration installieren
 
 _**Voraussetzung:** [HACS](https://hacs.xyz/) muss installiert sein._
