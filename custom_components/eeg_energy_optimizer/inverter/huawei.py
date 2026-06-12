@@ -17,6 +17,12 @@ MAX_CHARGE_POWER_CANDIDATES = [
     "number.batteries_maximale_ladeleistung",
     "number.batterien_maximale_ladeleistung",
 ]
+# Die Entity-ID hängt von HA-Sprache und Gerätename zum Erstellzeitpunkt ab —
+# Fallback-Suche über sprachtypische Suffixe (DE/EN) statt exakter IDs.
+MAX_CHARGE_POWER_SUFFIXES = (
+    "maximale_ladeleistung",
+    "maximum_charging_power",
+)
 
 
 class HuaweiInverter(InverterBase):
@@ -31,18 +37,44 @@ class HuaweiInverter(InverterBase):
                 "device was not auto-detected. Re-run setup wizard to detect the Huawei device."
             )
         self._device_id: str = device_id
-        self._max_charge_entity = self._resolve_charge_entity()
+        self._max_charge_entity: str | None = self._resolve_charge_entity()
+        if self._max_charge_entity is None:
+            _LOGGER.warning(
+                "Huawei: Kein Ladeleistungs-Entity gefunden (erwartet: %s). "
+                "Laden-Blockieren (Morgen-Einspeisung) bleibt deaktiviert, bis das "
+                "Entity verfügbar ist. Prüfe, ob die huawei_solar-Integration mit "
+                "erweiterten Berechtigungen (Installer-Login) eingerichtet ist.",
+                MAX_CHARGE_POWER_CANDIDATES,
+            )
 
-    def _resolve_charge_entity(self) -> str:
-        """Find the correct max charge power entity from known candidates."""
+    def _resolve_charge_entity(self) -> str | None:
+        """Find the max charge power entity, or None if not (yet) available."""
         for entity_id in MAX_CHARGE_POWER_CANDIDATES:
             if self._hass.states.get(entity_id) is not None:
                 _LOGGER.debug("Huawei: Using charge power entity %s", entity_id)
                 return entity_id
-        raise ValueError(
-            f"Huawei: Kein Ladeleistungs-Entity gefunden. "
-            f"Erwartet: {MAX_CHARGE_POWER_CANDIDATES}"
-        )
+        for state in self._hass.states.async_all("number"):
+            if any(
+                state.entity_id.endswith(f"_{suffix}")
+                for suffix in MAX_CHARGE_POWER_SUFFIXES
+            ):
+                _LOGGER.debug(
+                    "Huawei: Using charge power entity %s (suffix match)",
+                    state.entity_id,
+                )
+                return state.entity_id
+        return None
+
+    def _ensure_charge_entity(self) -> str | None:
+        """Re-resolve lazily — the entity may appear after a slow huawei_solar start."""
+        if self._max_charge_entity is None:
+            self._max_charge_entity = self._resolve_charge_entity()
+            if self._max_charge_entity is not None:
+                _LOGGER.info(
+                    "Huawei: Ladeleistungs-Entity nachträglich gefunden: %s",
+                    self._max_charge_entity,
+                )
+        return self._max_charge_entity
 
     async def _get_max_charge_power(self) -> float:
         """Read the max value of the charge power number entity."""
@@ -56,20 +88,27 @@ class HuaweiInverter(InverterBase):
 
         power_kw=0 blocks charging, any other value sets the limit.
         """
+        entity_id = self._ensure_charge_entity()
+        if entity_id is None:
+            _LOGGER.warning(
+                "Huawei: Ladelimit %.1f kW nicht gesetzt — kein Ladeleistungs-Entity verfügbar",
+                power_kw,
+            )
+            return False
         power_w = int(power_kw * 1000)
         try:
             await self._hass.services.async_call(
                 "number",
                 "set_value",
                 {
-                    "entity_id": self._max_charge_entity,
+                    "entity_id": entity_id,
                     "value": power_w,
                 },
                 blocking=True,
             )
             return True
         except Exception:
-            _LOGGER.exception("Huawei: Failed to set charge limit via %s", self._max_charge_entity)
+            _LOGGER.exception("Huawei: Failed to set charge limit via %s", entity_id)
             return False
 
     async def async_set_discharge(
@@ -100,18 +139,21 @@ class HuaweiInverter(InverterBase):
         Resets max charge power to hardware maximum and stops any
         forcible charge/discharge mode.
         """
+        entity_id = self._ensure_charge_entity()
         try:
-            # Restore max charge power
-            max_power = await self._get_max_charge_power()
-            await self._hass.services.async_call(
-                "number",
-                "set_value",
-                {
-                    "entity_id": self._max_charge_entity,
-                    "value": max_power,
-                },
-                blocking=True,
-            )
+            # Restore max charge power (skip if the entity is unavailable —
+            # stopping the forcible mode must still go through)
+            if entity_id is not None:
+                max_power = await self._get_max_charge_power()
+                await self._hass.services.async_call(
+                    "number",
+                    "set_value",
+                    {
+                        "entity_id": entity_id,
+                        "value": max_power,
+                    },
+                    blocking=True,
+                )
             # Stop forcible discharge if active
             await self._hass.services.async_call(
                 HUAWEI_DOMAIN,

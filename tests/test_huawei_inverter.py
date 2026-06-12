@@ -2,8 +2,11 @@
 
 Charge limiting now writes the max charge power via the `number.set_value`
 service on the `number.batteries_maximale_ladeleistung` entity (or its
-`batterien_…` variant). Forced discharge still goes via the huawei_solar
-service `forcible_discharge_soc`. Stopping is a two-call sequence:
+`batterien_…` variant, or any number entity matching a known DE/EN suffix).
+A missing charge entity no longer fails construction — it is re-resolved
+lazily on each control call, and charge limiting degrades to a no-op with
+warning. Forced discharge still goes via the huawei_solar service
+`forcible_discharge_soc`. Stopping is a two-call sequence:
 restore the max charge power and then stop_forcible_charge.
 """
 
@@ -51,11 +54,23 @@ class TestConstruction:
         with pytest.raises(ValueError, match="huawei_device_id"):
             HuaweiInverter(mock_hass, {})
 
-    def test_requires_charge_entity(self, mock_hass):
-        """No matching charge-power entity → ValueError (auto-detect failed)."""
+    def test_missing_charge_entity_does_not_raise(self, mock_hass):
+        """No matching charge-power entity → construction succeeds (degraded mode)."""
         mock_hass.states.get = MagicMock(return_value=None)
-        with pytest.raises(ValueError, match="Ladeleistungs-Entity"):
-            HuaweiInverter(mock_hass, {"huawei_device_id": "dev"})
+        mock_hass.states.async_all = MagicMock(return_value=[])
+        inv = HuaweiInverter(mock_hass, {"huawei_device_id": "dev"})
+        assert inv._max_charge_entity is None
+
+    def test_suffix_fallback_resolves_entity(self, mock_hass):
+        """Differently prefixed entity is found via the DE/EN suffix scan."""
+        mock_hass.states.get = MagicMock(return_value=None)
+        state = MagicMock()
+        state.entity_id = "number.luna2000_maximum_charging_power"
+        decoy = MagicMock()
+        decoy.entity_id = "number.luna2000_maximum_discharging_power"
+        mock_hass.states.async_all = MagicMock(return_value=[decoy, state])
+        inv = HuaweiInverter(mock_hass, {"huawei_device_id": "dev"})
+        assert inv._max_charge_entity == "number.luna2000_maximum_charging_power"
 
     def test_falls_back_to_alt_charge_entity(self, mock_hass):
         """Alternate naming `batterien_…` is also accepted."""
@@ -108,6 +123,31 @@ class TestAsyncSetChargeLimit:
         mock_hass.services.async_call = AsyncMock(side_effect=Exception("boom"))
         result = await inverter.async_set_charge_limit(5.0)
         assert result is False
+
+    async def test_returns_false_without_charge_entity(self, mock_hass):
+        """No charge entity → no service call, returns False instead of crashing."""
+        mock_hass.states.get = MagicMock(return_value=None)
+        mock_hass.states.async_all = MagicMock(return_value=[])
+        inv = HuaweiInverter(mock_hass, {"huawei_device_id": "dev"})
+        result = await inv.async_set_charge_limit(0)
+        assert result is False
+        mock_hass.services.async_call.assert_not_called()
+
+    async def test_lazy_resolution_after_entity_appears(self, mock_hass):
+        """Entity missing at construction but present later → call succeeds."""
+        mock_hass.states.get = MagicMock(return_value=None)
+        mock_hass.states.async_all = MagicMock(return_value=[])
+        inv = HuaweiInverter(mock_hass, {"huawei_device_id": "dev"})
+        assert inv._max_charge_entity is None
+
+        # huawei_solar finished its slow start — entity exists now
+        mock_hass.states.get = MagicMock(
+            side_effect=lambda eid: _state_with_max(5000.0) if eid == CHARGE_ENTITY else None
+        )
+        result = await inv.async_set_charge_limit(0)
+        assert result is True
+        call_args = mock_hass.services.async_call.call_args
+        assert call_args[0][2]["entity_id"] == CHARGE_ENTITY
 
 
 class TestAsyncSetDischarge:
@@ -185,6 +225,22 @@ class TestAsyncStopForcible:
         mock_hass.services.async_call = AsyncMock(side_effect=Exception("boom"))
         result = await inverter.async_stop_forcible()
         assert result is False
+
+    async def test_stops_forcible_without_charge_entity(self, mock_hass):
+        """No charge entity → restore step skipped, stop_forcible_charge still called."""
+        mock_hass.states.get = MagicMock(return_value=None)
+        mock_hass.states.async_all = MagicMock(return_value=[])
+        inv = HuaweiInverter(mock_hass, {"huawei_device_id": "dev"})
+        result = await inv.async_stop_forcible()
+        assert result is True
+
+        calls = mock_hass.services.async_call.call_args_list
+        assert len(calls) == 1
+        assert calls[0].args == (
+            HUAWEI_DOMAIN,
+            "stop_forcible_charge",
+            {"device_id": "dev"},
+        )
 
 
 class TestIsAvailable:
