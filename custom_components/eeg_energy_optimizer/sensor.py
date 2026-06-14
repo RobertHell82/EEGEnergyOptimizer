@@ -24,6 +24,7 @@ from .const import (
     CONF_BATTERY_POWER_CHARGE_SENSOR,
     CONF_BATTERY_POWER_DISCHARGE_SENSOR,
     CONF_BATTERY_POWER_SENSOR,
+    CONF_BATTERY_POWER_SENSOR_2,
     CONF_BATTERY_SOC_SENSOR,
     CONF_DISCHARGE_A_START_TIME,
     CONF_FORECAST_REMAINING_ENTITY,
@@ -586,6 +587,8 @@ class HausverbrauchSensor(SensorEntity):
         self._pv_sensor_id = config.get(CONF_PV_POWER_SENSOR, "")
         self._pv_sensor_2_id = config.get(CONF_PV_POWER_SENSOR_2, "")
         self._battery_power_sensor_id = config.get(CONF_BATTERY_POWER_SENSOR, "")
+        # Optional second battery (Huawei Master/Slave) — explicit signed sensor.
+        self._battery_power_2_sensor_id = config.get(CONF_BATTERY_POWER_SENSOR_2, "")
         self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, "")
         # Sign conventions differ per inverter type (defined in const.py)
         inv_type = config.get(CONF_INVERTER_TYPE, "")
@@ -629,6 +632,15 @@ class HausverbrauchSensor(SensorEntity):
         # and needed for accurate Hausverbrauch (formula simplifies to ac_power - grid)
         if self._pv_includes_battery and battery_power is not None:
             pv_power = pv_power + battery_power
+
+        # Second battery (Huawei Master/Slave): add the raw signed power of the
+        # slave battery so PV − Battery − Grid reflects the whole system. Done
+        # after the SolarEdge correction so it never affects that path (the key
+        # is only set for Huawei multi-inverter setups).
+        if self._battery_power_2_sensor_id:
+            bat2 = _read_power_kw(self.hass, self._battery_power_2_sensor_id)
+            if bat2 is not None:
+                battery_power += bat2
 
         # Normalize signs: positive=charging / positive=export
         battery_power *= self._battery_sign
@@ -753,11 +765,15 @@ class BatterieleistungSensor(SensorEntity):
         inv_type = config.get(CONF_INVERTER_TYPE, "")
         signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
         self._battery_sign = signs.get("battery_sign", 1)
-        # Derive second battery from second PV sensor prefix (multi-inverter)
-        pv2_id = config.get(CONF_PV_POWER_SENSOR_2, "")
-        self._battery_2_sensor_id = ""
-        if pv2_id and "ac_power" in pv2_id:
-            self._battery_2_sensor_id = pv2_id.replace("ac_power", "b1_dc_power")
+        # Second battery (multi-inverter). Explicit config wins (e.g. Huawei
+        # Master/Slave, where the second battery has its own signed sensor);
+        # otherwise derive it from the second PV sensor prefix (SolarEdge:
+        # ac_power → b1_dc_power).
+        self._battery_2_sensor_id = config.get(CONF_BATTERY_POWER_SENSOR_2, "")
+        if not self._battery_2_sensor_id:
+            pv2_id = config.get(CONF_PV_POWER_SENSOR_2, "")
+            if pv2_id and "ac_power" in pv2_id:
+                self._battery_2_sensor_id = pv2_id.replace("ac_power", "b1_dc_power")
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_batterieleistung"
         self._attr_device_info = _device_info(entry.entry_id)
         self._attr_native_value: float | None = None

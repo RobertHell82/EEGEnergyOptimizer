@@ -10,7 +10,8 @@ warning. Forced discharge still goes via the huawei_solar service
 restore the max charge power and then stop_forcible_charge.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from contextlib import contextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -241,6 +242,152 @@ class TestAsyncStopForcible:
             "stop_forcible_charge",
             {"device_id": "dev"},
         )
+
+
+def _reg_entry(entity_id, device_id):
+    e = MagicMock()
+    e.entity_id = entity_id
+    e.device_id = device_id
+    return e
+
+
+def _state(state_val=None, max_attr=None):
+    s = MagicMock()
+    s.state = state_val
+    s.attributes = {"max": max_attr} if max_attr is not None else {}
+    return s
+
+
+# Master ("M") + Slave ("S") setup: je ein Lade-/Entlade-Number-Entity und
+# SOC-/Kapazitäts-Sensor pro Gerät. Slave-Entities tragen ein "_2"-Segment.
+_CHARGE_M = "number.batteries_maximale_ladeleistung"
+_CHARGE_S = "number.batteries_2_maximale_ladeleistung"
+_DISCHARGE_M = "number.batteries_maximale_entladeleistung"
+_DISCHARGE_S = "number.batteries_2_maximale_entladeleistung"
+_SOC_M = "sensor.batteries_batterieladung"
+_SOC_S = "sensor.batteries_2_batterieladung"
+_CAP_M = "sensor.batterien_akkukapazitat"
+_CAP_S = "sensor.batterien_2_akkukapazitat"
+
+_REG_ENTRIES = [
+    _reg_entry(_CHARGE_M, "M"), _reg_entry(_DISCHARGE_M, "M"),
+    _reg_entry(_SOC_M, "M"), _reg_entry(_CAP_M, "M"),
+    _reg_entry(_CHARGE_S, "S"), _reg_entry(_DISCHARGE_S, "S"),
+    _reg_entry(_SOC_S, "S"), _reg_entry(_CAP_S, "S"),
+]
+
+# SOC: Master 80 % / Slave 40 %; Kapazität 10 / 5 kWh; max Entladeleistung 5 kW.
+_STATES = {
+    _CHARGE_M: _state(max_attr=5000), _CHARGE_S: _state(max_attr=5000),
+    _DISCHARGE_M: _state(max_attr=5000), _DISCHARGE_S: _state(max_attr=5000),
+    _SOC_M: _state("80"), _SOC_S: _state("40"),
+    _CAP_M: _state("10"), _CAP_S: _state("5"),
+}
+
+
+@contextmanager
+def _registry(entries=_REG_ENTRIES):
+    reg = MagicMock()
+    reg.entities.values.return_value = entries
+    with patch(
+        "homeassistant.helpers.entity_registry.async_get", return_value=reg
+    ):
+        yield
+
+
+def _multi_inverter(mock_hass):
+    """Construct a 2-device Huawei inverter with the registry + states mocked."""
+    mock_hass.states.get = MagicMock(side_effect=lambda eid: _STATES.get(eid))
+    with _registry():
+        return HuaweiInverter(mock_hass, {"huawei_device_ids": ["M", "S"]})
+
+
+class TestMultiDevice:
+    """Master/Slave: alle Batterien werden gesteuert + gewichteter Combined-SOC."""
+
+    def test_resolves_charge_entity_per_device(self, mock_hass):
+        inv = _multi_inverter(mock_hass)
+        assert inv._charge_entities == {"M": _CHARGE_M, "S": _CHARGE_S}
+
+    def test_combined_soc_capacity_weighted(self, mock_hass):
+        """Σ(SOC×Kap)/Σ(Kap) = (80·10 + 40·5)/15 = 66.67 %, Kapazität 15 kWh."""
+        inv = _multi_inverter(mock_hass)
+        with _registry():
+            soc, cap = inv.get_combined_battery_state()
+        assert soc == pytest.approx(1000 / 15)
+        assert cap == pytest.approx(15.0)
+
+    def test_combined_soc_uses_manual_capacity_when_sensor_empty(self, mock_hass):
+        """Kein Kapazitäts-Sensorwert → manuelle Einzelkapazität greift.
+
+        Reale Huawei-Anlagen liefern teils keinen akkukapazitat-Wert; dann muss
+        die pro Gerät konfigurierte Kapazität die Gewichtung tragen.
+        """
+        states = dict(_STATES)
+        states[_CAP_M] = _state("unknown")  # Sensor ohne Wert
+        states[_CAP_S] = _state("unknown")
+        mock_hass.states.get = MagicMock(side_effect=lambda eid: states.get(eid))
+        with _registry():
+            inv = HuaweiInverter(mock_hass, {
+                "huawei_device_ids": ["M", "S"],
+                "huawei_battery_capacities": {"M": 10, "S": 15},
+            })
+            soc, cap = inv.get_combined_battery_state()
+        # (80·10 + 40·15) / 25 = 56 %, Kapazität 25 kWh
+        assert soc == pytest.approx((80 * 10 + 40 * 15) / 25)
+        assert cap == pytest.approx(25.0)
+
+    def test_combined_state_none_when_sensor_missing(self, mock_hass):
+        inv = _multi_inverter(mock_hass)
+        states = dict(_STATES)
+        states[_SOC_S] = _state("unknown")
+        mock_hass.states.get = MagicMock(side_effect=lambda eid: states.get(eid))
+        with _registry():
+            assert inv.get_combined_battery_state() == (None, None)
+
+    def test_single_device_returns_no_combined_state(self, mock_hass):
+        """Single-Inverter → (None, None): Optimizer nutzt den Config-Sensor."""
+        mock_hass.states.get = MagicMock(return_value=None)
+        mock_hass.states.async_all = MagicMock(return_value=[])
+        inv = HuaweiInverter(mock_hass, {"huawei_device_id": "M"})
+        assert inv.get_combined_battery_state() == (None, None)
+
+    async def test_charge_limit_writes_all_devices(self, mock_hass):
+        inv = _multi_inverter(mock_hass)
+        with _registry():
+            result = await inv.async_set_charge_limit(0)
+        assert result is True
+        targets = {
+            c.args[2]["entity_id"]: c.args[2]["value"]
+            for c in mock_hass.services.async_call.call_args_list
+        }
+        assert targets == {_CHARGE_M: 0, _CHARGE_S: 0}
+
+    async def test_discharge_proportional_split(self, mock_hass):
+        """6 kW: usable 8 / 2 kWh → 4.8 / 1.2 kW (beide unter 5-kW-Cap)."""
+        inv = _multi_inverter(mock_hass)
+        with _registry():
+            result = await inv.async_set_discharge(6.0)
+        assert result is True
+        by_device = {
+            c.args[2]["device_id"]: c.args[2]["power"]
+            for c in mock_hass.services.async_call.call_args_list
+        }
+        assert by_device == {"M": "4800", "S": "1200"}
+
+    async def test_stop_forcible_all_devices(self, mock_hass):
+        inv = _multi_inverter(mock_hass)
+        with _registry():
+            result = await inv.async_stop_forcible()
+        assert result is True
+        calls = mock_hass.services.async_call.call_args_list
+        # 2 restore (number.set_value) + 2 stop (huawei_solar service)
+        assert len(calls) == 4
+        stop_devices = {
+            c.args[2]["device_id"]
+            for c in calls if c.args[0] == HUAWEI_DOMAIN
+        }
+        assert stop_devices == {"M", "S"}
 
 
 class TestIsAvailable:

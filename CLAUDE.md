@@ -55,7 +55,8 @@ optimizer.py: async_run_cycle(mode)
 | `peakshare.py` | PeakShareProvider — fetches + caches PeakShare API data, sliding window algorithm for optimal discharge window |
 | `websocket_api.py` | 17 WebSocket commands for panel (config, sensors, inverter control, activity log, feed-in statistics, PeakShare communities & data, consumption profile status & refresh) |
 | `inverter/base.py` | Abstract inverter interface (InverterBase ABC) |
-| `inverter/huawei.py` | Huawei SUN2000 implementation via HA services |
+| `inverter/huawei.py` | Huawei SUN2000 implementation via HA services — Single + Master/Slave (multi-device) |
+| `inverter/_distribution.py` | Shared proportional discharge distribution (SolarEdge + Huawei multi-battery) |
 | `inverter/fronius.py` | Fronius Gen24 implementation via direct Modbus TCP (SunSpec Model 124) |
 | `inverter/solax.py` | SolaX Gen4+ implementation via solax_modbus Mode 1 |
 | `inverter/solaredge.py` | SolarEdge StorEdge implementation via solaredge-modbus-multi |
@@ -140,6 +141,27 @@ Implementations:
   └── SolaXInverter — via HA solax_modbus Mode 1
 ```
 
+**Multi-Inverter / Multi-Battery (Master/Slave):** Both SolarEdge and Huawei
+support setups with multiple inverters + batteries. Each battery is a separate
+device in the source integration (no cross-device summing), so the driver must
+read **and** control every battery:
+
+- **SolarEdge** addresses extra units via entity prefix (`solaredge_i2_`),
+  derived from `pv_power_sensor_2`.
+- **Huawei** addresses each battery via its `device_id` (services
+  `forcible_discharge_soc` / `stop_forcible_charge`) and resolves per-device
+  entities (charge-limit number, SOC, capacity) through the HA **entity
+  registry** — robust against DE/EN naming. Config key `huawei_device_ids`
+  (list); `huawei_device_id` remains as legacy single fallback.
+- `get_combined_battery_state()` (InverterBase) returns a capacity-weighted SOC
+  + summed capacity; the optimizer snapshot overrides its config-sensor values
+  with it. Single-battery setups return `(None, None)` → unchanged behavior.
+- Discharge power is split proportional to each battery's usable energy via the
+  shared `inverter/_distribution.py` helper (equal-split fallback when a sensor
+  is unavailable). On save, `ws_save_config` points `battery_soc_sensor` /
+  `battery_capacity_sensor` at the synthetic combined sensors for multi-battery
+  Huawei (same as SolarEdge).
+
 ### Dependencies
 
 - **recorder** — long-term hourly statistics for consumption history
@@ -173,7 +195,7 @@ The config flow is a single-click setup that creates a config entry with `setup_
 6. Inverter connection test
 7. Live dashboard with energy flow, charts, manual controls, activity log
 
-Config entry version: 12 (migrations in `__init__.py`)
+Config entry version: 19 (migrations in `__init__.py`)
 
 ## Development Notes
 

@@ -12,17 +12,21 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
+    COMBINED_BATTERY_CAPACITY_SENSOR_ID,
     COMBINED_BATTERY_POWER_SENSOR_ID,
+    COMBINED_BATTERY_SOC_SENSOR_ID,
     COMBINED_GRID_POWER_SENSOR_ID,
     CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_POWER_CHARGE_SENSOR,
     CONF_BATTERY_POWER_DISCHARGE_SENSOR,
     CONF_BATTERY_POWER_SENSOR,
+    CONF_BATTERY_POWER_SENSOR_2,
     CONF_BATTERY_SOC_SENSOR,
     CONF_GRID_POWER_EXPORT_SENSOR,
     CONF_GRID_POWER_IMPORT_SENSOR,
     CONF_GRID_POWER_SENSOR,
     CONF_HUAWEI_DEVICE_ID,
+    CONF_HUAWEI_DEVICE_IDS,
     CONF_INVERTER_TYPE,
     CONF_PV_POWER_SENSOR,
     CONF_PV_POWER_SENSOR_2,
@@ -271,24 +275,72 @@ def _find_solax_prefix(hass: HomeAssistant) -> str | None:
     return None
 
 
-def _find_huawei_battery_device(hass: HomeAssistant) -> str | None:
-    """Auto-detect the Huawei Solar battery device ID."""
+def _find_huawei_battery_devices(hass: HomeAssistant) -> list[str]:
+    """Auto-detect all Huawei Solar battery device IDs (Master/Slave-fähig).
+
+    huawei_solar legt pro Batterie ein Gerät mit ``model == "Batteries"`` an
+    (das Aggregat mit SOC/Kapazität/Steuer-Entities) — der Modellname ist
+    huawei-intern, sprachunabhängig und vom User NICHT umbenennbar. Wir filtern
+    primär darauf; die LUNA-2000-Einzelmodule (``model == "LUNA 2000"``) und der
+    Wechselrichter werden so korrekt ausgeschlossen.
+
+    Fallback-Kette für ältere/abweichende Installationen: "batter" im Namen,
+    sonst das erste huawei_solar-Gerät überhaupt. Ergebnis ist deterministisch
+    nach Anzeigename sortiert (Master vor Slave).
+    """
     registry = dr.async_get(hass)
-    for device in registry.devices.values():
-        if any(
-            domain == "huawei_solar"
-            for domain, _ in device.identifiers
-        ):
-            if device.name and "batter" in device.name.lower():
-                return device.id
-    # Fallback: return first huawei_solar device
-    for device in registry.devices.values():
-        if any(
-            domain == "huawei_solar"
-            for domain, _ in device.identifiers
-        ):
-            return device.id
-    return None
+    huawei = [
+        d for d in registry.devices.values()
+        if any(domain == "huawei_solar" for domain, _ in d.identifiers)
+    ]
+
+    def _label(d) -> str:
+        return (d.name_by_user or d.name or "").lower()
+
+    battery_devs = [d for d in huawei if (d.model or "") == "Batteries"]
+    if not battery_devs:
+        battery_devs = [d for d in huawei if "batter" in _label(d)]
+    if battery_devs:
+        battery_devs.sort(key=_label)
+        return [d.id for d in battery_devs]
+    if huawei:
+        return [sorted(huawei, key=_label)[0].id]
+    return []
+
+
+def _find_huawei_battery_device(hass: HomeAssistant) -> str | None:
+    """Auto-detect the primary Huawei Solar battery device ID (Legacy-Single)."""
+    devices = _find_huawei_battery_devices(hass)
+    return devices[0] if devices else None
+
+
+def _huawei_entities_by_suffix(
+    hass: HomeAssistant, suffixes: tuple[str, ...], domain: str = "sensor"
+) -> list[str]:
+    """Alle huawei_solar-Entities (über alle Geräte), deren Name auf ein Suffix
+    endet — sortiert nach entity_id für deterministische Master/Slave-Reihenfolge.
+
+    Word-Boundary-Check verhindert, dass z. B. ``entladeleistung`` als
+    ``ladeleistung`` durchgeht. Nur Entities der huawei_solar-Config-Entries
+    werden berücksichtigt (keine Fremdintegrationen).
+    """
+    ent_reg = er.async_get(hass)
+    huawei_entry_ids = {
+        e.entry_id for e in hass.config_entries.async_entries("huawei_solar")
+    }
+    found: list[str] = []
+    for entry in ent_reg.entities.values():
+        if entry.config_entry_id not in huawei_entry_ids:
+            continue
+        eid = entry.entity_id
+        if not eid.startswith(f"{domain}."):
+            continue
+        name = eid.split(".", 1)[1]
+        for suf in suffixes:
+            if name.endswith(suf) and (name == suf or name[: -len(suf)].endswith("_")):
+                found.append(eid)
+                break
+    return sorted(found)
 
 
 def _get_inverter(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
@@ -475,6 +527,16 @@ async def ws_save_config(
             and new_data.get(CONF_GRID_POWER_IMPORT_SENSOR)):
         new_data[CONF_GRID_POWER_SENSOR] = COMBINED_GRID_POWER_SENSOR_ID
 
+    # Huawei Master/Slave (≥2 Batteriegeräte): SOC/Kapazität auf die treiber-
+    # seitig kombinierten Synthetik-Sensoren zeigen, damit Dashboard und
+    # Optimizer denselben kapazitätsgewichteten Wert sehen (der Optimizer
+    # übersteuert ohnehin via get_combined_battery_state, das Frontend liest
+    # battery_soc_sensor). Single-Inverter bleibt unangetastet.
+    if (new_data.get(CONF_INVERTER_TYPE) == INVERTER_TYPE_HUAWEI
+            and len(new_data.get(CONF_HUAWEI_DEVICE_IDS) or []) >= 2):
+        new_data[CONF_BATTERY_SOC_SENSOR] = COMBINED_BATTERY_SOC_SENSOR_ID
+        new_data[CONF_BATTERY_CAPACITY_SENSOR] = COMBINED_BATTERY_CAPACITY_SENSOR_ID
+
     # Inverter-Race-Schutz (≥5min zwischen Slot-A-Min-Ende und Slot-B-Start).
     # Auto-Korrektur (NICHT Hard-Reject) — konsistent mit SolarEdge-5kW-Clamp.
     # Nur relevant wenn beide Slots aktiv (SolarEdge XOR oben greift davor).
@@ -566,16 +628,48 @@ async def ws_detect_sensors(
                     sensors[conf_key] = entity_id
                     break
 
-        # Detect battery device
-        device_id = _find_huawei_battery_device(hass)
+        # Detect battery device(s) — Master/Slave-Setups liefern mehrere.
+        device_ids = _find_huawei_battery_devices(hass)
 
         result: dict = {
             CONF_INVERTER_TYPE: INVERTER_TYPE_HUAWEI,
             "detected": True,
             "sensors": sensors,
         }
-        if device_id:
-            result[CONF_HUAWEI_DEVICE_ID] = device_id
+        if device_ids:
+            result[CONF_HUAWEI_DEVICE_ID] = device_ids[0]  # Legacy-Single
+            result[CONF_HUAWEI_DEVICE_IDS] = device_ids
+
+        # Multi-Inverter: zweiten PV- und Batterieleistungs-Sensor erkennen.
+        # PV-Eingangsleistung hängt am Inverter-Gerät, Batterieleistung am
+        # Batterie-Gerät — beide existieren pro Wechselrichter getrennt. Wir
+        # nehmen jeweils den ersten, der nicht schon als primärer Sensor dient.
+        if len(device_ids) >= 2:
+            pv_sensors = _huawei_entities_by_suffix(
+                hass, ("eingangsleistung", "input_power")
+            )
+            pv_primary = sensors.get(CONF_PV_POWER_SENSOR)
+            pv_extra = next((e for e in pv_sensors if e != pv_primary), None)
+            if pv_extra:
+                sensors[CONF_PV_POWER_SENSOR_2] = pv_extra
+
+            bat_sensors = _huawei_entities_by_suffix(
+                hass, ("lade_entladeleistung", "charge_discharge_power")
+            )
+            bat_primary = sensors.get(CONF_BATTERY_POWER_SENSOR)
+            bat_extra = next((e for e in bat_sensors if e != bat_primary), None)
+            if bat_extra:
+                sensors[CONF_BATTERY_POWER_SENSOR_2] = bat_extra
+
+        # "Enable battery control" prüfen: ohne diese Option registriert
+        # huawei_solar weder die forcible-Services noch das Ladelimit-Number —
+        # dann kann der Optimizer NICHT steuern (weder Single noch Master/Slave).
+        # Erkennbar an den Steuer-Services (sprachunabhängig).
+        result["huawei_battery_control"] = (
+            hass.services.has_service("huawei_solar", "forcible_discharge_soc")
+            or hass.services.has_service("huawei_solar", "stop_forcible_charge")
+            or hass.services.has_service("huawei_solar", "forcible_charge")
+        )
 
         connection.send_result(msg["id"], result)
         return
