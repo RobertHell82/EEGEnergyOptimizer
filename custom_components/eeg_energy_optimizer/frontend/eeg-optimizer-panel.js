@@ -72,7 +72,12 @@ const WIZARD_DEFAULTS = {
   grid_power_export_sensor: "",
   grid_power_import_sensor: "",
   huawei_device_id: "",
+  // Huawei Master/Slave: alle Batteriegeräte. Bei ≥2 Geräten steuert der
+  // Treiber alle Batterien und liefert einen kapazitätsgewichteten Combined-SOC.
+  huawei_device_ids: [],
   pv_power_sensor_2: "",
+  // Zweite Batterieleistung (Multi-Inverter, z. B. Huawei Master/Slave).
+  battery_power_sensor_2: "",
   solax_remotecontrol_power_control: "",
   solax_remotecontrol_active_power: "",
   solax_remotecontrol_autorepeat_duration: "",
@@ -592,6 +597,9 @@ class EegOptimizerPanel extends HTMLElement {
       case "recheck-prerequisites":
         this._checkPrerequisites();
         break;
+      case "redetect-sensors":
+        this._detectSensors();
+        break;
       case "toggle-sidebar":
         this._toggleHaSidebar();
         break;
@@ -687,12 +695,13 @@ class EegOptimizerPanel extends HTMLElement {
             "battery_power_charge_sensor", "battery_power_discharge_sensor",
             "grid_power_export_sensor", "grid_power_import_sensor",
             "battery_soc_sensor", "battery_capacity_sensor", "huawei_device_id",
-            "pv_power_sensor_2",
+            "pv_power_sensor_2", "battery_power_sensor_2",
             "solax_remotecontrol_power_control", "solax_remotecontrol_active_power",
             "solax_remotecontrol_autorepeat_duration", "solax_remotecontrol_trigger",
             "solax_selfuse_discharge_min_soc",
           ];
           for (const k of sensorKeys) this._wizardData[k] = "";
+          this._wizardData.huawei_device_ids = [];
           this._detectedSensors = null;
           this._detectSensors();
         }
@@ -1135,6 +1144,16 @@ class EegOptimizerPanel extends HTMLElement {
         // Manueller Capacity-Fallback wird nicht mehr genutzt — Driver liefert
         // die Summe direkt. Bewusst nicht gelöscht, damit der User seine
         // ursprüngliche Eingabe in der Config nachvollziehen kann.
+      }
+      // Huawei Master/Slave (≥2 Batterien): SOC + Kapazität ebenfalls über die
+      // Driver-Combined-Sensoren — Dashboard und Optimizer sehen denselben
+      // kapazitätsgewichteten Wert. Single-Huawei bleibt beim eigenen Sensor.
+      if (
+        this._wizardData.inverter_type === "huawei_sun2000" &&
+        (this._wizardData.huawei_device_ids || []).length >= 2
+      ) {
+        this._wizardData.battery_soc_sensor = "sensor.eeg_energy_optimizer_combined_soc";
+        this._wizardData.battery_capacity_sensor = "sensor.eeg_energy_optimizer_combined_capacity";
       }
       const saveData = { ...this._wizardData };
       delete saveData.consumption_sensor;
@@ -1627,7 +1646,12 @@ class EegOptimizerPanel extends HTMLElement {
         // Auto-Detection darf hier nicht den einzelnen i1-Sensor eintragen
         // (das würde den Wizard-Save-Pfad untergraben).
         const isSolarEdge = this._wizardData.inverter_type === "solaredge_storedge";
-        const skipKeys = isSolarEdge
+        // Huawei Master/Slave (≥2 Batteriegeräte): SOC + Kapazität laufen über
+        // die Driver-Combined-Sensoren — wie bei SolarEdge den i1-Einzelsensor
+        // nicht eintragen, sonst untergräbt das den Combined-Save-Pfad.
+        const huaweiDevices = this._detectedSensors.huawei_device_ids || [];
+        const isHuaweiMulti = huaweiDevices.length >= 2;
+        const skipKeys = (isSolarEdge || isHuaweiMulti)
           ? new Set(["battery_soc_sensor", "battery_capacity_sensor"])
           : new Set();
         for (const [key, val] of Object.entries(sensors)) {
@@ -1642,6 +1666,10 @@ class EegOptimizerPanel extends HTMLElement {
         ) {
           this._wizardData.huawei_device_id =
             this._detectedSensors.huawei_device_id;
+        }
+        // Multi-Device-Liste immer übernehmen (steuert alle Batterien).
+        if (huaweiDevices.length) {
+          this._wizardData.huawei_device_ids = huaweiDevices;
         }
         // SolaX control entity prefix detection
         if (this._detectedSensors.solax_prefix) {
@@ -2520,6 +2548,32 @@ class EegOptimizerPanel extends HTMLElement {
 
     let detectionInfo = "";
 
+    // Huawei: ohne "Enable battery control" registriert huawei_solar keine
+    // Steuer-Dienste — dann kann der Optimizer die Batterie nicht ansteuern.
+    // Sofort sichtbar warnen (huawei_battery_control === false aus detect).
+    if (
+      this._wizardData.inverter_type === "huawei_sun2000" &&
+      this._detectedSensors &&
+      this._detectedSensors.huawei_battery_control === false
+    ) {
+      detectionInfo += `
+        <div style="display:flex;gap:12px;padding:14px;border-left:3px solid var(--error-color,#db4437);background:var(--secondary-background-color);border-radius:6px;margin-bottom:16px">
+          <ha-icon icon="mdi:alert-circle" style="--mdc-icon-size:28px;color:var(--error-color,#db4437);flex-shrink:0"></ha-icon>
+          <div>
+            <strong>Batteriesteuerung in „Huawei Solar" nicht aktiviert</strong>
+            <div class="help-text" style="margin-top:6px">
+              Die Steuer-Dienste der <code>huawei_solar</code>-Integration fehlen.
+              Ohne sie kann der Optimizer die Batterie <strong>nicht ansteuern</strong>
+              (weder Laden blockieren noch entladen). Richte die
+              <code>huawei_solar</code>-Integration mit der Option
+              <strong>„Enable battery control"</strong> ein (erfordert den
+              Installer-Login) und prüfe dann erneut.
+            </div>
+            <button class="btn-secondary" data-action="redetect-sensors" style="margin-top:10px">Erneut prüfen</button>
+          </div>
+        </div>`;
+    }
+
     // SolarEdge: Driver berechnet SOC + Kapazität kapazitätsgewichtet über
     // alle Inverter (i1, i2, ...). Wizard zeigt nur einen Info-Block; die
     // Combined-Sensor-IDs werden beim Save automatisch eingetragen.
@@ -2874,11 +2928,15 @@ class EegOptimizerPanel extends HTMLElement {
             ? d.battery_capacity_sensor
             : d.battery_capacity_kwh + " kWh (manuell)"
         )}
+        ${((d.huawei_device_ids || []).length >= 2)
+          ? row("Wechselrichter", `${(d.huawei_device_ids || []).length} Geräte (Master/Slave) — alle Batterien werden gesteuert`)
+          : ""}
         ${row("PV-Sensor", d.pv_power_sensor || "—")}
         ${d.pv_power_sensor_2 ? row("PV-Sensor 2", d.pv_power_sensor_2) : ""}
         ${(d.battery_power_charge_sensor && d.battery_power_discharge_sensor)
           ? row("Batterie-Leistung", `${d.battery_power_charge_sensor} − ${d.battery_power_discharge_sensor}`)
           : row("Batterie-Leistung", d.battery_power_sensor || "—")}
+        ${d.battery_power_sensor_2 ? row("Batterie-Leistung 2", d.battery_power_sensor_2) : ""}
         ${(d.grid_power_export_sensor && d.grid_power_import_sensor)
           ? row("Netz-Leistung", `${d.grid_power_export_sensor} − ${d.grid_power_import_sensor}`)
           : row("Netz-Leistung", d.grid_power_sensor || "—")}

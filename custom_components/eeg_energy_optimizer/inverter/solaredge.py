@@ -216,43 +216,13 @@ class SolarEdgeInverter(InverterBase):
     ) -> dict[str, float]:
         """Distribute total_kw proportional to usable_kwh, capped at max_kw.
 
-        Iterative: when an inverter hits its cap, fix it and redistribute the
-        remainder across the still-uncapped pool. Bounded by len(inverters)
-        iterations (each round either caps ≥1 inverter or terminates).
+        Thin adapter around the shared ``distribute_proportional`` helper
+        (inverter/_distribution.py) — same logic shared with the Huawei
+        Master/Slave driver. Inverters use the "prefix" id key.
         """
-        allocated = {inv["prefix"]: 0.0 for inv in inverters}
-        # Fallback: no inverter has usable energy (all at backup reserve)
-        # → equal split, capped per inverter (legacy behavior fallback)
-        pool = [inv for inv in inverters if inv["usable_kwh"] > 0]
-        if not pool:
-            if not inverters:
-                return {}
-            per = total_kw / len(inverters)
-            return {inv["prefix"]: min(per, inv["max_kw"]) for inv in inverters}
+        from ._distribution import distribute_proportional
 
-        remaining = total_kw
-        for _ in range(len(pool) + 1):
-            if not pool or remaining <= 1e-6:
-                break
-            total_usable = sum(inv["usable_kwh"] for inv in pool)
-            capped_now = []
-            for inv in pool:
-                share = remaining * inv["usable_kwh"] / total_usable
-                headroom = inv["max_kw"] - allocated[inv["prefix"]]
-                if share >= headroom - 1e-6:
-                    allocated[inv["prefix"]] = inv["max_kw"]
-                    capped_now.append(inv)
-            if capped_now:
-                remaining = max(0.0, total_kw - sum(allocated.values()))
-                for inv in capped_now:
-                    pool.remove(inv)
-            else:
-                # All proportional shares fit — finalize
-                for inv in pool:
-                    share = remaining * inv["usable_kwh"] / total_usable
-                    allocated[inv["prefix"]] += share
-                break
-        return allocated
+        return distribute_proportional(total_kw, inverters, id_key="prefix")
 
     def _snapshot_original_values(self) -> None:
         """Snapshot current values so we can restore them in async_stop_forcible."""

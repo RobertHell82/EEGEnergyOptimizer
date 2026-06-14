@@ -24,6 +24,16 @@ CONF_GRID_POWER_IMPORT_SENSOR = "grid_power_import_sensor"
 CONF_BATTERY_POWER_CHARGE_SENSOR = "battery_power_charge_sensor"
 CONF_BATTERY_POWER_DISCHARGE_SENSOR = "battery_power_discharge_sensor"
 CONF_HUAWEI_DEVICE_ID = "huawei_device_id"
+# Multi-Inverter (Master/Slave): Liste aller huawei_solar-Batteriegeräte.
+# Jedes Gerät hat eine eigene Batterie mit eigenem SOC/Kapazität/Ladelimit
+# und eigenen forcible_charge/discharge-Services. CONF_HUAWEI_DEVICE_ID
+# bleibt als Legacy-Single-Key bestehen (Fallback für Bestandsanlagen).
+CONF_HUAWEI_DEVICE_IDS = "huawei_device_ids"
+# Manuelle Einzelkapazität pro Batteriegerät: {device_id: kwh}. Nötig, weil
+# huawei_solar bei manchen Anlagen keinen Akkukapazitäts-Sensor mit Wert
+# liefert — ohne Einzelkapazitäten kann der kapazitätsgewichtete Combined-SOC
+# nicht berechnet werden. Sensorwert (falls vorhanden) hat Vorrang.
+CONF_HUAWEI_BATTERY_CAPACITIES = "huawei_battery_capacities"
 
 INVERTER_TYPE_HUAWEI = "huawei_sun2000"
 INVERTER_TYPE_SOLAX = "solax_gen4"
@@ -69,6 +79,11 @@ CONF_FRONIUS_MODBUS_PORT = "fronius_modbus_port"
 DEFAULT_FRONIUS_MODBUS_PORT = 502
 
 CONF_PV_POWER_SENSOR_2 = "pv_power_sensor_2"
+# Optionaler zweiter Batterieleistungs-Sensor (Multi-Inverter, z. B. Huawei
+# Master/Slave mit je einer Batterie). Wird in Hausverbrauch- und
+# Batterieleistung-Sensor zur ersten Batterie addiert, damit der berechnete
+# Hausverbrauch (→ Verbrauchsprofil) das Gesamtsystem abbildet.
+CONF_BATTERY_POWER_SENSOR_2 = "battery_power_sensor_2"
 
 # Phase 2: Forecast & Consumption
 CONF_FORECAST_SOURCE = "forecast_source"
