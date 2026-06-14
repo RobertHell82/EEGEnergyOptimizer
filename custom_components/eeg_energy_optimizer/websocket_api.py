@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING
 
 import voluptuous as vol
@@ -314,15 +315,29 @@ def _find_huawei_battery_device(hass: HomeAssistant) -> str | None:
     return devices[0] if devices else None
 
 
+def _huawei_suffix_match(name: str, suffix: str) -> bool:
+    """True wenn `name` auf `suffix` endet (Word-Boundary an ``_``).
+
+    huawei_solar hängt bei Master/Slave einen Geräte-Index an das ENDE an
+    (``batterien_batterieladung_2``) — dieses optionale ``_<zahl>`` wird vor
+    dem Vergleich entfernt, damit der Slave-Sensor genauso matcht wie der des
+    Masters. Der Word-Boundary-Check verhindert, dass z. B.
+    ``entladeleistung`` als ``ladeleistung`` durchgeht.
+    """
+    core = re.sub(r"_\d+$", "", name)
+    for cand in (name, core):
+        if cand.endswith(suffix) and (cand == suffix or cand[: -len(suffix)].endswith("_")):
+            return True
+    return False
+
+
 def _huawei_entities_by_suffix(
     hass: HomeAssistant, suffixes: tuple[str, ...], domain: str = "sensor"
 ) -> list[str]:
     """Alle huawei_solar-Entities (über alle Geräte), deren Name auf ein Suffix
     endet — sortiert nach entity_id für deterministische Master/Slave-Reihenfolge.
 
-    Word-Boundary-Check verhindert, dass z. B. ``entladeleistung`` als
-    ``ladeleistung`` durchgeht. Nur Entities der huawei_solar-Config-Entries
-    werden berücksichtigt (keine Fremdintegrationen).
+    Nur Entities der huawei_solar-Config-Entries (keine Fremdintegrationen).
     """
     ent_reg = er.async_get(hass)
     huawei_entry_ids = {
@@ -335,12 +350,30 @@ def _huawei_entities_by_suffix(
         eid = entry.entity_id
         if not eid.startswith(f"{domain}."):
             continue
-        name = eid.split(".", 1)[1]
-        for suf in suffixes:
-            if name.endswith(suf) and (name == suf or name[: -len(suf)].endswith("_")):
-                found.append(eid)
-                break
+        if any(_huawei_suffix_match(eid.split(".", 1)[1], suf) for suf in suffixes):
+            found.append(eid)
     return sorted(found)
+
+
+def _huawei_device_entity(
+    hass: HomeAssistant, device_id: str, domain: str, suffixes: tuple[str, ...]
+) -> str | None:
+    """Entity eines bestimmten Geräts (Registry-Zuordnung), Name endet auf Suffix.
+
+    Wird für die zweite Batterieleistung genutzt — device-basiert, weil ein
+    globaler Suffix-Scan sonst die leeren LUNA-Modul-Sensoren (``batterie_1_*``)
+    erwischen könnte.
+    """
+    ent_reg = er.async_get(hass)
+    for entry in ent_reg.entities.values():
+        if entry.device_id != device_id:
+            continue
+        eid = entry.entity_id
+        if not eid.startswith(f"{domain}."):
+            continue
+        if any(_huawei_suffix_match(eid.split(".", 1)[1], suf) for suf in suffixes):
+            return eid
+    return None
 
 
 def _get_inverter(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
@@ -639,6 +672,16 @@ async def ws_detect_sensors(
         if device_ids:
             result[CONF_HUAWEI_DEVICE_ID] = device_ids[0]  # Legacy-Single
             result[CONF_HUAWEI_DEVICE_IDS] = device_ids
+            # Gerätenamen mitliefern, damit der Wizard pro Batterie ein
+            # Kapazitätsfeld mit verständlichem Label rendern kann.
+            devreg = dr.async_get(hass)
+            bat_devs = []
+            for did in device_ids:
+                dv = devreg.async_get(did)
+                bat_devs.append(
+                    {"id": did, "name": (dv.name_by_user or dv.name) if dv else did}
+                )
+            result["huawei_battery_devices"] = bat_devs
 
         # Multi-Inverter: zweiten PV- und Batterieleistungs-Sensor erkennen.
         # PV-Eingangsleistung hängt am Inverter-Gerät, Batterieleistung am
@@ -653,11 +696,13 @@ async def ws_detect_sensors(
             if pv_extra:
                 sensors[CONF_PV_POWER_SENSOR_2] = pv_extra
 
-            bat_sensors = _huawei_entities_by_suffix(
-                hass, ("lade_entladeleistung", "charge_discharge_power")
+            # Zweite Batterieleistung device-basiert am zweiten Batteriegerät
+            # auflösen — ein globaler Suffix-Scan würde sonst die leeren
+            # LUNA-Modul-Sensoren (batterie_1_…) erwischen.
+            bat_extra = _huawei_device_entity(
+                hass, device_ids[1], "sensor",
+                ("lade_entladeleistung", "charge_discharge_power"),
             )
-            bat_primary = sensors.get(CONF_BATTERY_POWER_SENSOR)
-            bat_extra = next((e for e in bat_sensors if e != bat_primary), None)
             if bat_extra:
                 sensors[CONF_BATTERY_POWER_SENSOR_2] = bat_extra
 

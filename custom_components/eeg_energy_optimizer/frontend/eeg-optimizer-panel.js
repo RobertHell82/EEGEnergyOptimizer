@@ -75,6 +75,9 @@ const WIZARD_DEFAULTS = {
   // Huawei Master/Slave: alle Batteriegeräte. Bei ≥2 Geräten steuert der
   // Treiber alle Batterien und liefert einen kapazitätsgewichteten Combined-SOC.
   huawei_device_ids: [],
+  // Einzelkapazität pro Batteriegerät {device_id: kwh} — für gewichteten
+  // Combined-SOC + korrekte Gesamtkapazität bei Master/Slave.
+  huawei_battery_capacities: {},
   pv_power_sensor_2: "",
   // Zweite Batterieleistung (Multi-Inverter, z. B. Huawei Master/Slave).
   battery_power_sensor_2: "",
@@ -406,6 +409,18 @@ class EegOptimizerPanel extends HTMLElement {
           }
           return;
         }
+        // Huawei Master/Slave: Einzelkapazität pro Gerät → dict
+        // huawei_battery_capacities[device_id]. Feld: huawei_cap_<device_id>.
+        if (field.startsWith("huawei_cap_")) {
+          const devId = field.slice("huawei_cap_".length);
+          if (!this._wizardData.huawei_battery_capacities) {
+            this._wizardData.huawei_battery_capacities = {};
+          }
+          const v = parseFloat(target.value);
+          if (v > 0) this._wizardData.huawei_battery_capacities[devId] = v;
+          else delete this._wizardData.huawei_battery_capacities[devId];
+          return;
+        }
         const type = target.type;
         if (type === "number") {
           let numVal = parseFloat(target.value) || 0;
@@ -702,6 +717,7 @@ class EegOptimizerPanel extends HTMLElement {
           ];
           for (const k of sensorKeys) this._wizardData[k] = "";
           this._wizardData.huawei_device_ids = [];
+          this._wizardData.huawei_battery_capacities = {};
           this._detectedSensors = null;
           this._detectSensors();
         }
@@ -2307,6 +2323,7 @@ class EegOptimizerPanel extends HTMLElement {
         <p style="font-size:13px;color:var(--secondary-text-color);margin:0 0 12px">
           Diese Sensoren werden f&uuml;r die Berechnung des Hausverbrauchs verwendet (PV &minus; Batterie &minus; Netz).
         </p>
+        ${this._renderHuaweiMultiInfo()}
         ${this._entityPickerHtml(
           "pv_power_sensor",
           this._wizardData.pv_power_sensor,
@@ -2541,6 +2558,40 @@ class EegOptimizerPanel extends HTMLElement {
       </div>` : ""}`;
   }
 
+  // Huawei Master/Slave: zeigt direkt bei der Sensor-Auswahl, welche Sensoren
+  // je Wechselrichter erkannt wurden — damit der User sieht "der hat beide
+  // gecheckt" (oder eben nicht). Leerer String bei Single-Inverter.
+  _renderHuaweiMultiInfo() {
+    if (this._wizardData.inverter_type !== "huawei_sun2000") return "";
+    const ids = this._wizardData.huawei_device_ids || [];
+    if (ids.length < 2) return "";
+    const d = this._wizardData;
+    const line = (label, primary, second) => {
+      const sec = second
+        ? `<span style="color:var(--success-color,#43a047)">+ ${second}</span>`
+        : `<span style="color:var(--warning-color,#ffa600)">(zweiter nicht erkannt)</span>`;
+      return `<li style="margin:2px 0"><strong>${label}:</strong> ${primary || "—"} ${primary ? sec : ""}</li>`;
+    };
+    const allOk = d.pv_power_sensor_2 && d.battery_power_sensor_2;
+    const col = allOk ? "var(--primary-color)" : "var(--warning-color,#ffa600)";
+    return `
+      <div style="display:flex;gap:12px;padding:12px 14px;border-left:3px solid ${col};background:var(--secondary-background-color);border-radius:6px;margin-bottom:14px">
+        <ha-icon icon="mdi:${allOk ? "check-circle" : "alert"}" style="--mdc-icon-size:24px;color:${col};flex-shrink:0"></ha-icon>
+        <div>
+          <strong>${ids.length} Wechselrichter erkannt (Master/Slave)</strong>
+          <div class="help-text" style="margin-top:4px">
+            Beide Batterien werden angesteuert. Automatisch erkannte Sensoren:
+            <ul style="margin:6px 0 2px 16px;padding:0">
+              ${line("PV-Eingangsleistung", d.pv_power_sensor, d.pv_power_sensor_2)}
+              ${line("Batterieleistung", d.battery_power_sensor, d.battery_power_sensor_2)}
+            </ul>
+            ${!allOk ? `<div style="margin-top:6px;color:var(--warning-color,#ffa600)">Ein zweiter Sensor wurde nicht gefunden — auf „Erneut prüfen" klicken oder im Experten-Modus manuell ergänzen.</div>` : ""}
+          </div>
+          <button class="btn-secondary" data-action="redetect-sensors" style="margin-top:8px">Erneut prüfen</button>
+        </div>
+      </div>`;
+  }
+
   /* ── Step 3: Batteriesensoren ───────────── */
 
   _renderStep3() {
@@ -2604,6 +2655,39 @@ class EegOptimizerPanel extends HTMLElement {
             </div>
           </div>
         </div>`;
+    }
+
+    // Huawei Master/Slave: SOC wird treiberseitig kombiniert (wie SolarEdge).
+    // Da die Anlage keinen Kapazitäts-Sensor liefert, wird die Kapazität je
+    // Batterie manuell eingetragen → gewichteter SOC + korrekte Gesamtkapazität.
+    const huaweiDevs = (this._detectedSensors && this._detectedSensors.huawei_battery_devices) || [];
+    if (this._wizardData.inverter_type === "huawei_sun2000" && huaweiDevs.length >= 2) {
+      const caps = this._wizardData.huawei_battery_capacities || {};
+      const fields = huaweiDevs.map(dev => `
+        <div class="field-group" style="margin-bottom:10px">
+          <label>Kapazität „${dev.name}" (kWh) *</label>
+          <input type="number" data-field="huawei_cap_${dev.id}"
+                 value="${caps[dev.id] || ""}" min="1" max="100" step="0.5" placeholder="z.B. 10">
+        </div>`).join("");
+      const sum = huaweiDevs.reduce((a, d) => a + (parseFloat(caps[d.id]) || 0), 0);
+      return `
+        ${detectionInfo}
+        <div style="display:flex;gap:12px;padding:14px;border-left:3px solid var(--primary-color);background:var(--secondary-background-color);border-radius:6px;margin-bottom:16px">
+          <ha-icon icon="mdi:battery-sync" style="--mdc-icon-size:28px;color:var(--primary-color);flex-shrink:0"></ha-icon>
+          <div>
+            <strong>${huaweiDevs.length} Batterien — SOC wird kombiniert.</strong>
+            <div class="help-text" style="margin-top:6px">
+              Der Ladestand wird kapazitätsgewichtet aus beiden Batterien berechnet
+              (<code>sensor.eeg_energy_optimizer_combined_soc</code>). Diese Anlage
+              liefert keinen Kapazitäts-Sensor — trage daher die nutzbare Kapazität
+              je Batterie ein (steht meist im Gerätenamen):
+            </div>
+          </div>
+        </div>
+        ${fields}
+        ${sum > 0
+          ? `<div class="help-text">Gesamtkapazität: <strong>${sum} kWh</strong></div>`
+          : `<div class="help-text" style="color:var(--warning-color,#ffa600)">Bitte die Kapazität beider Batterien eintragen.</div>`}`;
     }
 
     const socHelp =
