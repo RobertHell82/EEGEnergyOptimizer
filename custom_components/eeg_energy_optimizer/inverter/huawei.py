@@ -22,6 +22,7 @@ der alte globale States-Scan als Fallback.
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from .base import InverterBase
@@ -126,16 +127,23 @@ class HuaweiInverter(InverterBase):
 
         Word-Boundary-Check (Suffix beginnt an einer ``_``-Grenze), damit
         z. B. ``maximale_entladeleistung`` nicht als Lade-Entity durchgeht.
+
+        huawei_solar hängt bei Master/Slave einen Geräte-Index an das ENDE des
+        Namens (``batterien_batterieladung_2`` für den Slave). Dieses optionale
+        ``_<zahl>``-Suffix wird vor dem Vergleich entfernt, damit der Slave-
+        Sensor genauso gefunden wird wie der des Masters.
         """
         for eid in self._registry_entities_for_device(device_id):
             if not eid.startswith(f"{domain}."):
                 continue
             name = eid.split(".", 1)[1]
+            core = re.sub(r"_\d+$", "", name)
             for suf in suffixes:
-                if name.endswith(suf) and (
-                    name == suf or name[: -len(suf)].endswith("_")
-                ):
-                    return eid
+                for cand in (name, core):
+                    if cand.endswith(suf) and (
+                        cand == suf or cand[: -len(suf)].endswith("_")
+                    ):
+                        return eid
         return None
 
     def _resolve_charge_entity(self, device_id: str) -> str | None:
@@ -249,26 +257,42 @@ class HuaweiInverter(InverterBase):
 
         Nur bei ≥2 Geräten aktiv — Single-Inverter liefert (None, None), sodass
         der Optimizer wie bisher den konfigurierten battery_soc_sensor nutzt.
-        Gibt (None, None) zurück, sobald ein Sensor fehlt → sicherer Fallback.
+
+        Liegen alle Einzelkapazitäten vor (Sensor oder manuell), wird der SOC
+        kapazitätsgewichtet und die Summenkapazität zurückgegeben. Fehlt eine
+        Kapazität (manche Huawei-Anlagen liefern keinen akkukapazitat-Wert),
+        wird auf den ungewichteten SOC-Mittelwert zurückgegriffen und keine
+        Kapazität gemeldet (Optimizer nutzt dann battery_capacity_kwh). So geht
+        der SOC nie verloren, nur weil die Kapazität fehlt. (None, None) erst,
+        wenn KEIN Gerät einen SOC liefert.
         """
         if len(self._device_ids) < 2:
             return (None, None)
+        socs: list[float] = []
         total_cap = 0.0
         weighted = 0.0
+        all_caps = True
         for did in self._device_ids:
             soc = self._read_battery_soc_pct(did)
+            if soc is None:
+                _LOGGER.debug("Huawei: kein SOC für %s", did)
+                continue
+            socs.append(soc)
             cap = self._read_battery_capacity_kwh(did)
-            if soc is None or cap is None or cap <= 0:
-                _LOGGER.debug(
-                    "Huawei: combined battery state unavailable — %s (cap=%s soc=%s)",
-                    did, cap, soc,
-                )
-                return (None, None)
-            total_cap += cap
-            weighted += soc * cap
-        if total_cap <= 0:
+            if cap is not None and cap > 0:
+                total_cap += cap
+                weighted += soc * cap
+            else:
+                all_caps = False
+        if not socs:
             return (None, None)
-        return (weighted / total_cap, total_cap)
+        if all_caps and total_cap > 0:
+            return (weighted / total_cap, total_cap)
+        _LOGGER.debug(
+            "Huawei: Combined-SOC ohne vollständige Kapazitäten — ungewichteter "
+            "Mittelwert über %d Batterie(n)", len(socs),
+        )
+        return (sum(socs) / len(socs), None)
 
     def _compute_discharge_distribution(self, total_kw: float) -> dict | None:
         """Per-device discharge power proportional to usable energy.

@@ -337,13 +337,63 @@ class TestMultiDevice:
         assert soc == pytest.approx((80 * 10 + 40 * 15) / 25)
         assert cap == pytest.approx(25.0)
 
-    def test_combined_state_none_when_sensor_missing(self, mock_hass):
-        inv = _multi_inverter(mock_hass)
+    def test_combined_soc_falls_back_to_unweighted_without_capacity(self, mock_hass):
+        """Ohne Kapazitäten (Sensor fehlt, keine manuelle) → ungewichteter SOC.
+
+        Reale Huawei-Anlagen liefern teils gar keinen akkukapazitat-Sensor; der
+        Combined-SOC darf dann nicht verschwinden, sondern mittelt ungewichtet.
+        """
+        states = dict(_STATES)
+        states[_CAP_M] = _state("unknown")
+        states[_CAP_S] = _state("unknown")
+        mock_hass.states.get = MagicMock(side_effect=lambda eid: states.get(eid))
+        with _registry():
+            inv = HuaweiInverter(mock_hass, {"huawei_device_ids": ["M", "S"]})
+            soc, cap = inv.get_combined_battery_state()
+        assert soc == pytest.approx((80 + 40) / 2)  # ungewichtet
+        assert cap is None  # keine Kapazität gemeldet → Optimizer nutzt Fallback
+
+    def test_combined_soc_uses_available_soc_when_one_device_missing(self, mock_hass):
+        """Fehlt ein SOC, zählt nur das verfügbare Gerät (SOC geht nicht verloren)."""
         states = dict(_STATES)
         states[_SOC_S] = _state("unknown")
         mock_hass.states.get = MagicMock(side_effect=lambda eid: states.get(eid))
         with _registry():
+            inv = HuaweiInverter(mock_hass, {"huawei_device_ids": ["M", "S"]})
+            soc, cap = inv.get_combined_battery_state()
+        assert soc == pytest.approx(80.0)  # nur Master
+
+    def test_combined_state_none_when_all_soc_missing(self, mock_hass):
+        """Erst wenn KEIN Gerät einen SOC liefert → (None, None)."""
+        inv = _multi_inverter(mock_hass)
+        states = dict(_STATES)
+        states[_SOC_M] = _state("unknown")
+        states[_SOC_S] = _state("unknown")
+        mock_hass.states.get = MagicMock(side_effect=lambda eid: states.get(eid))
+        with _registry():
             assert inv.get_combined_battery_state() == (None, None)
+
+    def test_slave_sensors_with_trailing_index_suffix(self, mock_hass):
+        """Slave-Sensoren enden bei huawei_solar auf _2 (batterien_…_2) —
+        die Registry-Auflösung muss diesen Geräte-Index am Ende ignorieren."""
+        soc_s_end = "sensor.batterien_batterieladung_2"
+        cap_s_end = "sensor.batterien_akkukapazitat_2"
+        reg = [
+            _reg_entry(_CHARGE_M, "M"), _reg_entry(_SOC_M, "M"), _reg_entry(_CAP_M, "M"),
+            _reg_entry("number.batterien_maximale_ladeleistung_2", "S"),
+            _reg_entry(soc_s_end, "S"), _reg_entry(cap_s_end, "S"),
+        ]
+        states = {
+            _CHARGE_M: _state(max_attr=5000), _SOC_M: _state("80"), _CAP_M: _state("10"),
+            soc_s_end: _state("40"), cap_s_end: _state("5"),
+        }
+        mock_hass.states.get = MagicMock(side_effect=lambda eid: states.get(eid))
+        with _registry(reg):
+            inv = HuaweiInverter(mock_hass, {"huawei_device_ids": ["M", "S"]})
+            soc, cap = inv.get_combined_battery_state()
+        # Slave (…_2) gefunden → gewichtet (80·10 + 40·5)/15
+        assert soc == pytest.approx((80 * 10 + 40 * 5) / 15)
+        assert cap == pytest.approx(15.0)
 
     def test_single_device_returns_no_combined_state(self, mock_hass):
         """Single-Inverter → (None, None): Optimizer nutzt den Config-Sensor."""
