@@ -294,6 +294,16 @@ class HuaweiInverter(InverterBase):
         )
         return (sum(socs) / len(socs), None)
 
+    @property
+    def has_combined_battery_state(self) -> bool:
+        """≥2 Batteriegeräte → Combined-Sensoren anlegen (strukturell).
+
+        Bewusst nicht wertbasiert: huawei_solar exponiert die SOC-Sensoren beim
+        Start teils erst nach >10s. Der Combined-Sensor wird trotzdem angelegt
+        und füllt sich, sobald die Quell-Sensoren verfügbar sind.
+        """
+        return len(self._device_ids) >= 2
+
     def _compute_discharge_distribution(self, total_kw: float) -> dict | None:
         """Per-device discharge power proportional to usable energy.
 

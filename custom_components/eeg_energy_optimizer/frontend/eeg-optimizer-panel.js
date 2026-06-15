@@ -1687,6 +1687,15 @@ class EegOptimizerPanel extends HTMLElement {
         if (huaweiDevices.length) {
           this._wizardData.huawei_device_ids = huaweiDevices;
         }
+        // Huawei: auto-erkannte Multi-Inverter-Sensoren IMMER übernehmen — für
+        // diese gibt es kein manuelles Wizard-Feld, daher dürfen veraltete/
+        // falsche Werte (z. B. ein zuvor erkannter LUNA-Sensor) überschrieben
+        // werden, sobald die korrekte Erkennung sie liefert.
+        if (isHuaweiMulti) {
+          for (const key of ["pv_power_sensor_2", "battery_power_sensor_2"]) {
+            if (sensors[key]) this._wizardData[key] = sensors[key];
+          }
+        }
         // SolaX control entity prefix detection
         if (this._detectedSensors.solax_prefix) {
           const solaxKeys = [
