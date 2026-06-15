@@ -213,6 +213,13 @@ class EegOptimizerPanel extends HTMLElement {
     this._manualResult = null;
     this._manualDischargeKw = null;
     this._manualDischargeSoc = 25;
+    // Manuelle Entladung (Produktiv-Feature, vorerst nur Huawei) — eigener
+    // State, getrennt vom Test-Werkzeug "Manuelle Steuerung" oben.
+    this._manualOverride = null;        // {active, target_soc, power_kw, started_at} | null
+    this._manualOverrideSoc = null;     // Ziel-SOC-Eingabe (Default aus Config)
+    this._manualOverridePower = null;   // Leistungs-Eingabe (Default aus Config)
+    this._manualOverrideBusy = false;   // Sende-/Ladezustand für Buttons
+    this._lastManualOverrideReload = 0; // Throttle für Live-Refresh
     this._simFactor = 1.0;
     this._simSocOverride = null;
     this._simActive = false;
@@ -380,6 +387,14 @@ class EegOptimizerPanel extends HTMLElement {
         }
         if (field === "manual_discharge_soc") {
           this._manualDischargeSoc = parseFloat(target.value) || 12;
+          return;
+        }
+        if (field === "manual_override_soc") {
+          this._manualOverrideSoc = parseFloat(target.value);
+          return;
+        }
+        if (field === "manual_override_power") {
+          this._manualOverridePower = parseFloat(target.value) || null;
           return;
         }
         if (field === "sim_factor") {
@@ -684,6 +699,33 @@ class EegOptimizerPanel extends HTMLElement {
         break;
       case "manual-block-charge":
         this._executeManualAction("block", { type: "eeg_optimizer/manual_block_charge" });
+        break;
+      case "manual-override-start": {
+        const targetSoc = this._manualOverrideSoc ?? (this._config?.min_soc ?? 20);
+        const powerKw = this._manualOverridePower ?? this._config?.discharge_power_kw ?? 3.0;
+        this._manualOverrideBusy = true;
+        this._render();
+        this._hass.callWS({
+          type: "eeg_optimizer/start_manual_discharge",
+          target_soc: targetSoc,
+          power_kw: powerKw,
+        }).then(res => {
+          if (res.success) {
+            this._manualOverride = res.override;
+          } else {
+            alert(res.error || "Manuelle Entladung konnte nicht gestartet werden.");
+          }
+        }).catch(err => console.error("start_manual_discharge failed:", err))
+        .finally(() => { this._manualOverrideBusy = false; this._render(); });
+        break;
+      }
+      case "manual-override-stop":
+        this._manualOverrideBusy = true;
+        this._render();
+        this._hass.callWS({ type: "eeg_optimizer/stop_manual_discharge" }).then(() => {
+          this._manualOverride = null;
+        }).catch(err => console.error("stop_manual_discharge failed:", err))
+        .finally(() => { this._manualOverrideBusy = false; this._render(); });
         break;
       case "select-forecast": {
         const value = dataset?.value;
@@ -1340,6 +1382,19 @@ class EegOptimizerPanel extends HTMLElement {
     }
   }
 
+  async _loadManualOverride() {
+    if (!this._hass) return;
+    try {
+      const result = await this._hass.callWS({
+        type: "eeg_optimizer/get_manual_override",
+      });
+      this._manualOverride = result?.override || null;
+      this._render();
+    } catch (e) {
+      // Silently ignore — override status is non-critical
+    }
+  }
+
   async _loadPeakShareCommunities() {
     if (!this._hass || this._peakshareCommunitiesLoading) return;
     this._peakshareCommunitiesLoading = true;
@@ -1878,6 +1933,13 @@ class EegOptimizerPanel extends HTMLElement {
           this._lastFeedinReload = now;
           this._loadFeedinStats();
         }
+        // Bei aktivem manuellem Override häufiger nachladen (max alle 15s),
+        // damit das automatische Ende bei Ziel-SOC im Dashboard sichtbar wird.
+        if (this._manualOverride?.active &&
+            now - (this._lastManualOverrideReload || 0) > 15000) {
+          this._lastManualOverrideReload = now;
+          this._loadManualOverride();
+        }
         this._render();
       }
     }
@@ -1958,6 +2020,9 @@ class EegOptimizerPanel extends HTMLElement {
     if (this._setupComplete) {
       this._loadActivityLog();
       this._loadFeedinStats();
+      // Manuellen Entlade-Override-Status laden (nur relevant für Huawei,
+      // Backend liefert sonst null — harmlos).
+      this._loadManualOverride();
       // Re-subscribe if previous subscription was lost (e.g. after reconnect)
       if (!this._activityUnsub) {
         this._subscribeActivityEvents();
@@ -5126,6 +5191,67 @@ class EegOptimizerPanel extends HTMLElement {
         </div>`;
         })() : ""}
         `}
+
+        ${(() => {
+          // Manuelle Entladung (Produktiv-Feature) — vorerst nur Huawei.
+          if (!this._config?.setup_complete) return "";
+          if (this._config?.inverter_type !== "huawei_sun2000") return "";
+          const ovr = this._manualOverride;
+          const active = !!(ovr && ovr.active);
+          const modeState = this._readState(this._entityIds?.select || "select.eeg_energy_optimizer_optimizer");
+          const isEin = modeState && modeState.state === "Ein";
+          const defaultSoc = this._manualOverrideSoc ?? (this._config?.min_soc ?? 20);
+          const defaultPower = this._manualOverridePower ?? this._config?.discharge_power_kw ?? 3.0;
+          let startedStr = "";
+          if (active && ovr.started_at) {
+            try { startedStr = new Date(ovr.started_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }); } catch (_) {}
+          }
+          return `
+        <!-- Manuelle Entladung (Huawei-only) -->
+        <div class="card">
+          <h3 style="margin:0 0 8px">
+            <ha-icon icon="mdi:battery-arrow-down" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
+            Manuelle Entladung
+          </h3>
+          <p style="color:var(--secondary-text-color);font-size:14px;margin-top:0">
+            Entlädt die Batterie sofort ins Netz — zusätzlich zur PV-Einspeisung. Endet automatisch beim Ziel-SOC.
+          </p>
+          ${!isEin ? `
+          <div class="help-text" style="margin-bottom:12px">
+            <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
+            Der Optimizer-Modus ist nicht „Ein“ — die Entladung wird berechnet, aber nicht an den Wechselrichter gesendet.
+          </div>` : ""}
+          ${active ? `
+          <div class="inverter-test-result success" style="margin-bottom:12px">
+            <ha-icon icon="mdi:flash"></ha-icon>
+            Entlädt manuell bis ${Math.round(ovr.target_soc)} %${startedStr ? ` (gestartet ${startedStr} Uhr)` : ""}, ${(+ovr.power_kw).toFixed(1)} kW.
+          </div>
+          <button class="btn-manual btn-manual-normal" data-action="manual-override-stop" ${this._manualOverrideBusy ? "disabled" : ""}>
+            <ha-icon icon="mdi:stop"></ha-icon>
+            <span>Entladung stoppen</span>
+          </button>
+          ` : `
+          <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:12px 0">
+            <label style="font-size:14px;display:flex;align-items:center;gap:6px">
+              Ziel-SOC:
+              <input type="number" data-field="manual_override_soc" min="5" max="95" step="5"
+                value="${defaultSoc}"
+                style="width:70px;border-radius:8px;border:1px solid var(--divider-color);padding:8px;background:var(--card-background-color);color:var(--primary-text-color);font-size:14px"> %
+            </label>
+            <label style="font-size:14px;display:flex;align-items:center;gap:6px">
+              Leistung:
+              <input type="number" data-field="manual_override_power" min="0.5" max="20" step="0.5"
+                value="${defaultPower}"
+                style="width:70px;border-radius:8px;border:1px solid var(--divider-color);padding:8px;background:var(--card-background-color);color:var(--primary-text-color);font-size:14px"> kW
+            </label>
+          </div>
+          <button class="btn-manual btn-manual-discharge" data-action="manual-override-start" ${this._manualOverrideBusy ? "disabled" : ""}>
+            <ha-icon icon="mdi:battery-arrow-down"></ha-icon>
+            <span>Jetzt entladen</span>
+          </button>
+          `}
+        </div>`;
+        })()}
 
         <!-- Activity Timeline (collapsible) -->
         <div class="card">

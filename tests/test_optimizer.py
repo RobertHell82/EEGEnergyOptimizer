@@ -18,6 +18,8 @@ from custom_components.eeg_energy_optimizer.const import (
     CONF_MIN_SOC,
     CONF_MORNING_END_TIME,
     CONF_SAFETY_BUFFER_PCT,
+    DOMAIN,
+    MANUAL_OVERRIDE_MAX_HOURS,
     DEFAULT_DISCHARGE_A_START_TIME,
     DEFAULT_DISCHARGE_POWER_KW,
     DEFAULT_MIN_SOC,
@@ -40,6 +42,7 @@ from custom_components.eeg_energy_optimizer.optimizer import (
     REASON_HYSTERESIS_STRICT,
     REASON_IN_MORNING_WINDOW,
     REASON_LABELS_DE,
+    REASON_MANUAL_DISCHARGE_OVERRIDE,
     REASON_MORNING_DELAY_DISABLED,
     REASON_NIGHT_DISCHARGE_DISABLED,
     REASON_OUTSIDE_MORNING_WINDOW,
@@ -1174,6 +1177,7 @@ _EXPECTED_REASON_KEYS: frozenset[str] = frozenset({
     "slot_b_active",
     "slot_b_window_expired",
     "slot_b_pre_sunrise_cutoff",
+    "manual_discharge_override",
 })
 
 
@@ -2016,3 +2020,112 @@ class TestDischargeStartTimeResolution:
         should, _, _, blocked_by, _ = opt._should_discharge(snap)
         assert should is True
         assert REASON_BEFORE_DISCHARGE_START not in blocked_by
+
+
+# ---------------------------------------------------------------------------
+# Manuelle Entladung (Huawei-only Override)
+# ---------------------------------------------------------------------------
+
+class TestManualDischargeOverride:
+    """Manueller Entlade-Override im _evaluate-Pfad."""
+
+    def _set_override(self, mock_hass, *, target_soc, power_kw, started_at):
+        mock_hass.data = {
+            DOMAIN: {
+                "test_entry_id": {
+                    "manual_override": {
+                        "target_soc": target_soc,
+                        "power_kw": power_kw,
+                        "started_at": started_at,
+                    }
+                }
+            }
+        }
+
+    def test_override_wins_over_morning_block(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Aktiver Override erzwingt Nacht-Entladung trotz Morgen-Einspeisungs-Lage."""
+        # 06:00, Überschusstag → ohne Override wäre Morgen-Einspeisung aktiv.
+        now = datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        self._set_override(
+            mock_hass, target_soc=20.0, power_kw=4.0,
+            started_at=now - timedelta(minutes=30),
+        )
+        snap = _make_snapshot(
+            now=now, sunrise=sunrise, sunrise_today=sunrise,
+            battery_soc=60.0, pv_remaining_today_kwh=20.0, consumption_today_kwh=10.0,
+        )
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+            decision = opt._evaluate(snap, MODE_TEST)
+
+        assert decision.zustand == STATE_ABEND_ENTLADUNG
+        assert REASON_MANUAL_DISCHARGE_OVERRIDE in decision.reasons
+        assert decision.entladeleistung_kw == 4.0
+        assert decision.min_soc_berechnet == 20.0
+        # Override darf die Abend-Automatik-Hysterese nicht vorprägen.
+        assert opt._discharge_activated_date is None
+
+    def test_override_ends_at_target_soc(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """SOC <= Ziel → Override wird beendet und aus hass.data entfernt."""
+        now = datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        self._set_override(
+            mock_hass, target_soc=20.0, power_kw=4.0,
+            started_at=now - timedelta(minutes=30),
+        )
+        snap = _make_snapshot(
+            now=now, sunrise=sunrise, sunrise_today=sunrise,
+            battery_soc=20.0,  # Ziel-SOC erreicht
+            pv_remaining_today_kwh=20.0, consumption_today_kwh=10.0,
+        )
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+            decision = opt._evaluate(snap, MODE_TEST)
+
+        assert REASON_MANUAL_DISCHARGE_OVERRIDE not in decision.reasons
+        # Override-Eintrag entfernt → normale Logik (hier Morgen-Einspeisung).
+        assert "manual_override" not in mock_hass.data[DOMAIN]["test_entry_id"]
+        assert decision.zustand == STATE_MORGEN_EINSPEISUNG
+
+    def test_override_timeout_ends_override(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Nach MANUAL_OVERRIDE_MAX_HOURS wird der Override beendet, auch über Ziel-SOC."""
+        now = datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        self._set_override(
+            mock_hass, target_soc=20.0, power_kw=4.0,
+            started_at=now - timedelta(hours=MANUAL_OVERRIDE_MAX_HOURS, minutes=1),
+        )
+        snap = _make_snapshot(
+            now=now, sunrise=sunrise, sunrise_today=sunrise,
+            battery_soc=60.0,  # noch deutlich über Ziel
+            pv_remaining_today_kwh=20.0, consumption_today_kwh=10.0,
+        )
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+            decision = opt._evaluate(snap, MODE_TEST)
+
+        assert REASON_MANUAL_DISCHARGE_OVERRIDE not in decision.reasons
+        assert "manual_override" not in mock_hass.data[DOMAIN]["test_entry_id"]
+
+    def test_no_override_normal_behaviour(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Ohne Override greift unverändert die Morgen-Einspeisung."""
+        now = datetime(2026, 6, 15, 6, 0, tzinfo=timezone.utc)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        snap = _make_snapshot(
+            now=now, sunrise=sunrise, sunrise_today=sunrise,
+            battery_soc=60.0, pv_remaining_today_kwh=20.0, consumption_today_kwh=10.0,
+        )
+        with patch("custom_components.eeg_energy_optimizer.optimizer._now", return_value=now):
+            opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+            decision = opt._evaluate(snap, MODE_TEST)
+        assert decision.zustand == STATE_MORGEN_EINSPEISUNG
+        assert REASON_MANUAL_DISCHARGE_OVERRIDE not in decision.reasons

@@ -168,6 +168,13 @@ STATE_ABEND_ENTLADUNG = "Nacht-Entladung"
 # to let sensors (PV forecast, sun.sun) settle with valid data
 STARTUP_GRACE_SECONDS = 90
 
+# Manuelle Entladung (Huawei-only): Sicherheits-Notbremse. Der Override endet
+# normalerweise selbst, sobald der Ziel-SOC erreicht ist. Falls das nie eintritt
+# (z.B. SOC bleibt durch Last/Nachladen über dem Ziel hängen, Sensorausfall oder
+# vergessener Override), beendet der Optimizer den Override spätestens nach
+# dieser Zeit ab Start.
+MANUAL_OVERRIDE_MAX_HOURS = 6
+
 # Feed-in statistics: compact session details to daily aggregates after N days
 STATS_COMPACT_AFTER_DAYS = 90
 

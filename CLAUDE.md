@@ -53,7 +53,7 @@ optimizer.py: async_run_cycle(mode)
 | `forecast_provider.py` | Abstract PV forecast provider — Solcast and Forecast.Solar implementations |
 | `config_flow.py` | Single-click config flow (full setup happens in panel) |
 | `peakshare.py` | PeakShareProvider — fetches + caches PeakShare API data, sliding window algorithm for optimal discharge window |
-| `websocket_api.py` | 17 WebSocket commands for panel (config, sensors, inverter control, activity log, feed-in statistics, PeakShare communities & data, consumption profile status & refresh) |
+| `websocket_api.py` | 20 WebSocket commands for panel (config, sensors, inverter control, manual discharge override (Huawei-only), activity log, feed-in statistics, PeakShare communities & data, consumption profile status & refresh) |
 | `inverter/base.py` | Abstract inverter interface (InverterBase ABC) |
 | `inverter/huawei.py` | Huawei SUN2000 implementation via HA services — Single + Master/Slave (multi-device) |
 | `inverter/_distribution.py` | Shared proportional discharge distribution (SolarEdge + Huawei multi-battery) |
@@ -103,7 +103,7 @@ optimizer.py: async_run_cycle(mode)
 - **API**: Paginated WebSocket endpoint (`get_activity_log` with `offset`/`limit`)
 - **Frontend**: Loads 100 entries initially, "Mehr laden" fetches 100 more per click, live events via subscription
 
-### WebSocket API (17 commands)
+### WebSocket API (20 commands)
 
 | Command | Description |
 |---------|-------------|
@@ -115,6 +115,9 @@ optimizer.py: async_run_cycle(mode)
 | `eeg_optimizer/manual_stop` | Stop forcible charge/discharge |
 | `eeg_optimizer/manual_discharge` | Trigger manual discharge |
 | `eeg_optimizer/manual_block_charge` | Block battery charging |
+| `eeg_optimizer/start_manual_discharge` | Start manual discharge override until target SOC (Huawei-only) |
+| `eeg_optimizer/stop_manual_discharge` | Stop active manual discharge override |
+| `eeg_optimizer/get_manual_override` | Read active manual discharge override (or null) |
 | `eeg_optimizer/set_test_overrides` | Set simulation overrides |
 | `eeg_optimizer/get_test_overrides` | Read simulation overrides |
 | `eeg_optimizer/clear_test_overrides` | Clear simulation overrides |

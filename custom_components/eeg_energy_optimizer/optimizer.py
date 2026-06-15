@@ -36,6 +36,7 @@ from .const import (
     CONF_PV_POWER_SENSOR,
     CONF_SAFETY_BUFFER_PCT,
     CONSUMPTION_SENSOR,
+    DOMAIN,
     DEFAULT_DISCHARGE_A_START_TIME,
     DEFAULT_DISCHARGE_B_END_CAP,
     DEFAULT_DISCHARGE_B_START_TIME,
@@ -47,6 +48,7 @@ from .const import (
     DEFAULT_PEAKSHARE_COMMUNITY,
     DEFAULT_SAFETY_BUFFER_PCT,
     INVERTER_SIGN_CONVENTIONS,
+    MANUAL_OVERRIDE_MAX_HOURS,
     MODE_EIN,
     MODE_TEST,
     RESERVE_ENTRY_BONUS_PCT,
@@ -109,6 +111,10 @@ REASON_SLOT_B_ACTIVE = "slot_b_active"
 REASON_SLOT_B_WINDOW_EXPIRED = "slot_b_window_expired"
 REASON_SLOT_B_PRE_SUNRISE_CUTOFF = "slot_b_pre_sunrise_cutoff"
 
+# Manuelle Entladung (Huawei-only): User-gestarteter Override, der die
+# Nacht-Entladung erzwingt (Vorrang vor Morgen-Einspeisung/Automatik).
+REASON_MANUAL_DISCHARGE_OVERRIDE = "manual_discharge_override"
+
 # Closed-Set-Garantie für Tests + Backend-Diagnose
 ALL_REASONS: frozenset[str] = frozenset({
     REASON_PV_FORECAST_EXCEEDS_DEMAND,
@@ -141,6 +147,7 @@ ALL_REASONS: frozenset[str] = frozenset({
     REASON_SLOT_B_ACTIVE,
     REASON_SLOT_B_WINDOW_EXPIRED,
     REASON_SLOT_B_PRE_SUNRISE_CUTOFF,
+    REASON_MANUAL_DISCHARGE_OVERRIDE,
 })
 
 # Deutsche Texte für UI-Renderer (D-38). Telemetrie sendet nur Keys.
@@ -175,6 +182,7 @@ REASON_LABELS_DE: dict[str, str] = {
     REASON_SLOT_B_ACTIVE: "Slot B aktiv (Morgen-Entladung)",
     REASON_SLOT_B_WINDOW_EXPIRED: "Slot-B-Fenster abgelaufen",
     REASON_SLOT_B_PRE_SUNRISE_CUTOFF: "Slot B beendet vor Sonnenaufgang",
+    REASON_MANUAL_DISCHARGE_OVERRIDE: "Manuelle Entladung (vom Benutzer gestartet)",
 }
 
 
@@ -1560,6 +1568,59 @@ class EEGOptimizer:
             combined_blocked = [REASON_NIGHT_DISCHARGE_DISABLED]
         return (False, min_soc, [], combined_blocked, hyst_a or hyst_b)
 
+    def _evaluate_manual_override(self, snap: Snapshot) -> dict | None:
+        """Lies und pflege den manuellen Entlade-Override (nur Huawei).
+
+        Der Override wird vom Panel über die WebSocket-API in
+        ``hass.data[DOMAIN][entry_id]["manual_override"]`` abgelegt
+        (``{"target_soc", "power_kw", "started_at"}``, ``started_at`` als
+        tz-aware datetime).
+
+        Beendet den Override (entfernt den hass.data-Eintrag) bei:
+          - Ziel-SOC erreicht (SOC <= target_soc)
+          - Sicherheits-Timeout (MANUAL_OVERRIDE_MAX_HOURS ab Start)
+          - fehlendem SOC-Wert
+
+        Returns ``{"target_soc", "power_kw"}`` solange der Override laufen
+        soll, sonst ``None``.
+        """
+        data = self._hass.data.get(DOMAIN, {}).get(self._entry_id, {})
+        override = data.get("manual_override")
+        if not override:
+            return None
+
+        # Sicherheits-Timeout (Notbremse gegen hängende Overrides).
+        started_at = override.get("started_at")
+        if started_at is not None:
+            try:
+                elapsed_h = (snap.now - started_at).total_seconds() / 3600.0
+            except TypeError:
+                # started_at nicht tz-kompatibel — defensiv beenden.
+                elapsed_h = MANUAL_OVERRIDE_MAX_HOURS
+            if elapsed_h >= MANUAL_OVERRIDE_MAX_HOURS:
+                _LOGGER.info(
+                    "Manuelle Entladung beendet: Sicherheits-Timeout nach %.1f h",
+                    elapsed_h,
+                )
+                data.pop("manual_override", None)
+                return None
+
+        # Ziel-SOC erreicht? (SOC fehlt → ebenfalls beenden, kein Blindflug)
+        target_soc = float(override.get("target_soc", 0))
+        if snap.battery_soc is None or snap.battery_soc <= target_soc:
+            _LOGGER.info(
+                "Manuelle Entladung beendet: Ziel-SOC %.0f%% erreicht (SOC=%s)",
+                target_soc,
+                snap.battery_soc,
+            )
+            data.pop("manual_override", None)
+            return None
+
+        return {
+            "target_soc": target_soc,
+            "power_kw": float(override.get("power_kw", self._discharge_power_kw)),
+        }
+
     def _evaluate(self, snap: Snapshot, mode: str) -> Decision:
         """Evaluate snapshot and produce a Decision."""
         # SOC-Sensor nicht verfügbar → Normalbetrieb erzwingen, statt mit
@@ -1625,8 +1686,17 @@ class EEGOptimizer:
             self._should_discharge(snap)
         )
 
+        # Manueller Entlade-Override (nur Huawei). Hat Vorrang vor Morgen-
+        # Einspeisung und Automatik-Entladung. Erzwingt die Nacht-Entladung bis
+        # zum vom Benutzer gewählten Ziel-SOC. Endet automatisch bei Ziel-SOC,
+        # Timeout oder manuellem Stopp — die Pflege von hass.data passiert in
+        # _evaluate_manual_override.
+        manual_override = self._evaluate_manual_override(snap)
+
         # Determine state
-        if block:
+        if manual_override is not None:
+            zustand = STATE_ABEND_ENTLADUNG
+        elif block:
             zustand = STATE_MORGEN_EINSPEISUNG
         elif should_discharge:
             zustand = STATE_ABEND_ENTLADUNG
@@ -1636,7 +1706,7 @@ class EEGOptimizer:
         # Phase 11: Slot-Marker aus den Discharge-Reasons ableiten (D-10).
         # Im Legacy-Pfad bleibt active_slot None (keine slot-Reasons in der Liste).
         active_slot: str | None = None
-        if zustand == STATE_ABEND_ENTLADUNG:
+        if manual_override is None and zustand == STATE_ABEND_ENTLADUNG:
             if REASON_SLOT_A_ACTIVE in dis_reasons_keys:
                 active_slot = "A"
             elif REASON_SLOT_B_ACTIVE in dis_reasons_keys:
@@ -1646,7 +1716,12 @@ class EEGOptimizer:
         # durchgehender Sitzung (z.B. Nacht-Entladung über Mitternacht)
         # bleibt das ursprüngliche Startdatum erhalten, damit der Reset
         # oben zum Sonnenaufgang sauber greift.
-        if zustand == STATE_MORGEN_EINSPEISUNG:
+        if manual_override is not None:
+            # Manueller Override: keine Slot-/Hysterese-Aktivierungsdaten setzen.
+            # Der Override ist slot-unabhängig und darf die Hysterese der
+            # Automatik-Entladung (z.B. abends) nicht fälschlich vorprägen.
+            pass
+        elif zustand == STATE_MORGEN_EINSPEISUNG:
             if self._morning_activated_date is None:
                 self._morning_activated_date = today_str
         elif zustand == STATE_ABEND_ENTLADUNG:
@@ -1677,6 +1752,10 @@ class EEGOptimizer:
         if in_grace_period:
             remaining = int(STARTUP_GRACE_SECONDS - (_now() - self._startup_time).total_seconds())
             nächste_aktion = f"Neustart — warte auf Sensordaten ({remaining}s)"
+        elif manual_override is not None:
+            nächste_aktion = (
+                f"Manuelle Entladung bis {int(round(manual_override['target_soc']))} %"
+            )
         elif zustand == STATE_MORGEN_EINSPEISUNG:
             nächste_aktion = (
                 f"Morgen-Einspeisung bis "
@@ -1738,8 +1817,15 @@ class EEGOptimizer:
             energiebedarf_kwh=round(bedarf, 2),
             ladung_blockiert=block,
             entladung_aktiv=(zustand == STATE_ABEND_ENTLADUNG),
-            entladeleistung_kw=self._discharge_power_kw if zustand == STATE_ABEND_ENTLADUNG else 0.0,
-            min_soc_berechnet=round(min_soc, 1),
+            entladeleistung_kw=(
+                manual_override["power_kw"]
+                if manual_override is not None
+                else (self._discharge_power_kw if zustand == STATE_ABEND_ENTLADUNG else 0.0)
+            ),
+            min_soc_berechnet=round(
+                manual_override["target_soc"] if manual_override is not None else min_soc,
+                1,
+            ),
             nächste_aktion=nächste_aktion,
             # Explicit: ausführung=True only for MODE_EIN, False for MODE_TEST/MODE_AUS
             ausführung=(mode == MODE_EIN),
@@ -1804,7 +1890,10 @@ class EEGOptimizer:
         #   Morgen-Einspeisung → reasons = block-Pass-Keys, blocked_by = discharge-Guards
         #   Nacht-Entladung    → reasons = discharge-Pass-Keys, blocked_by = block-Guards
         #   Normal             → reasons = [], blocked_by = beide Guard-Listen kombiniert
-        if zustand == STATE_MORGEN_EINSPEISUNG:
+        if manual_override is not None:
+            decision.reasons = [REASON_MANUAL_DISCHARGE_OVERRIDE]
+            decision.blocked_by = []
+        elif zustand == STATE_MORGEN_EINSPEISUNG:
             decision.reasons = list(block_reasons_keys)
             decision.blocked_by = list(dis_blocked_by_keys)
         elif zustand == STATE_ABEND_ENTLADUNG:

@@ -11,6 +11,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 
 from .const import (
     COMBINED_BATTERY_CAPACITY_SENSOR_ID,
@@ -23,6 +24,7 @@ from .const import (
     CONF_BATTERY_POWER_SENSOR,
     CONF_BATTERY_POWER_SENSOR_2,
     CONF_BATTERY_SOC_SENSOR,
+    CONF_DISCHARGE_POWER_KW,
     CONF_GRID_POWER_EXPORT_SENSOR,
     CONF_GRID_POWER_IMPORT_SENSOR,
     CONF_GRID_POWER_SENSOR,
@@ -433,6 +435,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_manual_stop)
     websocket_api.async_register_command(hass, ws_manual_discharge)
     websocket_api.async_register_command(hass, ws_manual_block_charge)
+    websocket_api.async_register_command(hass, ws_start_manual_discharge)
+    websocket_api.async_register_command(hass, ws_stop_manual_discharge)
+    websocket_api.async_register_command(hass, ws_get_manual_override)
     websocket_api.async_register_command(hass, ws_set_test_overrides)
     websocket_api.async_register_command(hass, ws_get_test_overrides)
     websocket_api.async_register_command(hass, ws_clear_test_overrides)
@@ -1171,6 +1176,151 @@ async def ws_manual_block_charge(
             "success": False,
             "error": f"Fehler bei der Kommunikation: {exc}",
         })
+
+
+def _manual_override_payload(data: dict) -> dict | None:
+    """Serialisiere den aktiven manuellen Entlade-Override für das Panel.
+
+    Gibt ``None`` zurück, wenn kein Override aktiv ist; sonst ein JSON-fähiges
+    Dict (``started_at`` als ISO-String).
+    """
+    override = data.get("manual_override")
+    if not override:
+        return None
+    started_at = override.get("started_at")
+    return {
+        "active": True,
+        "target_soc": override.get("target_soc"),
+        "power_kw": override.get("power_kw"),
+        "started_at": started_at.isoformat() if started_at is not None else None,
+    }
+
+
+async def _run_cycle_and_update(data: dict) -> None:
+    """Sofortigen Optimizer-Zyklus auslösen, damit das Dashboard reagiert.
+
+    Spiegelt das Muster aus ws_set_test_overrides: Zyklus im aktuellen Modus
+    rechnen und das Ergebnis in den Entscheidungs-Sensor schreiben.
+    """
+    optimizer = data.get("optimizer")
+    if not optimizer:
+        return
+    select = data.get("select")
+    mode = select._attr_current_option if select else "Test"
+    decision = await optimizer.async_run_cycle(mode)
+    decision_sensor = data.get("decision_sensor")
+    if decision_sensor and decision:
+        decision_sensor.update_from_decision(decision)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/start_manual_discharge",
+        vol.Required("target_soc"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+        vol.Optional("power_kw"): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=20)),
+    }
+)
+@websocket_api.async_response
+async def ws_start_manual_discharge(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Starte eine manuelle Entladung bis Ziel-SOC (vorerst nur Huawei).
+
+    Legt den Override in hass.data ab; der Optimizer erzwingt daraufhin die
+    Nacht-Entladung (Vorrang vor Morgen-Einspeisung) und beendet sie selbst
+    bei Ziel-SOC, Timeout oder manuellem Stopp.
+    """
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+
+    # Guard: vorerst ausschließlich Huawei.
+    inverter_type = entry.data.get(CONF_INVERTER_TYPE)
+    if inverter_type != INVERTER_TYPE_HUAWEI:
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": "Die manuelle Entladung ist derzeit nur für Huawei verfügbar.",
+        })
+        return
+
+    power_kw = msg.get("power_kw")
+    if power_kw is None:
+        power_kw = entry.data.get(CONF_DISCHARGE_POWER_KW, 3.0)
+
+    data["manual_override"] = {
+        "target_soc": msg["target_soc"],
+        "power_kw": float(power_kw),
+        "started_at": dt_util.now(),
+    }
+
+    # _prev_zustand zurücksetzen, damit der nächste Zyklus den Entladebefehl
+    # garantiert (neu) sendet — auch wenn der Optimizer bereits im Zustand
+    # Nacht-Entladung war (Dedup in _execute würde sonst greifen).
+    optimizer = data.get("optimizer")
+    if optimizer is not None:
+        optimizer._prev_zustand = None
+
+    await _run_cycle_and_update(data)
+
+    connection.send_result(msg["id"], {
+        "success": True,
+        "override": _manual_override_payload(data),
+    })
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/stop_manual_discharge",
+    }
+)
+@websocket_api.async_response
+async def ws_stop_manual_discharge(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Beende eine laufende manuelle Entladung.
+
+    Entfernt den Override; der nächste Zyklus fällt auf die normale Logik
+    zurück (Normalbetrieb oder — falls das Fenster noch offen ist —
+    Morgen-Einspeisung).
+    """
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+
+    data.pop("manual_override", None)
+
+    # _prev_zustand zurücksetzen, damit der nächste Zyklus den Folgebefehl
+    # (Normalbetrieb bzw. Morgen-Einspeisung) garantiert sendet.
+    optimizer = data.get("optimizer")
+    if optimizer is not None:
+        optimizer._prev_zustand = None
+
+    await _run_cycle_and_update(data)
+
+    connection.send_result(msg["id"], {"success": True, "override": None})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/get_manual_override",
+    }
+)
+@websocket_api.async_response
+async def ws_get_manual_override(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Liefere den aktuellen manuellen Entlade-Override (oder null)."""
+    entry, data = _get_entry_data(hass, connection, msg)
+    if entry is None:
+        return
+
+    connection.send_result(msg["id"], {"override": _manual_override_payload(data)})
 
 
 @websocket_api.websocket_command(
