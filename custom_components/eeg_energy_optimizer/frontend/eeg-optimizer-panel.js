@@ -1101,6 +1101,21 @@ class EegOptimizerPanel extends HTMLElement {
         if (this._wizardData.inverter_type === "solaredge_storedge") {
           return true;
         }
+        // Huawei Master/Slave (≥2 Batterien): SOC läuft wie bei SolarEdge über
+        // den Combined-Sensor (beim Abschluss gesetzt) — daher kein SOC-Feld.
+        // Stattdessen die Einzelkapazitäten je Batterie prüfen.
+        {
+          const huaweiIds = this._wizardData.huawei_device_ids || [];
+          if (this._wizardData.inverter_type === "huawei_sun2000" && huaweiIds.length >= 2) {
+            const caps = this._wizardData.huawei_battery_capacities || {};
+            const missing = huaweiIds.filter((id) => !(parseFloat(caps[id]) > 0));
+            if (missing.length) {
+              this._showValidationError("Bitte die Kapazität beider Batterien eintragen.");
+              return false;
+            }
+            return true;
+          }
+        }
         if (!this._wizardData.battery_soc_sensor) {
           this._showValidationError("SOC-Sensor ist erforderlich.");
           return false;
