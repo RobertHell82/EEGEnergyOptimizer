@@ -1098,8 +1098,22 @@ class CombinedBatteryCapacitySensor(SensorEntity):
 
 
 def _inverter_has_combined_state(inverter: Any) -> bool:
-    """Probe the driver: does it provide a combined SOC/capacity?"""
-    if inverter is None or not hasattr(inverter, "get_combined_battery_state"):
+    """Whether to create the combined SOC/capacity sensors for this driver.
+
+    Prefers the STRUCTURAL ``has_combined_battery_state`` property — that way
+    the sensors are created even when the source integration's entities are not
+    yet populated at setup time (huawei_solar can take >10s). The sensors then
+    fill in on the next update once the source values appear. Falls back to the
+    legacy value-based probe only for drivers without the property.
+    """
+    if inverter is None:
+        return False
+    if hasattr(inverter, "has_combined_battery_state"):
+        try:
+            return bool(inverter.has_combined_battery_state)
+        except Exception:
+            pass
+    if not hasattr(inverter, "get_combined_battery_state"):
         return False
     try:
         soc, cap = inverter.get_combined_battery_state()

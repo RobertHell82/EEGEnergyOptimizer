@@ -402,6 +402,24 @@ class TestMultiDevice:
         inv = HuaweiInverter(mock_hass, {"huawei_device_id": "M"})
         assert inv.get_combined_battery_state() == (None, None)
 
+    def test_has_combined_state_structural(self, mock_hass):
+        """has_combined_battery_state ist strukturell (≥2 Geräte), NICHT wertbasiert.
+
+        Entscheidend gegen die Race-Condition: huawei_solar exponiert die
+        Sensoren beim Start teils erst nach >10s. Der Combined-Sensor muss
+        trotzdem angelegt werden — also auch wenn gerade KEIN State da ist.
+        """
+        # Keine States verfügbar (wie kurz nach dem Start)
+        mock_hass.states.get = MagicMock(return_value=None)
+        mock_hass.states.async_all = MagicMock(return_value=[])
+        with _registry():
+            multi = HuaweiInverter(mock_hass, {"huawei_device_ids": ["M", "S"]})
+            single = HuaweiInverter(mock_hass, {"huawei_device_id": "M"})
+        assert multi.has_combined_battery_state is True   # trotz fehlender States
+        assert single.has_combined_battery_state is False
+        # Wertbasiert wäre hier (None, None) → Sensor würde fälschlich entfallen
+        assert multi.get_combined_battery_state() == (None, None)
+
     async def test_charge_limit_writes_all_devices(self, mock_hass):
         inv = _multi_inverter(mock_hass)
         with _registry():

@@ -173,6 +173,16 @@ class SolarEdgeInverter(InverterBase):
             return (None, None)
         return (weighted / total_cap, total_cap)
 
+    @property
+    def has_combined_battery_state(self) -> bool:
+        """SolarEdge rechnet immer treiberseitig combined (auch Single-Inverter).
+
+        Strukturell True, damit die Combined-Sensoren auch dann angelegt werden,
+        wenn die Modbus-Sensoren beim Setup noch nicht bereit sind (sonst zeigt
+        battery_soc_sensor → combined_soc dauerhaft ins Leere).
+        """
+        return True
+
     def _compute_discharge_distribution(
         self, total_kw: float, prefixes: list[str]
     ) -> dict[str, float] | None:

@@ -79,3 +79,16 @@ class InverterBase(ABC):
         falls back to the configured battery_soc_sensor / battery_capacity_kwh.
         """
         return (None, None)
+
+    @property
+    def has_combined_battery_state(self) -> bool:
+        """Whether this driver provides a combined battery state — STRUCTURAL.
+
+        Decides whether the combined SOC/capacity sensors get created at setup.
+        Must be structural (config-based), NOT value-based: the source
+        integration's entities may not be populated yet at setup time (e.g.
+        huawei_solar can take >10s to expose its sensors). A value-based check
+        would then skip sensor creation permanently. Default: False (single-
+        battery drivers). Override in multi-battery drivers.
+        """
+        return False
