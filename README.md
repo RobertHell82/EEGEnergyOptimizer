@@ -43,7 +43,7 @@ Pro Anlage wird einmalig eine zufällige **UUIDv4** + ein **API-Key** erzeugt un
 
 ## Unterstützte Wechselrichter
 
-- **Huawei SUN2000** (via [Huawei Solar](https://github.com/wlcrs/huawei_solar) Integration)
+- **Huawei SUN2000** (via [Huawei Solar](https://github.com/wlcrs/huawei_solar) Integration) — Single oder Master/Slave (mehrere Wechselrichter + Batterien)
 - **Fronius Gen24** (via native [Fronius](https://www.home-assistant.io/integrations/fronius/) Integration + direkte Modbus TCP Steuerung)
 - **SolarEdge StorEdge** (via [SolarEdge Modbus Multi](https://github.com/WillCodeForCats/solaredge-modbus-multi) Integration) — max. 2 Wechselrichter
 - **SolaX Gen4+** (via [SolaX Modbus](https://github.com/wills106/homeassistant-solax-modbus) Integration)
