@@ -714,7 +714,6 @@ class EegOptimizerPanel extends HTMLElement {
         const targetSoc = this._manualOverrideSoc ?? (this._config?.min_soc ?? 20);
         const powerKw = this._manualOverridePower ?? this._config?.discharge_power_kw ?? 3.0;
         this._manualOverrideBusy = true;
-        this._manualDischargeDialogOpen = false;
         this._render();
         this._hass.callWS({
           type: "eeg_optimizer/start_manual_discharge",
@@ -723,6 +722,7 @@ class EegOptimizerPanel extends HTMLElement {
         }).then(res => {
           if (res.success) {
             this._manualOverride = res.override;
+            this._manualDischargeDialogOpen = false;
           } else {
             alert(res.error || "Manuelle Entladung konnte nicht gestartet werden.");
           }
@@ -732,10 +732,10 @@ class EegOptimizerPanel extends HTMLElement {
       }
       case "manual-override-stop":
         this._manualOverrideBusy = true;
-        this._manualDischargeDialogOpen = false;
         this._render();
         this._hass.callWS({ type: "eeg_optimizer/stop_manual_discharge" }).then(() => {
           this._manualOverride = null;
+          this._manualDischargeDialogOpen = false;
         }).catch(err => console.error("stop_manual_discharge failed:", err))
         .finally(() => { this._manualOverrideBusy = false; this._render(); });
         break;
@@ -3699,41 +3699,46 @@ class EegOptimizerPanel extends HTMLElement {
     const isEin = modeState && modeState.state === "Ein";
     const defaultSoc = this._manualOverrideSoc ?? (this._config?.min_soc ?? 20);
     const defaultPower = this._manualOverridePower ?? this._config?.discharge_power_kw ?? 3.0;
+    const busy = this._manualOverrideBusy;
+    const socNow = this._readFloat("sensor.eeg_energy_optimizer_combined_soc") ?? this._readFloat(this._config?.battery_soc_sensor);
     let startedStr = "";
     if (active && ovr.started_at) {
       try { startedStr = new Date(ovr.started_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }); } catch (_) {}
     }
+    const spinner = `<span class="manual-spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#fff;display:inline-block;vertical-align:middle;margin-right:8px"></span>`;
     const body = active ? `
-      <div class="inverter-test-result success" style="margin-bottom:0">
+      <div class="inverter-test-result success" style="margin:0">
         <ha-icon icon="mdi:flash"></ha-icon>
         Entlädt manuell bis ${Math.round(ovr.target_soc)} %${startedStr ? ` (gestartet ${startedStr} Uhr)` : ""}, ${(+ovr.power_kw).toFixed(1)} kW.
       </div>
     ` : `
-      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:0">
-        <label style="font-size:14px;display:flex;align-items:center;gap:6px">
-          Ziel-SOC:
-          <input type="number" data-field="manual_override_soc" min="5" max="95" step="5"
-            value="${defaultSoc}"
-            style="width:70px;border-radius:8px;border:1px solid var(--divider-color);padding:8px;background:var(--card-background-color);color:var(--primary-text-color);font-size:14px"> %
+      <div class="md-form">
+        <label class="md-field">
+          <span class="md-field-label">Ziel-SOC${socNow != null ? ` <small>(aktuell ${Math.round(socNow)} %)</small>` : ""}</span>
+          <span class="md-field-input">
+            <input type="number" inputmode="numeric" data-field="manual_override_soc" min="5" max="95" step="5" value="${defaultSoc}">
+            <span class="md-field-unit">%</span>
+          </span>
         </label>
-        <label style="font-size:14px;display:flex;align-items:center;gap:6px">
-          Leistung:
-          <input type="number" data-field="manual_override_power" min="0.5" max="20" step="0.5"
-            value="${defaultPower}"
-            style="width:70px;border-radius:8px;border:1px solid var(--divider-color);padding:8px;background:var(--card-background-color);color:var(--primary-text-color);font-size:14px"> kW
+        <label class="md-field">
+          <span class="md-field-label">Leistung</span>
+          <span class="md-field-input">
+            <input type="number" inputmode="decimal" data-field="manual_override_power" min="0.5" max="20" step="0.5" value="${defaultPower}">
+            <span class="md-field-unit">kW</span>
+          </span>
         </label>
       </div>
     `;
     const primaryBtn = active
-      ? `<button class="btn-primary" data-action="manual-override-stop" style="flex:1;background:var(--error-color,#db4437)" ${this._manualOverrideBusy ? "disabled" : ""}>
-          <ha-icon icon="mdi:stop" style="--mdc-icon-size:18px;vertical-align:middle;margin-right:6px"></ha-icon>Entladung stoppen
+      ? `<button class="btn-primary dialog-action-btn" data-action="manual-override-stop" style="background:var(--error-color,#db4437)" ${busy ? "disabled" : ""}>
+          ${busy ? spinner + "Stoppe…" : `<ha-icon icon="mdi:stop" style="--mdc-icon-size:18px;vertical-align:middle;margin-right:6px"></ha-icon>Entladung stoppen`}
         </button>`
-      : `<button class="btn-primary" data-action="manual-override-start" style="flex:1;background:#ff9800" ${this._manualOverrideBusy ? "disabled" : ""}>
-          <ha-icon icon="mdi:battery-arrow-down" style="--mdc-icon-size:18px;vertical-align:middle;margin-right:6px"></ha-icon>Jetzt entladen
+      : `<button class="btn-primary dialog-action-btn" data-action="manual-override-start" style="background:#ff9800" ${busy ? "disabled" : ""}>
+          ${busy ? spinner + "Starte…" : `<ha-icon icon="mdi:battery-arrow-down" style="--mdc-icon-size:18px;vertical-align:middle;margin-right:6px"></ha-icon>Jetzt entladen`}
         </button>`;
     return `
       <div class="dialog-overlay">
-        <div class="dialog-card">
+        <div class="dialog-card manual-discharge-dialog">
           <h3 style="margin:0 0 8px">
             <ha-icon icon="mdi:battery-arrow-down" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
             Manuelle Entladung
@@ -3747,8 +3752,8 @@ class EegOptimizerPanel extends HTMLElement {
             Der Optimizer-Modus ist nicht „Ein" — die Entladung wird berechnet, aber nicht an den Wechselrichter gesendet.
           </div>` : ""}
           ${body}
-          <div style="display:flex;gap:12px;margin-top:16px">
-            <button class="btn-primary" data-action="close-manual-discharge" style="flex:1;background:var(--secondary-text-color,#888)">Abbrechen</button>
+          <div class="dialog-actions">
+            <button class="btn-primary dialog-action-btn" data-action="close-manual-discharge" style="background:var(--secondary-text-color,#888)" ${busy ? "disabled" : ""}>Abbrechen</button>
             ${primaryBtn}
           </div>
         </div>
@@ -3907,7 +3912,7 @@ class EegOptimizerPanel extends HTMLElement {
               data-action="open-manual-discharge"
               title="${this._manualOverride?.active ? "Manuelle Entladung stoppen" : "Manuelle Entladung der Batterie sofort starten"}">
               <ha-icon icon="${this._manualOverride?.active ? "mdi:stop" : "mdi:battery-arrow-down"}" style="--mdc-icon-size:18px"></ha-icon>
-              <span>${this._manualOverride?.active ? "Jetzt stoppen" : "Jetzt starten"}</span>
+              <span>${this._manualOverride?.active ? "Stoppen" : "Manuelle Entladung …"}</span>
             </button>` : ""}
         </div>
       </div>`;
@@ -5640,6 +5645,25 @@ class EegOptimizerPanel extends HTMLElement {
         .dialog-card {
           background: var(--card-background-color); border-radius: 12px;
           padding: 24px; max-width: 700px; width: 92%; max-height: 85vh; overflow-y: auto;
+        }
+        /* Manuelle-Entladung-Dialog: schmaler als die Guide-Dialoge */
+        .manual-discharge-dialog { max-width: 420px; }
+        .md-form { display: flex; flex-direction: column; gap: 14px; margin: 4px 0 4px; }
+        .md-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; color: var(--primary-text-color); }
+        .md-field-label small { color: var(--secondary-text-color); font-weight: 400; }
+        .md-field-input { display: flex; align-items: center; gap: 6px; }
+        .md-field-input input { width: 96px; border-radius: 8px; border: 1px solid var(--divider-color);
+          padding: 10px 12px; background: var(--card-background-color); color: var(--primary-text-color);
+          font-size: 15px; text-align: right; box-sizing: border-box; }
+        .md-field-unit { color: var(--secondary-text-color); min-width: 22px; }
+        .dialog-actions { display: flex; gap: 12px; margin-top: 20px; }
+        .dialog-action-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center;
+          padding: 12px 16px; font-size: 15px; white-space: nowrap; }
+        @media (max-width: 600px) {
+          .manual-discharge-dialog { padding: 20px; }
+          .md-field { font-size: 16px; }
+          .md-field-input input { width: 112px; padding: 12px; font-size: 16px; }
+          .dialog-action-btn { padding: 14px 10px; }
         }
         /* Guide-Inhalte (generiert aus docs/guides/*.md) */
         .guide-content h2.guide-title { margin-top: 0; }
