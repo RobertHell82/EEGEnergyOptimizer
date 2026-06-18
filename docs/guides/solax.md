@@ -35,7 +35,7 @@ _**Voraussetzung:** [HACS](https://hacs.xyz/) muss installiert sein._
 
 ## 5. Batterie-Kapazität
 
-SolaX stellt **keinen Sensor für die Batteriekapazität** bereit. Du gibst die Kapazität später im Wizard manuell ein (z.B. 5.8 kWh für eine T-BAT 5.8).
+SolaX stellt **keinen Sensor für die Batteriekapazität** bereit. Die Kapazität gibst du später im Wizard manuell ein (z.B. 5.8 kWh für eine T-BAT 5.8).
 
 ## 6. Prüfen
 

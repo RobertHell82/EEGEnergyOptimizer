@@ -213,6 +213,14 @@ class EegOptimizerPanel extends HTMLElement {
     this._manualResult = null;
     this._manualDischargeKw = null;
     this._manualDischargeSoc = 25;
+    // Manuelle Entladung (Produktiv-Feature, vorerst nur Huawei) — eigener
+    // State, getrennt vom Test-Werkzeug "Manuelle Steuerung" oben.
+    this._manualOverride = null;        // {active, target_soc, power_kw, started_at} | null
+    this._manualOverrideSoc = null;     // Ziel-SOC-Eingabe (Default aus Config)
+    this._manualOverridePower = null;   // Leistungs-Eingabe (Default aus Config)
+    this._manualOverrideBusy = false;   // Sende-/Ladezustand für Buttons
+    this._lastManualOverrideReload = 0; // Throttle für Live-Refresh
+    this._manualDischargeDialogOpen = false; // Popup für manuelle Entladung
     this._simFactor = 1.0;
     this._simSocOverride = null;
     this._simActive = false;
@@ -335,6 +343,7 @@ class EegOptimizerPanel extends HTMLElement {
       // Close dialog/info-modal when clicking overlay background (not the card itself)
       if (e.target.classList.contains("dialog-overlay")) {
         this._showDialog = null;
+        this._manualDischargeDialogOpen = false;
         this._render();
         return;
       }
@@ -380,6 +389,14 @@ class EegOptimizerPanel extends HTMLElement {
         }
         if (field === "manual_discharge_soc") {
           this._manualDischargeSoc = parseFloat(target.value) || 12;
+          return;
+        }
+        if (field === "manual_override_soc") {
+          this._manualOverrideSoc = parseFloat(target.value);
+          return;
+        }
+        if (field === "manual_override_power") {
+          this._manualOverridePower = parseFloat(target.value) || null;
           return;
         }
         if (field === "sim_factor") {
@@ -609,6 +626,14 @@ class EegOptimizerPanel extends HTMLElement {
         this._showDialog = null;
         this._render();
         break;
+      case "open-manual-discharge":
+        this._manualDischargeDialogOpen = true;
+        this._render();
+        break;
+      case "close-manual-discharge":
+        this._manualDischargeDialogOpen = false;
+        this._render();
+        break;
       case "recheck-prerequisites":
         this._checkPrerequisites();
         break;
@@ -684,6 +709,35 @@ class EegOptimizerPanel extends HTMLElement {
         break;
       case "manual-block-charge":
         this._executeManualAction("block", { type: "eeg_optimizer/manual_block_charge" });
+        break;
+      case "manual-override-start": {
+        const targetSoc = this._manualOverrideSoc ?? (this._config?.min_soc ?? 20);
+        const powerKw = this._manualOverridePower ?? this._config?.discharge_power_kw ?? 3.0;
+        this._manualOverrideBusy = true;
+        this._render();
+        this._hass.callWS({
+          type: "eeg_optimizer/start_manual_discharge",
+          target_soc: targetSoc,
+          power_kw: powerKw,
+        }).then(res => {
+          if (res.success) {
+            this._manualOverride = res.override;
+            this._manualDischargeDialogOpen = false;
+          } else {
+            alert(res.error || "Manuelle Entladung konnte nicht gestartet werden.");
+          }
+        }).catch(err => console.error("start_manual_discharge failed:", err))
+        .finally(() => { this._manualOverrideBusy = false; this._render(); });
+        break;
+      }
+      case "manual-override-stop":
+        this._manualOverrideBusy = true;
+        this._render();
+        this._hass.callWS({ type: "eeg_optimizer/stop_manual_discharge" }).then(() => {
+          this._manualOverride = null;
+          this._manualDischargeDialogOpen = false;
+        }).catch(err => console.error("stop_manual_discharge failed:", err))
+        .finally(() => { this._manualOverrideBusy = false; this._render(); });
         break;
       case "select-forecast": {
         const value = dataset?.value;
@@ -1340,6 +1394,22 @@ class EegOptimizerPanel extends HTMLElement {
     }
   }
 
+  async _loadManualOverride() {
+    if (!this._hass) return;
+    try {
+      const result = await this._hass.callWS({
+        type: "eeg_optimizer/get_manual_override",
+      });
+      // Eine laufende Start/Stop-Aktion (Popup) nicht überschreiben — sonst
+      // flackert der Dialog kurz ins Start-Formular, bevor er schließt.
+      if (this._manualOverrideBusy) return;
+      this._manualOverride = result?.override || null;
+      this._render();
+    } catch (e) {
+      // Silently ignore — override status is non-critical
+    }
+  }
+
   async _loadPeakShareCommunities() {
     if (!this._hass || this._peakshareCommunitiesLoading) return;
     this._peakshareCommunitiesLoading = true;
@@ -1878,6 +1948,13 @@ class EegOptimizerPanel extends HTMLElement {
           this._lastFeedinReload = now;
           this._loadFeedinStats();
         }
+        // Bei aktivem manuellem Override häufiger nachladen (max alle 15s),
+        // damit das automatische Ende bei Ziel-SOC im Dashboard sichtbar wird.
+        if (this._manualOverride?.active && !this._manualOverrideBusy &&
+            now - (this._lastManualOverrideReload || 0) > 15000) {
+          this._lastManualOverrideReload = now;
+          this._loadManualOverride();
+        }
         this._render();
       }
     }
@@ -1958,6 +2035,9 @@ class EegOptimizerPanel extends HTMLElement {
     if (this._setupComplete) {
       this._loadActivityLog();
       this._loadFeedinStats();
+      // Manuellen Entlade-Override-Status laden (nur relevant für Huawei,
+      // Backend liefert sonst null — harmlos).
+      this._loadManualOverride();
       // Re-subscribe if previous subscription was lost (e.g. after reconnect)
       if (!this._activityUnsub) {
         this._subscribeActivityEvents();
@@ -3614,6 +3694,75 @@ class EegOptimizerPanel extends HTMLElement {
       </div>`;
   }
 
+  _renderManualDischargeDialog() {
+    if (!this._manualDischargeDialogOpen) return "";
+    const ovr = this._manualOverride;
+    const active = !!(ovr && ovr.active);
+    const modeState = this._readState(this._entityIds?.select || "select.eeg_energy_optimizer_optimizer");
+    const isEin = modeState && modeState.state === "Ein";
+    const defaultSoc = this._manualOverrideSoc ?? (this._config?.min_soc ?? 20);
+    const defaultPower = this._manualOverridePower ?? this._config?.discharge_power_kw ?? 3.0;
+    const busy = this._manualOverrideBusy;
+    const socNow = this._readFloat("sensor.eeg_energy_optimizer_combined_soc") ?? this._readFloat(this._config?.battery_soc_sensor);
+    let startedStr = "";
+    if (active && ovr.started_at) {
+      try { startedStr = new Date(ovr.started_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }); } catch (_) {}
+    }
+    const spinner = `<span class="manual-spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#fff;display:inline-block;vertical-align:middle;margin-right:8px"></span>`;
+    const body = active ? `
+      <div class="inverter-test-result success" style="margin:0">
+        <ha-icon icon="mdi:flash"></ha-icon>
+        Entlädt manuell bis ${Math.round(ovr.target_soc)} %${startedStr ? ` (gestartet ${startedStr} Uhr)` : ""}, ${(+ovr.power_kw).toFixed(1)} kW.
+      </div>
+    ` : `
+      <div class="md-form">
+        <label class="md-field">
+          <span class="md-field-label">Ziel-SOC${socNow != null ? ` <small>(aktuell ${Math.round(socNow)} %)</small>` : ""}</span>
+          <span class="md-field-input">
+            <input type="number" inputmode="numeric" data-field="manual_override_soc" min="5" max="95" step="5" value="${defaultSoc}">
+            <span class="md-field-unit">%</span>
+          </span>
+        </label>
+        <label class="md-field">
+          <span class="md-field-label">Leistung</span>
+          <span class="md-field-input">
+            <input type="number" inputmode="decimal" data-field="manual_override_power" min="0.5" max="20" step="0.5" value="${defaultPower}">
+            <span class="md-field-unit">kW</span>
+          </span>
+        </label>
+      </div>
+    `;
+    const primaryBtn = active
+      ? `<button class="btn-primary dialog-action-btn" data-action="manual-override-stop" style="background:var(--error-color,#db4437)" ${busy ? "disabled" : ""}>
+          ${busy ? spinner + "Stoppe…" : `<ha-icon icon="mdi:stop" style="--mdc-icon-size:18px;vertical-align:middle;margin-right:6px"></ha-icon>Entladung stoppen`}
+        </button>`
+      : `<button class="btn-primary dialog-action-btn" data-action="manual-override-start" style="background:#ff9800" ${busy ? "disabled" : ""}>
+          ${busy ? spinner + "Starte…" : `<ha-icon icon="mdi:battery-arrow-down" style="--mdc-icon-size:18px;vertical-align:middle;margin-right:6px"></ha-icon>Jetzt entladen`}
+        </button>`;
+    return `
+      <div class="dialog-overlay">
+        <div class="dialog-card manual-discharge-dialog">
+          <h3 style="margin:0 0 8px">
+            <ha-icon icon="mdi:battery-arrow-down" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);vertical-align:middle"></ha-icon>
+            Manuelle Entladung
+          </h3>
+          <p style="color:var(--secondary-text-color);font-size:14px;margin-top:0">
+            Entlädt die Batterie sofort ins Netz — zusätzlich zur PV-Einspeisung. Endet automatisch beim Ziel-SOC.
+          </p>
+          ${!isEin ? `
+          <div class="help-text" style="margin-bottom:12px">
+            <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:16px;vertical-align:middle"></ha-icon>
+            Der Optimizer-Modus ist nicht „Ein" — die Entladung wird berechnet, aber nicht an den Wechselrichter gesendet.
+          </div>` : ""}
+          ${body}
+          <div class="dialog-actions">
+            <button class="btn-primary dialog-action-btn" data-action="close-manual-discharge" style="background:var(--secondary-text-color,#888)" ${busy ? "disabled" : ""}>Abbrechen</button>
+            ${primaryBtn}
+          </div>
+        </div>
+      </div>`;
+  }
+
   /* ── Dashboard rendering ─────────────────────── */
 
   _getWeekdayKey(date) {
@@ -3761,6 +3910,13 @@ class EegOptimizerPanel extends HTMLElement {
           </h3>
           <div class="status-indicator ${dColorClass}">${dIndicator}</div>
           ${dConditionsHtml}
+          ${(this._config?.setup_complete && this._config?.inverter_type === "huawei_sun2000") ? `
+            <button class="manual-discharge-btn${this._manualOverride?.active ? " active" : ""}"
+              data-action="open-manual-discharge"
+              title="${this._manualOverride?.active ? "Manuelle Entladung stoppen" : "Manuelle Entladung der Batterie sofort starten"}">
+              <ha-icon icon="${this._manualOverride?.active ? "mdi:stop" : "mdi:battery-arrow-down"}" style="--mdc-icon-size:18px"></ha-icon>
+              <span>${this._manualOverride?.active ? "Stoppen" : "Manuelle Entladung …"}</span>
+            </button>` : ""}
         </div>
       </div>`;
   }
@@ -5021,9 +5177,14 @@ class EegOptimizerPanel extends HTMLElement {
               <div class="mode-toggle ${modeToggleClass}" data-action="toggle-mode">
                 <div class="toggle-knob"></div>
               </div>
-              <span class="mode-toggle-label">${modeValue === "Ein" ? "Ein" : "Testmodus"}</span>
+              <span class="mode-toggle-label">${modeValue === "Ein" ? "Ein" : "Test"}</span>
             </div>
           </div>
+          ${this._manualOverride?.active ? `
+          <div style="display:flex;align-items:center;gap:8px;background:rgba(255,152,0,0.12);border-left:3px solid #ff9800;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:var(--primary-text-color)">
+            <ha-icon icon="mdi:flash" style="--mdc-icon-size:18px;color:#ff9800;flex-shrink:0"></ha-icon>
+            <span>Manuelle Entladung aktiv — bis ${Math.round(this._manualOverride.target_soc)} %, ${(+this._manualOverride.power_kw).toFixed(1)} kW</span>
+          </div>` : ""}
           ${this._statusViewVariant === "flow"
             ? this._renderEnergyFlow(pvKw, batKw, gridKw, hausKw, socVal, {pvEntity, batEntity, gridEntity, hausEntity, socEntity})
             : `<div class="header-grid">
@@ -5382,7 +5543,8 @@ class EegOptimizerPanel extends HTMLElement {
               ${this._renderDashboard()}
             </div>
           </div>
-          ${this._renderInfoModal()}`;
+          ${this._renderInfoModal()}
+          ${this._renderManualDischargeDialog()}`;
       }
     } catch (err) {
       console.error("EEG Energy Optimizer render error:", err);
@@ -5486,6 +5648,25 @@ class EegOptimizerPanel extends HTMLElement {
         .dialog-card {
           background: var(--card-background-color); border-radius: 12px;
           padding: 24px; max-width: 700px; width: 92%; max-height: 85vh; overflow-y: auto;
+        }
+        /* Manuelle-Entladung-Dialog: schmaler als die Guide-Dialoge */
+        .manual-discharge-dialog { max-width: 420px; }
+        .md-form { display: flex; flex-direction: column; gap: 14px; margin: 4px 0 4px; }
+        .md-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; color: var(--primary-text-color); }
+        .md-field-label small { color: var(--secondary-text-color); font-weight: 400; }
+        .md-field-input { display: flex; align-items: center; gap: 6px; }
+        .md-field-input input { width: 96px; border-radius: 8px; border: 1px solid var(--divider-color);
+          padding: 10px 12px; background: var(--card-background-color); color: var(--primary-text-color);
+          font-size: 15px; text-align: right; box-sizing: border-box; }
+        .md-field-unit { color: var(--secondary-text-color); min-width: 22px; }
+        .dialog-actions { display: flex; gap: 12px; margin-top: 20px; }
+        .dialog-action-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center;
+          padding: 12px 16px; font-size: 15px; white-space: nowrap; }
+        @media (max-width: 600px) {
+          .manual-discharge-dialog { padding: 20px; }
+          .md-field { font-size: 16px; }
+          .md-field-input input { width: 112px; padding: 12px; font-size: 16px; }
+          .dialog-action-btn { padding: 14px 10px; }
         }
         /* Guide-Inhalte (generiert aus docs/guides/*.md) */
         .guide-content h2.guide-title { margin-top: 0; }
@@ -5701,6 +5882,13 @@ class EegOptimizerPanel extends HTMLElement {
         .header-toggle-cell { display: flex; flex-direction: row; align-items: center; gap: 8px; justify-content: flex-end; }
         .header-card-top { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
         .header-mode-toggle { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+        .manual-discharge-btn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin-top: 12px;
+          background: transparent; border: 1px solid #ff9800; color: #ff9800; border-radius: 999px;
+          padding: 6px 12px; font-size: 13px; font-weight: 500; transition: background 0.15s, color 0.15s; }
+        .manual-discharge-btn ha-icon { color: #ff9800; }
+        .manual-discharge-btn:hover { background: rgba(255,152,0,0.1); }
+        .manual-discharge-btn.active { background: #ff9800; color: #fff; }
+        .manual-discharge-btn.active ha-icon { color: #fff; }
         .status-view-pills { display: inline-flex; background: var(--secondary-background-color, rgba(0,0,0,0.05)); border-radius: 999px; padding: 3px; gap: 0; flex-shrink: 0; }
         .view-pill { background: transparent; border: none; cursor: pointer; padding: 6px 12px; border-radius: 999px; color: var(--secondary-text-color, #666); display: inline-flex; align-items: center; justify-content: center; transition: background 0.15s, color 0.15s; }
         .view-pill:hover { color: var(--primary-text-color); }

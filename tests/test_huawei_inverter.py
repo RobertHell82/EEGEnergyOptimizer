@@ -458,6 +458,77 @@ class TestMultiDevice:
         assert stop_devices == {"M", "S"}
 
 
+# Lade-Limit-Number am WR-Gerät (nicht am Batterie-Gerät) — reales Master/Slave-
+# Huawei-Layout. huawei_device_ids zeigen auf die Batterien (BM/BS), das
+# maximale_ladeleistung-Number hängt am Eltern-Wechselrichter (WRM/WRS).
+_CHARGE_WRM = "number.wechselrichter_maximale_ladeleistung"
+_CHARGE_WRS = "number.solar_power_wr_slave_maximale_ladeleistung"
+
+
+@contextmanager
+def _device_registry(parents):
+    """Mock der device_registry: parents = {batterie_device_id: wr_device_id}.
+
+    Der Code löst per ``from homeassistant.helpers import device_registry`` das
+    Attribut am ``homeassistant.helpers``-Stub-Modul (sys.modules) auf — daher
+    wird genau dort das ``device_registry``-Attribut gepatcht.
+    """
+    import sys
+
+    helpers_mod = sys.modules["homeassistant.helpers"]
+
+    def _get(dev_id):
+        d = MagicMock()
+        d.via_device_id = parents.get(dev_id)
+        return d
+
+    reg = MagicMock()
+    reg.async_get = MagicMock(side_effect=_get)
+    dr_mod = MagicMock()
+    dr_mod.async_get = MagicMock(return_value=reg)
+    with patch.object(helpers_mod, "device_registry", dr_mod):
+        yield
+
+
+class TestChargeLimitOnParentInverter:
+    """Regression: Lade-Limit hängt am WR-Gerät, nicht am Batterie-Gerät.
+
+    Reproduziert den Bug, bei dem Morgen-Einspeisung auf einer 2-Wechselrichter-
+    Huawei-Anlage NICHTS blockierte: Die per-Batterie-Auflösung fand das
+    Lade-Limit-Number nicht (es sitzt am Eltern-WR). Die Auflösung muss dem
+    via_device-Link zum Wechselrichter folgen.
+    """
+
+    def _build(self, mock_hass):
+        states = {
+            _CHARGE_WRM: _state(max_attr=5000),
+            _CHARGE_WRS: _state(max_attr=5000),
+        }
+        mock_hass.states.get = MagicMock(side_effect=lambda eid: states.get(eid))
+        entries = [
+            _reg_entry(_CHARGE_WRM, "WRM"),
+            _reg_entry(_CHARGE_WRS, "WRS"),
+        ]
+        with _registry(entries), _device_registry({"BM": "WRM", "BS": "WRS"}):
+            return HuaweiInverter(mock_hass, {"huawei_device_ids": ["BM", "BS"]})
+
+    def test_resolves_charge_entity_via_parent_inverter(self, mock_hass):
+        inv = self._build(mock_hass)
+        assert inv._charge_entities == {"BM": _CHARGE_WRM, "BS": _CHARGE_WRS}
+
+    async def test_block_charging_writes_both_inverters(self, mock_hass):
+        """async_set_charge_limit(0) schreibt 0 an beide WR-Lade-Limits."""
+        inv = self._build(mock_hass)
+        result = await inv.async_set_charge_limit(0)
+        assert result is True
+        written = {
+            c.args[2]["entity_id"]: c.args[2]["value"]
+            for c in mock_hass.services.async_call.call_args_list
+            if c.args[0] == "number"
+        }
+        assert written == {_CHARGE_WRM: 0, _CHARGE_WRS: 0}
+
+
 class TestIsAvailable:
     """is_available depends on whether huawei_solar has a loaded config entry."""
 

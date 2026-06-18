@@ -120,6 +120,23 @@ class HuaweiInverter(InverterBase):
             # fällt auf den globalen States-Scan zurück.
             return []
 
+    def _parent_device_id(self, device_id: str) -> str | None:
+        """Eltern-Wechselrichter (via_device) eines Batterie-Geräts, falls vorhanden.
+
+        Huawei exponiert das Lade-Limit-Number am WR-Gerät, ``huawei_device_ids``
+        zeigen aber auf die BATTERIE-Geräte. Die Batterie hängt in der Device-
+        Registry per ``via_device`` an ihrem Wechselrichter.
+        """
+        try:
+            from homeassistant.helpers import device_registry as dr
+
+            dev_reg = dr.async_get(self._hass)
+            dev = dev_reg.async_get(device_id)
+            parent = getattr(dev, "via_device_id", None) if dev else None
+            return parent if isinstance(parent, str) else None
+        except Exception:
+            return None
+
     def _device_entity_by_suffix(
         self, device_id: str, domain: str, suffixes: tuple[str, ...]
     ) -> str | None:
@@ -155,7 +172,23 @@ class HuaweiInverter(InverterBase):
         if eid and self._hass.states.get(eid) is not None:
             _LOGGER.debug("Huawei: Using charge power entity %s (registry)", eid)
             return eid
-        # 2. Single-Device-Fallback: globaler States-Scan (Legacy-Bestandsanlagen).
+        # 2. Eltern-Wechselrichter: Das Lade-Limit-Number hängt bei Huawei am
+        #    WR-Gerät, nicht am Batterie-Gerät — huawei_device_ids zeigen aber auf
+        #    die Batterien. Über via_device das Eltern-WR-Gerät auflösen. Nötig für
+        #    Master/Slave, wo Schritt 1 (Batterie-Gerät) leer ausgeht (sonst bleibt
+        #    Laden-Blockieren / Morgen-Einspeisung wirkungslos).
+        parent_id = self._parent_device_id(device_id)
+        if parent_id:
+            eid = self._device_entity_by_suffix(
+                parent_id, "number", MAX_CHARGE_POWER_SUFFIXES
+            )
+            if eid and self._hass.states.get(eid) is not None:
+                _LOGGER.debug(
+                    "Huawei: Using charge power entity %s (via parent inverter %s)",
+                    eid, parent_id,
+                )
+                return eid
+        # 3. Single-Device-Fallback: globaler States-Scan (Legacy-Bestandsanlagen).
         #    Bei Multi-Device unzulässig — würde beiden Geräten dasselbe Entity
         #    zuweisen.
         if len(self._device_ids) <= 1:
