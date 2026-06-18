@@ -714,6 +714,7 @@ class EegOptimizerPanel extends HTMLElement {
         const targetSoc = this._manualOverrideSoc ?? (this._config?.min_soc ?? 20);
         const powerKw = this._manualOverridePower ?? this._config?.discharge_power_kw ?? 3.0;
         this._manualOverrideBusy = true;
+        this._manualDischargeDialogOpen = false;
         this._render();
         this._hass.callWS({
           type: "eeg_optimizer/start_manual_discharge",
@@ -731,6 +732,7 @@ class EegOptimizerPanel extends HTMLElement {
       }
       case "manual-override-stop":
         this._manualOverrideBusy = true;
+        this._manualDischargeDialogOpen = false;
         this._render();
         this._hass.callWS({ type: "eeg_optimizer/stop_manual_discharge" }).then(() => {
           this._manualOverride = null;
@@ -3702,16 +3704,12 @@ class EegOptimizerPanel extends HTMLElement {
       try { startedStr = new Date(ovr.started_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }); } catch (_) {}
     }
     const body = active ? `
-      <div class="inverter-test-result success" style="margin-bottom:16px">
+      <div class="inverter-test-result success" style="margin-bottom:0">
         <ha-icon icon="mdi:flash"></ha-icon>
         Entlädt manuell bis ${Math.round(ovr.target_soc)} %${startedStr ? ` (gestartet ${startedStr} Uhr)` : ""}, ${(+ovr.power_kw).toFixed(1)} kW.
       </div>
-      <button class="btn-manual btn-manual-normal" data-action="manual-override-stop" ${this._manualOverrideBusy ? "disabled" : ""}>
-        <ha-icon icon="mdi:stop"></ha-icon>
-        <span>Entladung stoppen</span>
-      </button>
     ` : `
-      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:0 0 16px">
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:0">
         <label style="font-size:14px;display:flex;align-items:center;gap:6px">
           Ziel-SOC:
           <input type="number" data-field="manual_override_soc" min="5" max="95" step="5"
@@ -3725,11 +3723,14 @@ class EegOptimizerPanel extends HTMLElement {
             style="width:70px;border-radius:8px;border:1px solid var(--divider-color);padding:8px;background:var(--card-background-color);color:var(--primary-text-color);font-size:14px"> kW
         </label>
       </div>
-      <button class="btn-manual btn-manual-discharge" data-action="manual-override-start" ${this._manualOverrideBusy ? "disabled" : ""}>
-        <ha-icon icon="mdi:battery-arrow-down"></ha-icon>
-        <span>Jetzt entladen</span>
-      </button>
     `;
+    const primaryBtn = active
+      ? `<button class="btn-primary" data-action="manual-override-stop" style="flex:1;background:var(--error-color,#db4437)" ${this._manualOverrideBusy ? "disabled" : ""}>
+          <ha-icon icon="mdi:stop" style="--mdc-icon-size:18px;vertical-align:middle;margin-right:6px"></ha-icon>Entladung stoppen
+        </button>`
+      : `<button class="btn-primary" data-action="manual-override-start" style="flex:1;background:#ff9800" ${this._manualOverrideBusy ? "disabled" : ""}>
+          <ha-icon icon="mdi:battery-arrow-down" style="--mdc-icon-size:18px;vertical-align:middle;margin-right:6px"></ha-icon>Jetzt entladen
+        </button>`;
     return `
       <div class="dialog-overlay">
         <div class="dialog-card">
@@ -3746,8 +3747,9 @@ class EegOptimizerPanel extends HTMLElement {
             Der Optimizer-Modus ist nicht „Ein" — die Entladung wird berechnet, aber nicht an den Wechselrichter gesendet.
           </div>` : ""}
           ${body}
-          <div style="text-align:right;margin-top:16px">
-            <button class="btn-primary" data-action="close-manual-discharge">Schließen</button>
+          <div style="display:flex;gap:12px;margin-top:16px">
+            <button class="btn-primary" data-action="close-manual-discharge" style="flex:1;background:var(--secondary-text-color,#888)">Abbrechen</button>
+            ${primaryBtn}
           </div>
         </div>
       </div>`;
@@ -3903,9 +3905,9 @@ class EegOptimizerPanel extends HTMLElement {
           ${(this._config?.setup_complete && this._config?.inverter_type === "huawei_sun2000") ? `
             <button class="manual-discharge-btn${this._manualOverride?.active ? " active" : ""}"
               data-action="open-manual-discharge"
-              title="Manuelle Entladung der Batterie sofort starten">
-              <ha-icon icon="mdi:battery-arrow-down" style="--mdc-icon-size:18px"></ha-icon>
-              <span>Jetzt starten</span>
+              title="${this._manualOverride?.active ? "Manuelle Entladung stoppen" : "Manuelle Entladung der Batterie sofort starten"}">
+              <ha-icon icon="${this._manualOverride?.active ? "mdi:stop" : "mdi:battery-arrow-down"}" style="--mdc-icon-size:18px"></ha-icon>
+              <span>${this._manualOverride?.active ? "Jetzt stoppen" : "Jetzt starten"}</span>
             </button>` : ""}
         </div>
       </div>`;
@@ -5170,6 +5172,11 @@ class EegOptimizerPanel extends HTMLElement {
               <span class="mode-toggle-label">${modeValue === "Ein" ? "Ein" : "Test"}</span>
             </div>
           </div>
+          ${this._manualOverride?.active ? `
+          <div style="display:flex;align-items:center;gap:8px;background:rgba(255,152,0,0.12);border-left:3px solid #ff9800;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:var(--primary-text-color)">
+            <ha-icon icon="mdi:flash" style="--mdc-icon-size:18px;color:#ff9800;flex-shrink:0"></ha-icon>
+            <span>Manuelle Entladung aktiv — bis ${Math.round(this._manualOverride.target_soc)} %, ${(+this._manualOverride.power_kw).toFixed(1)} kW</span>
+          </div>` : ""}
           ${this._statusViewVariant === "flow"
             ? this._renderEnergyFlow(pvKw, batKw, gridKw, hausKw, socVal, {pvEntity, batEntity, gridEntity, hausEntity, socEntity})
             : `<div class="header-grid">
