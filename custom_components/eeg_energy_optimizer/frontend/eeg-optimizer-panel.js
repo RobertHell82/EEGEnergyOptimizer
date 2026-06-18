@@ -1400,6 +1400,9 @@ class EegOptimizerPanel extends HTMLElement {
       const result = await this._hass.callWS({
         type: "eeg_optimizer/get_manual_override",
       });
+      // Eine laufende Start/Stop-Aktion (Popup) nicht überschreiben — sonst
+      // flackert der Dialog kurz ins Start-Formular, bevor er schließt.
+      if (this._manualOverrideBusy) return;
       this._manualOverride = result?.override || null;
       this._render();
     } catch (e) {
@@ -1947,7 +1950,7 @@ class EegOptimizerPanel extends HTMLElement {
         }
         // Bei aktivem manuellem Override häufiger nachladen (max alle 15s),
         // damit das automatische Ende bei Ziel-SOC im Dashboard sichtbar wird.
-        if (this._manualOverride?.active &&
+        if (this._manualOverride?.active && !this._manualOverrideBusy &&
             now - (this._lastManualOverrideReload || 0) > 15000) {
           this._lastManualOverrideReload = now;
           this._loadManualOverride();
