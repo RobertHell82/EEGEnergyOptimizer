@@ -3900,6 +3900,13 @@ class EegOptimizerPanel extends HTMLElement {
           </h3>
           <div class="status-indicator ${dColorClass}">${dIndicator}</div>
           ${dConditionsHtml}
+          ${(this._config?.setup_complete && this._config?.inverter_type === "huawei_sun2000") ? `
+            <button class="manual-discharge-btn${this._manualOverride?.active ? " active" : ""}"
+              data-action="open-manual-discharge"
+              title="Manuelle Entladung der Batterie sofort starten">
+              <ha-icon icon="mdi:battery-arrow-down" style="--mdc-icon-size:18px"></ha-icon>
+              <span>Jetzt starten</span>
+            </button>` : ""}
         </div>
       </div>`;
   }
@@ -5148,13 +5155,6 @@ class EegOptimizerPanel extends HTMLElement {
                 <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color)"></ha-icon>
               </span>` : ""}
             </h3>
-            ${(this._config?.setup_complete && this._config?.inverter_type === "huawei_sun2000") ? `
-              <button class="header-manual-discharge${this._manualOverride?.active ? " active" : ""}"
-                data-action="open-manual-discharge"
-                title="Manuelle Entladung der Batterie sofort starten">
-                <ha-icon icon="mdi:battery-arrow-down" style="--mdc-icon-size:18px"></ha-icon>
-                <span>Manuelle Entladung …</span>
-              </button>` : ""}
             <div class="status-view-pills">
               <button class="view-pill ${this._statusViewVariant === "values" ? "active" : ""}" data-action="set-status-view" data-variant="values" title="Werte-Anzeige">
                 <ha-icon icon="mdi:view-grid-outline" style="--mdc-icon-size:16px"></ha-icon>
@@ -5167,7 +5167,7 @@ class EegOptimizerPanel extends HTMLElement {
               <div class="mode-toggle ${modeToggleClass}" data-action="toggle-mode">
                 <div class="toggle-knob"></div>
               </div>
-              <span class="mode-toggle-label">${modeValue === "Ein" ? "Ein" : "Testmodus"}</span>
+              <span class="mode-toggle-label">${modeValue === "Ein" ? "Ein" : "Test"}</span>
             </div>
           </div>
           ${this._statusViewVariant === "flow"
@@ -5848,13 +5848,13 @@ class EegOptimizerPanel extends HTMLElement {
         .header-toggle-cell { display: flex; flex-direction: row; align-items: center; gap: 8px; justify-content: flex-end; }
         .header-card-top { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
         .header-mode-toggle { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-        .header-manual-discharge { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; cursor: pointer;
+        .manual-discharge-btn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin-top: 12px;
           background: transparent; border: 1px solid #ff9800; color: #ff9800; border-radius: 999px;
           padding: 6px 12px; font-size: 13px; font-weight: 500; transition: background 0.15s, color 0.15s; }
-        .header-manual-discharge ha-icon { color: #ff9800; }
-        .header-manual-discharge:hover { background: rgba(255,152,0,0.1); }
-        .header-manual-discharge.active { background: #ff9800; color: #fff; }
-        .header-manual-discharge.active ha-icon { color: #fff; }
+        .manual-discharge-btn ha-icon { color: #ff9800; }
+        .manual-discharge-btn:hover { background: rgba(255,152,0,0.1); }
+        .manual-discharge-btn.active { background: #ff9800; color: #fff; }
+        .manual-discharge-btn.active ha-icon { color: #fff; }
         .status-view-pills { display: inline-flex; background: var(--secondary-background-color, rgba(0,0,0,0.05)); border-radius: 999px; padding: 3px; gap: 0; flex-shrink: 0; }
         .view-pill { background: transparent; border: none; cursor: pointer; padding: 6px 12px; border-radius: 999px; color: var(--secondary-text-color, #666); display: inline-flex; align-items: center; justify-content: center; transition: background 0.15s, color 0.15s; }
         .view-pill:hover { color: var(--primary-text-color); }
