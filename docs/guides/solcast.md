@@ -2,14 +2,14 @@
 
 ## 1. Registrierung bei Solcast
 
-1. Gehe auf [toolkit.solcast.com.au](https://toolkit.solcast.com.au/) um Dich zu registrieren.
+1. Gehe auf [toolkit.solcast.com.au](https://toolkit.solcast.com.au/) um dich zu registrieren.
 2. Wähle dort den Accounttyp **Home User**.<br>
    ![Home User wählen](../images/solcast/01_Home_User.png)
-3. Wähle **Hobbyist**, gib Deine Daten ein und klicke auf **Submit**.<br>
+3. Wähle **Hobbyist**, gib deine Daten ein und klicke auf **Submit**.<br>
    ![Registrierung](../images/solcast/02_Registration.png)
 4. Wähle ein Passwort und klicke auf **Submit**.
 5. Du erhältst eine E-Mail zur Bestätigung — öffne den Link darin.
-6. Melde Dich mit dem neuen Benutzer an.
+6. Melde dich mit dem neuen Benutzer an.
 7. Klicke auf **„Add your first Home PV System to get started"**.<br>
    ![PV System hinzufügen](../images/solcast/03_Add_PV_System.png)
 8. Daten der PV-Anlage erfassen:

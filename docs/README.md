@@ -2,6 +2,14 @@
 
 Willkommen! Hier findest du alle Anleitungen, um den EEG Energy Optimizer zu installieren und einzurichten — von der HACS-Installation bis zur Wechselrichter-Anbindung.
 
+## 📦 Vorbereitetes EEG-Gerät erhalten?
+
+Hast du von deiner Energiegemeinschaft ein bereits vorbereitetes **Home Assistant Green** bekommen? Dann musst du nichts installieren — folge einfach der Inbetriebnahme:
+
+→ **[Inbetriebnahme deines EEG-Geräts](deployment/inbetriebnahme.md)** — anschließen, anmelden, fertig einrichten (ca. 20 Min.)
+
+Die folgenden Installations-Anleitungen brauchst du nur, wenn du Home Assistant **selbst von Grund auf** einrichtest.
+
 ## 🚀 Installation
 
 Am besten in dieser Reihenfolge:
