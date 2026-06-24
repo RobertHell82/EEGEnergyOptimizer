@@ -8,7 +8,6 @@ Der Zugang läuft über einen sogenannten **Cloudflare Tunnel**: Dein Home Assis
 > technischen Teil übernimmt deine Energiegemeinschaft. Du brauchst nur die zwei
 > Angaben, die du von uns bekommst (siehe Voraussetzungen).
 
-**Zeitaufwand:** ca. 10 Minuten
 
 ## Voraussetzungen
 
