@@ -10,10 +10,9 @@ Der Zugang läuft über einen sogenannten **Cloudflare Tunnel**: Dein Home Assis
 
 
 ## Voraussetzungen
-
 - Home Assistant **OS** oder **Supervised** (mit Add-on Store)
 - Zugriff auf Home Assistant als **Administrator**
-- Von uns erhalten:
+- Von der Energiegemeinschaft EW Ansfelden erhalten. Falls Du diese Daten noch nicht hast aber benötigst, melde Dich bei uns unter: info@ew-ansfelden.at
   - ein **Tunnel-Token** (eine lange Zeichenkette)
   - deine **Adresse** (z.B. `deinname.ew-ansfelden.cc`)
 
