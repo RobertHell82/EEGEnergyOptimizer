@@ -1,10 +1,7 @@
 # Fernzugang einrichten (Cloudflare Tunnel)
 
-Mit dieser Anleitung machst du dein Home Assistant über eine eigene Internet-Adresse
-erreichbar — z.B. `https://deinname.ew-ansfelden.cc` — **ohne** Einstellungen am
-Router und **ohne** Portfreigabe. Der Zugang läuft über einen sogenannten
-**Cloudflare Tunnel**: Dein Home Assistant baut die Verbindung selbst nach außen
-auf und bleibt von außen unsichtbar.
+Mit dieser Anleitung machst du deinen Home Assistant direkt unter einer eigenen Internetadresse verfügbar - ohne zusätzliche Kosten.
+Der Zugang läuft über einen sogenannten **Cloudflare Tunnel**: Dein Home Assistant baut die Verbindung selbst nach außen auf und bleibt von außen unsichtbar.
 
 > [!NOTE]
 > Du musst **kein Konto bei Cloudflare** anlegen und dort nichts einstellen. Den
