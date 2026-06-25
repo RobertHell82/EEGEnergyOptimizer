@@ -48,12 +48,14 @@ führt dich durch die wenigen Schritte, bis dein System läuft.
 |---|---|---|
 | **Passwort ändern** | Profil (Name unten links) → *Passwort ändern* | Voreingestelltes Passwort durch ein eigenes ersetzen |
 | **Name des Systems** | Einstellungen → System → Allgemein | z.B. „EEG Familie Muster" |
-| **Standort** | Einstellungen → System → Allgemein | Adresse auf der Karte setzen, Höhe & Zeitzone prüfen |
+| **Standort** ⚠️ | Einstellungen → System → Allgemein | Ab Werk auf **„Linz Hauptplatz"** voreingestellt — **unbedingt auf deine eigene Adresse ändern** (Karte oder Lat/Lon), Höhe & Zeitzone prüfen |
 | **HACS autorisieren** | HACS (Seitenleiste) | GitHub-Gerätecode auf [github.com/login/device](https://github.com/login/device) eingeben |
 
 > [!WARNING]
-> Der **Standort** ist Pflicht: Der Optimizer berechnet Sonnenauf-/-untergang und
-> PV-Prognose daraus. Ohne korrekten Standort arbeitet er mit falschen Zeiten.
+> Der **Standort** ist ab Werk auf **„Linz Hauptplatz"** voreingestellt und **muss
+> nach dem ersten Start auf deine eigene Adresse geändert werden**. Der Optimizer
+> berechnet Sonnenauf-/-untergang und PV-Prognose daraus — ohne korrekten Standort
+> arbeitet er mit falschen Zeiten.
 
 > [!IMPORTANT]
 > Ändere das voreingestellte **Passwort** unbedingt — es war für alle Geräte
