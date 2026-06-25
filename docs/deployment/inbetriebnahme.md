@@ -72,8 +72,8 @@ Für die genaueste Prognose nutzen wir **Solcast** — jedes Mitglied braucht ei
 → **[Solcast Solar einrichten](../guides/solcast.md)** _(Konto anlegen, PV-Anlage erfassen, API-Key in Home Assistant eintragen, Prognose-Sensoren aktivieren)_
 
 > [!TIP]
-> Alternativ ist bereits **[Forecast.Solar](../guides/forecast_solar.md)**
-> vorinstalliert — funktioniert ohne Registrierung, ist aber etwas ungenauer.
+> Alternativ kannst du **[Forecast.Solar](../guides/forecast_solar.md)** nutzen —
+> ohne Registrierung, aber etwas ungenauer. Es muss als Integration hinzugefügt werden.
 
 ---
 
