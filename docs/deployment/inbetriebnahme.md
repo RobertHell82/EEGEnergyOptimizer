@@ -4,13 +4,6 @@ Dein Home Assistant Green wurde bereits vorbereitet: Alle benötigten Programme,
 der EEG Energy Optimizer und der Fernzugang sind installiert. Diese Anleitung
 führt dich durch die wenigen Schritte, bis dein System läuft.
 
-> [!NOTE]
-> Du musst **nichts installieren** und keinen Einrichtungsassistenten
-> durchlaufen — das ist alles schon erledigt. Es geht nur noch um anschließen,
-> anmelden und ein paar persönliche Einstellungen.
-
-**Zeitaufwand:** ca. 20 Minuten · **Schritte 1–3** kann jeder selbst, **Schritte 4–6** brauchen die Daten deiner PV-Anlage.
-
 ---
 
 ## Schritt 1: Gerät anschließen (Strom & Netzwerk)
