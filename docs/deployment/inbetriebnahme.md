@@ -39,21 +39,8 @@ führt dich durch die wenigen Schritte, bis dein System läuft.
 
 | Einstellung | Wo | Was |
 |---|---|---|
-| **Passwort ändern** | Profil (Name unten links) → *Passwort ändern* | Voreingestelltes Passwort durch ein eigenes ersetzen |
-| **Name des Systems** | Einstellungen → System → Allgemein | z.B. „EEG Familie Muster" |
-| **Standort** ⚠️ | Einstellungen → System → Allgemein | Ab Werk auf **„Linz Hauptplatz"** voreingestellt — **unbedingt auf deine eigene Adresse ändern** (Karte oder Lat/Lon), Höhe & Zeitzone prüfen |
-| **HACS autorisieren** | HACS (Seitenleiste) | GitHub-Gerätecode auf [github.com/login/device](https://github.com/login/device) eingeben |
-
-> [!WARNING]
-> Der **Standort** ist ab Werk auf **„Linz Hauptplatz"** voreingestellt und **muss
-> nach dem ersten Start auf deine eigene Adresse geändert werden**. Der Optimizer
-> berechnet Sonnenauf-/-untergang und PV-Prognose daraus — ohne korrekten Standort
-> arbeitet er mit falschen Zeiten.
-
-> [!IMPORTANT]
-> Ändere das voreingestellte **Passwort** unbedingt — es war für alle Geräte
-> gleich. Den **Fernzugang (Cloudflare)** musst du **nicht** einrichten, der ist
-> bereits für dein Gerät vorbereitet.
+| **Standort** (wichtigster Schritt!) | Einstellungen → System → Allgemein | Ab Werk auf **„Linz Hauptplatz"** voreingestellt — **unbedingt auf deine eigene Adresse ändern** (Karte oder Lat/Lon), Höhe & Zeitzone prüfen. Ohne korrekten Standort berechnet der Optimizer Sonnenauf-/-untergang und PV-Prognose mit falschen Zeiten. |
+| **Passwort ändern** (Benutzer `ewa-mitglied`) | Profil (Name unten links) → *Passwort ändern* | Voreingestelltes Passwort durch ein eigenes ersetzen |
 
 ---
 
@@ -116,5 +103,4 @@ Den Status siehst du jederzeit im **EEG Optimizer Panel**.
 | `homeassistant.local` nicht erreichbar | IP-Adresse des Geräts in der Router-Geräteliste suchen und stattdessen aufrufen |
 | Kein Login möglich | Benutzername/Passwort prüfen (Groß-/Kleinschreibung); ggf. bei uns melden |
 | Optimizer zeigt falsche Sonnenzeiten | Standort unter Einstellungen → System → Allgemein korrekt gesetzt? (Schritt 3) |
-| HACS-GitHub-Code abgelaufen | Vorgang erneut starten, neuen Code anfordern |
 | Wechselrichter-Verbindungstest schlägt fehl | Anleitung des jeweiligen Wechselrichters prüfen (Schritt 5); IP/Zugangsdaten korrekt? |
