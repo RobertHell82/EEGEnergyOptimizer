@@ -80,7 +80,7 @@ mit deiner Anlage. Das Panel führt dich durch:
 3. Batterie- & PV-Sensoren zuordnen
 4. Prognosequelle wählen (Solcast / Forecast.Solar)
 5. Optimizer-Einstellungen (Morgenfenster, Entladezeit, Min-SOC, Sicherheitspuffer)
-6. PeakShare-Community wählen (optional)
+6. PeakShare-Community wählen
 7. Wechselrichter-Verbindungstest
 
 > [!TIP]
@@ -94,12 +94,3 @@ mit deiner Anlage. Das Panel führt dich durch:
 Wenn alle Schritte erledigt sind, läuft der EEG Energy Optimizer und steuert
 deinen Speicher passend zu den Einspeise-Zeitfenstern der Energiegemeinschaft.
 Den Status siehst du jederzeit im **EEG Optimizer Panel**.
-
-## Häufige Probleme
-
-| Problem | Lösung |
-|---|---|
-| `homeassistant.local` nicht erreichbar | IP-Adresse des Geräts in der Router-Geräteliste suchen und stattdessen aufrufen |
-| Kein Login möglich | Benutzername/Passwort prüfen (Groß-/Kleinschreibung); ggf. bei uns melden |
-| Optimizer zeigt falsche Sonnenzeiten | Standort unter Einstellungen → System → Allgemein korrekt gesetzt? (Schritt 3) |
-| Wechselrichter-Verbindungstest schlägt fehl | Anleitung des jeweiligen Wechselrichters prüfen (Schritt 5); IP/Zugangsdaten korrekt? |
