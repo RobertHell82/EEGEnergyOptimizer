@@ -9,7 +9,7 @@ führt dich durch die wenigen Schritte, bis dein System läuft.
 ## Schritt 1: Gerät anschließen (Strom & Netzwerk)
 
 1. **Netzwerk:** Stecke das **Netzwerkkabel** vom Gerät in einen freien LAN-Port
-   deines Routers. _(Kabel ist stabiler als WLAN — empfohlen.)_
+   deines Routers bzw. verbinde es an einem passenden Ort mit Deinem Netzwerk.
 2. **Strom:** Verbinde das **Netzteil** mit dem Gerät und der Steckdose. Das
    Gerät startet automatisch.
 3. **Warten:** Der erste Start dauert einige Minuten — warte, bis die Status-LED
