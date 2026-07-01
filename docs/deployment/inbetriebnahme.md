@@ -94,3 +94,8 @@ mit deiner Anlage. Das Panel führt dich durch:
 Wenn alle Schritte erledigt sind, läuft der EEG Energy Optimizer und steuert
 deinen Speicher passend zu den Einspeise-Zeitfenstern der Energiegemeinschaft.
 Den Status siehst du jederzeit im **EEG Optimizer Panel**.
+
+> [!TIP]
+> Auf deinem Gerät ist ein **Fernzugang für die EEG** eingerichtet. Zweck ist eine
+> einfache Unterstützung beim Setup. Sobald das Gerät einmal läuft, kann dieser bei
+> Bedarf gerne deaktiviert werden.
