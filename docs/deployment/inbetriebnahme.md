@@ -46,12 +46,11 @@ führt dich durch die wenigen Schritte, bis dein System läuft.
 
 ## Schritt 4: PV-Prognose (Solcast)
 
-Für die genaueste Prognose nutzen wir **Solcast** — jedes Mitglied braucht ein
-**eigenes, kostenloses** Konto (ein gemeinsames ist nicht möglich).
+Eine wesentliche Vorraussetzung ist die Installation und Einrichtung der PV-Prognose. Die beste Option ist hier Solcast, jedes Mitglied muss sich hier ein **eigenes, kostenloses** Konto erstellen und die Daten der PV-Anlage erfassen.
 
 → **[Solcast Solar einrichten](../guides/solcast.md)** _(Konto anlegen, PV-Anlage erfassen, API-Key in Home Assistant eintragen, Prognose-Sensoren aktivieren)_
 
-> [!TIP]
+> [!Hinweis]
 > Alternativ kannst du **[Forecast.Solar](../guides/forecast_solar.md)** nutzen —
 > ohne Registrierung, aber etwas ungenauer. Es muss als Integration hinzugefügt werden.
 
