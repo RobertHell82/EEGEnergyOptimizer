@@ -39,6 +39,12 @@ Eine der beiden Prognose-Quellen wird benötigt:
 > [!TIP]
 > Alle Einrichtungs-Anleitungen sind auch direkt im Einrichtungsassistenten der Integration verfügbar — einfach auf die „Anleitung"-Buttons im Panel klicken.
 
+## 🌐 Fernzugang (von außen erreichbar)
+
+Home Assistant über eine eigene Internet-Adresse erreichbar machen — ohne Portfreigabe am Router:
+
+- **[Fernzugang einrichten (Cloudflare Tunnel)](deployment/fernzugang-cloudflared.md)**
+
 ## ℹ️ Funktionsweise
 
 Wie Morgen-Einspeisung, Nacht-Entladung und PeakShare funktionieren, ist in der **[Projekt-Übersicht](../README.md)** beschrieben.

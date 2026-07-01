@@ -4,19 +4,12 @@ Dein Home Assistant Green wurde bereits vorbereitet: Alle benötigten Programme,
 der EEG Energy Optimizer und der Fernzugang sind installiert. Diese Anleitung
 führt dich durch die wenigen Schritte, bis dein System läuft.
 
-> [!NOTE]
-> Du musst **nichts installieren** und keinen Einrichtungsassistenten
-> durchlaufen — das ist alles schon erledigt. Es geht nur noch um anschließen,
-> anmelden und ein paar persönliche Einstellungen.
-
-**Zeitaufwand:** ca. 20 Minuten · **Schritte 1–3** kann jeder selbst, **Schritte 4–6** brauchen die Daten deiner PV-Anlage.
-
 ---
 
 ## Schritt 1: Gerät anschließen (Strom & Netzwerk)
 
 1. **Netzwerk:** Stecke das **Netzwerkkabel** vom Gerät in einen freien LAN-Port
-   deines Routers. _(Kabel ist stabiler als WLAN — empfohlen.)_
+   deines Routers bzw. verbinde es an einem passenden Ort mit Deinem Netzwerk.
 2. **Strom:** Verbinde das **Netzteil** mit dem Gerät und der Steckdose. Das
    Gerät startet automatisch.
 3. **Warten:** Der erste Start dauert einige Minuten — warte, bis die Status-LED
@@ -46,32 +39,20 @@ führt dich durch die wenigen Schritte, bis dein System läuft.
 
 | Einstellung | Wo | Was |
 |---|---|---|
-| **Passwort ändern** | Profil (Name unten links) → *Passwort ändern* | Voreingestelltes Passwort durch ein eigenes ersetzen |
-| **Name des Systems** | Einstellungen → System → Allgemein | z.B. „EEG Familie Muster" |
-| **Standort** | Einstellungen → System → Allgemein | Adresse auf der Karte setzen, Höhe & Zeitzone prüfen |
-| **HACS autorisieren** | HACS (Seitenleiste) | GitHub-Gerätecode auf [github.com/login/device](https://github.com/login/device) eingeben |
-
-> [!WARNING]
-> Der **Standort** ist Pflicht: Der Optimizer berechnet Sonnenauf-/-untergang und
-> PV-Prognose daraus. Ohne korrekten Standort arbeitet er mit falschen Zeiten.
-
-> [!IMPORTANT]
-> Ändere das voreingestellte **Passwort** unbedingt — es war für alle Geräte
-> gleich. Den **Fernzugang (Cloudflare)** musst du **nicht** einrichten, der ist
-> bereits für dein Gerät vorbereitet.
+| **Standort** (wichtigster Schritt!) | Einstellungen → System → Allgemein | Ab Werk auf **„Linz Hauptplatz"** voreingestellt — **unbedingt auf deine eigene Adresse ändern** (Karte oder Lat/Lon), Höhe & Zeitzone prüfen. Ohne korrekten Standort berechnet der Optimizer Sonnenauf-/-untergang und PV-Prognose mit falschen Zeiten. |
+| **Passwort ändern** (Benutzer `ewa-mitglied`) | Profil (Name unten links) → *Passwort ändern* | Voreingestelltes Passwort durch ein eigenes ersetzen |
 
 ---
 
 ## Schritt 4: PV-Prognose (Solcast)
 
-Für die genaueste Prognose nutzen wir **Solcast** — jedes Mitglied braucht ein
-**eigenes, kostenloses** Konto (ein gemeinsames ist nicht möglich).
+Eine wesentliche Vorraussetzung ist die Installation und Einrichtung der PV-Prognose. Die beste Option ist hier Solcast, jedes Mitglied muss sich hier ein **eigenes, kostenloses** Konto erstellen und die Daten der PV-Anlage erfassen.
 
 → **[Solcast Solar einrichten](../guides/solcast.md)** _(Konto anlegen, PV-Anlage erfassen, API-Key in Home Assistant eintragen, Prognose-Sensoren aktivieren)_
 
-> [!TIP]
-> Alternativ ist bereits **[Forecast.Solar](../guides/forecast_solar.md)**
-> vorinstalliert — funktioniert ohne Registrierung, ist aber etwas ungenauer.
+> [!Hinweis]
+> Alternativ kannst du **[Forecast.Solar](../guides/forecast_solar.md)** nutzen —
+> ohne Registrierung, aber etwas ungenauer. Es muss als Integration hinzugefügt werden.
 
 ---
 
@@ -99,7 +80,7 @@ mit deiner Anlage. Das Panel führt dich durch:
 3. Batterie- & PV-Sensoren zuordnen
 4. Prognosequelle wählen (Solcast / Forecast.Solar)
 5. Optimizer-Einstellungen (Morgenfenster, Entladezeit, Min-SOC, Sicherheitspuffer)
-6. PeakShare-Community wählen (optional)
+6. PeakShare-Community wählen
 7. Wechselrichter-Verbindungstest
 
 > [!TIP]
@@ -114,12 +95,7 @@ Wenn alle Schritte erledigt sind, läuft der EEG Energy Optimizer und steuert
 deinen Speicher passend zu den Einspeise-Zeitfenstern der Energiegemeinschaft.
 Den Status siehst du jederzeit im **EEG Optimizer Panel**.
 
-## Häufige Probleme
-
-| Problem | Lösung |
-|---|---|
-| `homeassistant.local` nicht erreichbar | IP-Adresse des Geräts in der Router-Geräteliste suchen und stattdessen aufrufen |
-| Kein Login möglich | Benutzername/Passwort prüfen (Groß-/Kleinschreibung); ggf. bei uns melden |
-| Optimizer zeigt falsche Sonnenzeiten | Standort unter Einstellungen → System → Allgemein korrekt gesetzt? (Schritt 3) |
-| HACS-GitHub-Code abgelaufen | Vorgang erneut starten, neuen Code anfordern |
-| Wechselrichter-Verbindungstest schlägt fehl | Anleitung des jeweiligen Wechselrichters prüfen (Schritt 5); IP/Zugangsdaten korrekt? |
+> [!TIP]
+> Auf deinem Gerät ist ein **Fernzugang für die EEG** eingerichtet. Zweck ist eine
+> einfache Unterstützung beim Setup. Sobald das Gerät einmal läuft, kann dieser bei
+> Bedarf gerne deaktiviert werden.
