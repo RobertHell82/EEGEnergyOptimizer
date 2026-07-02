@@ -17,21 +17,19 @@ Der Zugang läuft über einen sogenannten **Cloudflare Tunnel**: Dein Home Assis
 
 ---
 
-## Schritt 1: App installieren
+## Schritt 1: Cloudflared App installieren
 
-1. Klicke auf diesen Link, um das benötigte Repository in Home Assistant zu
-   hinterlegen:<br>
-   **[➕ Repository in Home Assistant öffnen](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fbrenner-tobias%2Faddon-cloudflared)**<br>
-   Bestätige im Dialog, der sich öffnet, mit **Hinzufügen**.
-
-   _Alternativ manuell: **Einstellungen → Apps → App Store** → drei Punkte oben rechts → **Repositories** → folgende Adresse eintragen → **Hinzufügen**:_
+1. Öffne **Einstellungen → Apps**.
+2. Klicke rechts unten auf **App installieren**.
+3. Klicke oben rechts auf die **drei Punkte** und wähle **Repositories**.
+4. Trage folgende Adresse ein und klicke auf **Hinzufügen**:
 
    ```
-   https://github.com/brenner-tobias/addon-cloudflared
+   https://github.com/homeassistant-apps/repository
    ```
 
-2. Suche im **App Store** nach **„Cloudflared"** (ggf. Seite mit Strg+F5 neu
-   laden) und klicke auf **Installieren**.
+5. Suche nach **„Cloudflared"** (ggf. Seite mit Strg+F5 neu laden) und klicke
+   auf **Installieren**.
 
 ---
 
@@ -77,8 +75,8 @@ Eintrag in der Datei `configuration.yaml` ergänzt werden.
 ## Schritt 4: Starten und testen
 
 1. Öffne wieder die **Cloudflared**-App, Tab **„Info"**.
-2. Aktiviere **„Beim Booten starten"** und **„Watchdog"** (damit der Zugang
-   zuverlässig läuft) und klicke auf **Starten**.
+2. Aktiviere **„Beim Systemstart starten"**, **„Automatische Updates"** und
+   **„Watchdog"** (damit der Zugang zuverlässig läuft) und klicke auf **Starten**.
 3. Rufe im Browser deine Adresse auf, z.B. `https://deinname.ew-ansfelden.cc`.
 4. Es erscheint deine gewohnte Home-Assistant-Anmeldeseite — **fertig.** ✅
 
@@ -99,7 +97,7 @@ Jeder Benutzer mit Login muss die Zwei-Faktor-Anmeldung einzeln aktivieren.
 
 | Problem | Lösung |
 |---|---|
-| „Cloudflared" erscheint nicht im Store | Seite neu laden (Strg+F5); prüfen, ob das Repository hinterlegt ist (Schritt 1 erneut über den Link ausführen) |
+| „Cloudflared" erscheint nicht im Store | Seite neu laden (Strg+F5); prüfen, ob das Repository hinterlegt ist (Schritt 1 erneut ausführen) |
 | Kein Bereich „Apps" im Menü sichtbar | App Store direkt öffnen: **[my.home-assistant.io/redirect/supervisor_store](https://my.home-assistant.io/redirect/supervisor_store/)** |
 | „400: Bad Request" beim Aufruf | `trusted_proxies`-Eintrag aus Schritt 3 fehlt oder Home Assistant wurde nicht neu gestartet |
 | Adresse lädt nicht / Tunnel offline | Im Protokoll (Log) der **Cloudflared**-App prüfen, ob der Token korrekt eingetragen ist; App neu starten |
