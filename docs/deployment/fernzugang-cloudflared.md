@@ -93,7 +93,5 @@ Der Home Assistant ist nun mit Cloudflare verbunden. Zum Prüfen:
 | Problem | Lösung |
 |---|---|
 | „Cloudflared" erscheint nicht im Store | Seite neu laden (Strg+F5); prüfen, ob das Repository hinterlegt ist (Schritt 1 erneut ausführen) |
-| Kein Bereich „Apps" im Menü sichtbar | App Store direkt öffnen: **[my.home-assistant.io/redirect/supervisor_store](https://my.home-assistant.io/redirect/supervisor_store/)** |
-| „400: Bad Request" beim Aufruf | `trusted_proxies`-Eintrag aus Schritt 3 fehlt oder Home Assistant wurde nicht neu gestartet |
+| „400: Bad Request" beim Aufruf über die neue URL aus dem Internet | `trusted_proxies`-Eintrag aus Schritt 3 fehlt oder Home Assistant wurde nicht neu gestartet |
 | Adresse lädt nicht / Tunnel offline | Im Protokoll (Log) der **Cloudflared**-App prüfen, ob der Token korrekt eingetragen ist; App neu starten |
-| Backup-Upload über die Adresse schlägt fehl | Technisches Limit des Tunnels (max. 100 MB pro Upload) — Backups bitte lokal im Heimnetz erstellen |
