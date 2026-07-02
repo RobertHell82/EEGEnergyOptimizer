@@ -88,17 +88,6 @@ Der Home Assistant ist nun mit Cloudflare verbunden. Zum Prüfen:
 
 ---
 
-## Wichtig zur Sicherheit
-
-> [!WARNING]
-> Dein Home Assistant ist jetzt aus dem Internet erreichbar. Aktiviere unbedingt
-> die **Zwei-Faktor-Anmeldung** für deinen Benutzer:
-> **Profil (unten links) → Sicherheit → Authentifizierungsanwendung (TOTP)**.
-
-Jeder Benutzer mit Login muss die Zwei-Faktor-Anmeldung einzeln aktivieren.
-
----
-
 ## Häufige Probleme
 
 | Problem | Lösung |
