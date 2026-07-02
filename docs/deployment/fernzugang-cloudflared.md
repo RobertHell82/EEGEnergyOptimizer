@@ -36,9 +36,10 @@ Der Zugang läuft über einen sogenannten **Cloudflare Tunnel**: Dein Home Assis
 ## Schritt 2: Token eintragen
 
 1. Öffne in der **Cloudflared**-App den Tab **„Konfiguration"**.
-2. Aktiviere das Feld **`tunnel_token`** und füge den von uns erhaltenen **Token**
-   ein.
-3. Klicke auf **Speichern**.
+2. Klicke auf **„Nicht verwendete Konfigurationsoptionen einblenden"**.
+3. Trage im Feld **„Cloudflare Tunnel Token"** den von der Energiegemeinschaft
+   erhaltenen **Token** ein.
+4. Klicke auf **Speichern**.
 
 > [!WARNING]
 > Der Token ist der Schlüssel zu deinem Fernzugang. Gib ihn nicht weiter und
