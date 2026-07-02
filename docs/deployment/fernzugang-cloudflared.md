@@ -52,10 +52,17 @@ Der Zugang läuft über einen sogenannten **Cloudflare Tunnel**: Dein Home Assis
 Damit Home Assistant den Zugriff über den Tunnel akzeptiert, muss ein kleiner
 Eintrag in der Datei `configuration.yaml` ergänzt werden.
 
-1. Falls noch nicht vorhanden, installiere im **App Store** den **„File editor"**
-   oder **„Studio Code Server"**, um die Datei bearbeiten zu können.
-2. Öffne `configuration.yaml` und füge diesen Block ein. Ist bereits ein
-   `http:`-Abschnitt vorhanden, ergänze nur die Zeilen darunter:
+1. Falls noch nicht vorhanden, installiere die App **„File editor"**: **Einstellungen
+   → Apps →** rechts unten **App installieren →** nach **„File editor"** suchen →
+   **Installieren**. Aktiviere anschließend **„Im Menü anzeigen"** und klicke auf
+   **Starten**.
+2. Öffne **„File editor"** (linke Seitenleiste oder in der App auf **„Weboberfläche
+   öffnen"**).
+3. Klicke oben links auf das **Ordner-Symbol** 📁, um den Datei-Browser zu öffnen.
+4. Wähle in der Dateiliste die Datei **`configuration.yaml`** aus (sie liegt im
+   Hauptverzeichnis, das direkt beim Öffnen angezeigt wird).
+5. Füge diesen Block ein. Ist bereits ein `http:`-Abschnitt vorhanden, ergänze nur
+   die Zeilen darunter:
 
    ```yaml
    http:
@@ -64,7 +71,8 @@ Eintrag in der Datei `configuration.yaml` ergänzt werden.
        - 172.30.33.0/24
    ```
 
-3. Starte Home Assistant neu: **Einstellungen → System →** Power-Symbol oben
+6. Klicke oben rechts auf das **Speichern-Symbol** 💾 (oder Strg+S).
+7. Starte Home Assistant neu: **Einstellungen → System →** Power-Symbol oben
    rechts **→ Home Assistant neu starten**.
 
 > [!NOTE]
