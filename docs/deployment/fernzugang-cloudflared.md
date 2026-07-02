@@ -76,10 +76,15 @@ Eintrag in der Datei `configuration.yaml` ergänzt werden.
 ## Schritt 4: Starten und testen
 
 1. Öffne wieder die **Cloudflared**-App, Tab **„Info"**.
-2. Aktiviere **„Beim Systemstart starten"**, **„Automatische Updates"** und
-   **„Watchdog"** (damit der Zugang zuverlässig läuft) und klicke auf **Starten**.
-3. Rufe im Browser deine Adresse auf, z.B. `https://deinname.ew-ansfelden.cc`.
-4. Es erscheint deine gewohnte Home-Assistant-Anmeldeseite — **fertig.** ✅
+2. Aktiviere **„Beim Systemstart starten"**.
+3. Aktiviere **„Automatische Updates"**.
+4. Aktiviere **„Watchdog"** (damit der Zugang zuverlässig läuft).
+5. Klicke auf **Starten**.
+
+Der Home Assistant ist nun mit Cloudflare verbunden. Zum Prüfen:
+
+6. Rufe im Browser deine Adresse auf, z.B. `https://deinname.ew-ansfelden.cc`.
+7. Es erscheint deine gewohnte Home-Assistant-Anmeldeseite — **fertig.** ✅
 
 ---
 
