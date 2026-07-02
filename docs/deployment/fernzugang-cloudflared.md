@@ -5,43 +5,41 @@ Der Zugang läuft über einen sogenannten **Cloudflare Tunnel**: Dein Home Assis
 
 > [!NOTE]
 > Du musst **kein Konto bei Cloudflare** anlegen und dort nichts einstellen. Den
-> technischen Teil übernimmt deine Energiegemeinschaft. Du brauchst nur die zwei
-> Angaben, die du von uns bekommst (siehe Voraussetzungen).
+> technischen Teil übernimmt deine Energiegemeinschaft.
 
 
 ## Voraussetzungen
 - Home Assistant **OS** oder **Supervised** in **aktueller Version** (mit App Store)
 - Zugriff auf Home Assistant als **Administrator**
-- Von der Energiegemeinschaft EW Ansfelden erhalten. Falls Du diese Daten noch nicht hast aber benötigst, melde Dich bei uns unter: info@ew-ansfelden.at
+- Von der Energiegemeinschaft EW Ansfelden erhalten. Falls Du noch keine Zugangsdaten erhalten hast und Interesse hast, melde Dich unter: info@ew-ansfelden.at
   - ein **Tunnel-Token** (eine lange Zeichenkette)
   - deine **Adresse** (z.B. `sicherer_name.ew-ansfelden.cc`)
 
 ---
 
-## Schritt 1: App installieren
+## Schritt 1: Cloudflared App installieren
 
-1. Klicke auf diesen Link, um das benötigte Repository in Home Assistant zu
-   hinterlegen:<br>
-   **[➕ Repository in Home Assistant öffnen](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fbrenner-tobias%2Faddon-cloudflared)**<br>
-   Bestätige im Dialog, der sich öffnet, mit **Hinzufügen**.
-
-   _Alternativ manuell: **Einstellungen → Apps → App Store** → drei Punkte oben rechts → **Repositories** → folgende Adresse eintragen → **Hinzufügen**:_
+1. Öffne **Einstellungen → Apps**.
+2. Klicke rechts unten auf **App installieren**.
+3. Klicke oben rechts auf die **drei Punkte** und wähle **Repositories**.
+4. Trage folgende Adresse ein und klicke auf **Hinzufügen**:
 
    ```
-   https://github.com/brenner-tobias/addon-cloudflared
+   https://github.com/homeassistant-apps/repository
    ```
 
-2. Suche im **App Store** nach **„Cloudflared"** (ggf. Seite mit Strg+F5 neu
-   laden) und klicke auf **Installieren**.
+5. Suche nach **„Cloudflared"** (ggf. Seite mit Strg+F5 neu laden) und klicke
+   auf **Installieren**.
 
 ---
 
 ## Schritt 2: Token eintragen
 
 1. Öffne in der **Cloudflared**-App den Tab **„Konfiguration"**.
-2. Aktiviere das Feld **`tunnel_token`** und füge den von uns erhaltenen **Token**
-   ein.
-3. Klicke auf **Speichern**.
+2. Klicke auf **„Nicht verwendete Konfigurationsoptionen einblenden"**.
+3. Trage im Feld **„Cloudflare Tunnel Token"** den von der Energiegemeinschaft
+   erhaltenen **Token** ein.
+4. Klicke auf **Speichern**.
 
 > [!WARNING]
 > Der Token ist der Schlüssel zu deinem Fernzugang. Gib ihn nicht weiter und
@@ -54,10 +52,17 @@ Der Zugang läuft über einen sogenannten **Cloudflare Tunnel**: Dein Home Assis
 Damit Home Assistant den Zugriff über den Tunnel akzeptiert, muss ein kleiner
 Eintrag in der Datei `configuration.yaml` ergänzt werden.
 
-1. Falls noch nicht vorhanden, installiere im **App Store** den **„File editor"**
-   oder **„Studio Code Server"**, um die Datei bearbeiten zu können.
-2. Öffne `configuration.yaml` und füge diesen Block ein. Ist bereits ein
-   `http:`-Abschnitt vorhanden, ergänze nur die Zeilen darunter:
+1. Falls noch nicht vorhanden, installiere die App **„File editor"**: **Einstellungen
+   → Apps →** rechts unten **App installieren →** nach **„File editor"** suchen →
+   **Installieren**. Aktiviere anschließend **„Im Menü anzeigen"** und klicke auf
+   **Starten**.
+2. Öffne **„File editor"** (linke Seitenleiste oder in der App auf **„Weboberfläche
+   öffnen"**).
+3. Klicke oben links auf das **Ordner-Symbol** 📁, um den Datei-Browser zu öffnen.
+4. Wähle in der Dateiliste die Datei **`configuration.yaml`** aus (sie liegt im
+   Hauptverzeichnis, das direkt beim Öffnen angezeigt wird).
+5. Füge diesen Block ein. Ist bereits ein `http:`-Abschnitt vorhanden, ergänze nur
+   die Zeilen darunter:
 
    ```yaml
    http:
@@ -66,7 +71,8 @@ Eintrag in der Datei `configuration.yaml` ergänzt werden.
        - 172.30.33.0/24
    ```
 
-3. Starte Home Assistant neu: **Einstellungen → System →** Power-Symbol oben
+6. Klicke oben rechts auf das **Speichern-Symbol** 💾 (oder Strg+S).
+7. Starte Home Assistant neu: **Einstellungen → System →** Power-Symbol oben
    rechts **→ Home Assistant neu starten**.
 
 > [!NOTE]
@@ -78,21 +84,15 @@ Eintrag in der Datei `configuration.yaml` ergänzt werden.
 ## Schritt 4: Starten und testen
 
 1. Öffne wieder die **Cloudflared**-App, Tab **„Info"**.
-2. Aktiviere **„Beim Booten starten"** und **„Watchdog"** (damit der Zugang
-   zuverlässig läuft) und klicke auf **Starten**.
-3. Rufe im Browser deine Adresse auf, z.B. `https://deinname.ew-ansfelden.cc`.
-4. Es erscheint deine gewohnte Home-Assistant-Anmeldeseite — **fertig.** ✅
+2. Aktiviere **„Beim Systemstart starten"**.
+3. Aktiviere **„Automatische Updates"**.
+4. Aktiviere **„Watchdog"** (damit der Zugang zuverlässig läuft).
+5. Klicke auf **Starten**.
 
----
+Der Home Assistant ist nun mit Cloudflare verbunden. Zum Prüfen:
 
-## Wichtig zur Sicherheit
-
-> [!WARNING]
-> Dein Home Assistant ist jetzt aus dem Internet erreichbar. Aktiviere unbedingt
-> die **Zwei-Faktor-Anmeldung** für deinen Benutzer:
-> **Profil (unten links) → Sicherheit → Authentifizierungsanwendung (TOTP)**.
-
-Jeder Benutzer mit Login muss die Zwei-Faktor-Anmeldung einzeln aktivieren.
+6. Rufe im Browser deine Adresse auf, z.B. `https://deinname.ew-ansfelden.cc`.
+7. Es erscheint deine gewohnte Home-Assistant-Anmeldeseite — **fertig.** ✅
 
 ---
 
@@ -100,8 +100,6 @@ Jeder Benutzer mit Login muss die Zwei-Faktor-Anmeldung einzeln aktivieren.
 
 | Problem | Lösung |
 |---|---|
-| „Cloudflared" erscheint nicht im Store | Seite neu laden (Strg+F5); prüfen, ob das Repository hinterlegt ist (Schritt 1 erneut über den Link ausführen) |
-| Kein Bereich „Apps" im Menü sichtbar | App Store direkt öffnen: **[my.home-assistant.io/redirect/supervisor_store](https://my.home-assistant.io/redirect/supervisor_store/)** |
-| „400: Bad Request" beim Aufruf | `trusted_proxies`-Eintrag aus Schritt 3 fehlt oder Home Assistant wurde nicht neu gestartet |
+| „Cloudflared" erscheint nicht im Store | Seite neu laden (Strg+F5); prüfen, ob das Repository hinterlegt ist (Schritt 1 erneut ausführen) |
+| „400: Bad Request" beim Aufruf über die neue URL aus dem Internet | `trusted_proxies`-Eintrag aus Schritt 3 fehlt oder Home Assistant wurde nicht neu gestartet |
 | Adresse lädt nicht / Tunnel offline | Im Protokoll (Log) der **Cloudflared**-App prüfen, ob der Token korrekt eingetragen ist; App neu starten |
-| Backup-Upload über die Adresse schlägt fehl | Technisches Limit des Tunnels (max. 100 MB pro Upload) — Backups bitte lokal im Heimnetz erstellen |

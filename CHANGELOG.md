@@ -9,6 +9,22 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 ## Unreleased
 
+## [1.2.17] - 2026-07-02
+
+> Release: Enduser-Doku für den Fernzugang und Feinschliff der Inbetriebnahme-Anleitung.
+
+### Hinzugefügt
+
+- **Anleitung „Fernzugang einrichten (Cloudflare Tunnel)"** (`docs/deployment/fernzugang-cloudflared.md`): Schritt-für-Schritt-Einrichtung des Cloudflared-Add-ons ohne eigenes Cloudflare-Konto — Installation, Token-Eintragung, `trusted_proxies`-Vorbereitung via File editor, Starten und Testen, plus Problem-Tabelle.
+
+### Geändert
+
+- **Inbetriebnahme-Anleitung gestrafft:** Standort als Priorität 1, TIP-Hinweis zum vorbereiteten EEG-Fernzugang, Forecast.Solar als optionale Alternative statt vorinstalliert, Werk-Platzhalter für den Standort gekennzeichnet, Hinweise auf ältere HA-Versionen entfernt, an neue HA-Terminologie „Apps" angepasst.
+
+### Nicht verhaltensrelevant
+
+Reine Dokumentationsänderungen, keine Änderungen an der Optimizer-/Steuerungslogik.
+
 ## [1.2.11] - 2026-06-06
 
 > Release: Doku-Feinschliff.
