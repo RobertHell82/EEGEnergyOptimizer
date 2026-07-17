@@ -2,6 +2,9 @@
      Quelle: docs/guides/huawei.md
      Neu generieren mit: python scripts/build_guides.py -->
 <h2 class="guide-title">Huawei Solar Integration einrichten</h2>
+<div class="guide-alert caution"><p><strong>Verbindung direkt zum Wechselrichter/Dongle erforderlich.</strong> Der EEG Energy Optimizer wird ausschließlich für die <strong>direkte</strong> Anbindung an den SUN2000-Wechselrichter (bzw. dessen Dongle) unterstützt und getestet.</p>
+<p><strong>Huawei über EMMA wird nicht unterstützt.</strong> Bei einer Verbindung über das EMMA-Energiemanagement (<code>sensor.emma_*</code>-Entitäten) ist keine Batteriesteuerung möglich — EMMA übernimmt selbst das Batteriemanagement, sodass die zum Steuern nötigen Dienste (<code>forcible_discharge_soc</code>, Ladeleistungs-Limit) nicht bereitstehen. Zusätzlich weichen Sensor-Namen und -Vorzeichen ab. Bitte verbinde Home Assistant direkt mit dem Wechselrichter/Dongle.</p></div>
+
 <h3>1. Wechselrichter vorbereiten</h3>
 <p>Modbus TCP muss am Wechselrichter aktiviert sein, damit Home Assistant zugreifen kann:</p>
 <ol>
@@ -26,7 +29,7 @@
 <li>Suche nach <strong>„Huawei Solar"</strong></li>
 <li>Wähle <strong>Netzwerk</strong> als Verbindungstyp</li>
 <li>Gib die <strong>IP-Adresse</strong> des Wechselrichters/Dongles ein</li>
-<li>Port: <strong>6607</strong> (neuere Firmware) oder <strong>502</strong> (EMMA / ältere Firmware)</li>
+<li>Port: <strong>6607</strong> (neuere Firmware) oder <strong>502</strong> (ältere Firmware)</li>
 <li>Slave ID: <strong>1</strong> (Standard, bei Problemen 0 versuchen)</li>
 <li><strong>Elevated Permissions: MUSS aktiviert werden!</strong><br>
    <em>Ohne Elevated Permissions keine Batteriesteuerung — der EEG Energy Optimizer kann dann nicht steuern.</em></li>
