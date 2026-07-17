@@ -9,6 +9,18 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 ## Unreleased
 
+## [1.2.18] - 2026-07-17
+
+> Release: Huawei über EMMA offiziell als nicht unterstützt ausgewiesen.
+
+### Geändert
+
+- **Huawei-Doku: Verbindung über EMMA wird nicht unterstützt.** Der Huawei-Guide (`docs/guides/huawei.md`) und die README-Liste der unterstützten Wechselrichter weisen nun ausdrücklich aus, dass nur die **direkte** Anbindung an den SUN2000-Wechselrichter/Dongle unterstützt wird. Bei einer Verbindung über das EMMA-Energiemanagement (`sensor.emma_*`) ist keine Batteriesteuerung möglich — EMMA übernimmt selbst das Batteriemanagement, sodass die zum Steuern nötigen Dienste (`forcible_discharge_soc`, Ladeleistungs-Limit) nicht bereitstehen; zusätzlich weichen Sensor-Namen und -Vorzeichen ab (u. a. invertiertes Netz-Vorzeichen bei `sensor.emma_einspeiseleistung`, was zu falschem Hausverbrauch/Netzfluss führt). Der Port-Hinweis nennt Port 502 nur noch als „ältere Firmware", nicht mehr als EMMA-Option.
+
+### Nicht verhaltensrelevant
+
+Reine Dokumentationsänderungen, keine Änderungen an der Optimizer-/Steuerungslogik.
+
 ## [1.2.17] - 2026-07-02
 
 > Release: Enduser-Doku für den Fernzugang und Feinschliff der Inbetriebnahme-Anleitung.
