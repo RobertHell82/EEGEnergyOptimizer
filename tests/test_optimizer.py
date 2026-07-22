@@ -1184,7 +1184,8 @@ _EXPECTED_REASON_KEYS: frozenset[str] = frozenset({
     "feedin_limit_no_grid_sensor",
     "feedin_limit_battery_full",
     "feedin_limit_active",
-    "feedin_limit_no_surplus",
+    "feedin_limit_not_daytime",
+    "feedin_limit_forecast_low",
 })
 
 

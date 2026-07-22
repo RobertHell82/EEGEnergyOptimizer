@@ -123,10 +123,11 @@ CONF_SAFETY_BUFFER_PCT = "safety_buffer_pct"
 CONF_ENABLE_PEAKSHARE = "enable_peakshare"
 CONF_PEAKSHARE_COMMUNITY = "peakshare_community"
 
-# Einspeisebegrenzung optimieren: dynamische Batterie-Ladeleistung, damit der
-# Wechselrichter bei Überschuss über dem Einspeiselimit nicht abregelt, sondern
-# den Überschuss lädt. Opt-in, nur Huawei/Fronius (Watt- bzw. %-genaues
-# Ladelimit). Siehe optimizer._should_limit_feedin.
+# Einspeisebegrenzung optimieren: Solange die Batterie laut Prognose heute
+# sicher noch voll wird, wird das Voll-Laden gedrosselt — der PV-Überschuss
+# speist bis zum Einspeiselimit ins Netz ein, nur der Anteil darüber lädt die
+# Batterie (statt Abregelung). Opt-in, nur Huawei/Fronius (Watt- bzw.
+# %-genaues Ladelimit). Siehe optimizer._should_limit_feedin.
 CONF_ENABLE_FEEDIN_LIMIT = "enable_feedin_limit"
 CONF_FEEDIN_LIMIT_KW = "feedin_limit_kw"
 
@@ -143,7 +144,7 @@ DEFAULT_FEEDIN_LIMIT_KW = 4.0
 FEEDIN_ADJUST_INTERVAL_SECONDS = 60   # Nachregelung frühestens alle 60 s
 FEEDIN_STEP_UP_KW = 0.5               # feste Schrittweite beim Hochtasten
 FEEDIN_DEADBAND_KW = 0.15             # Toleranzband am unteren Limit-Rand (Anti-Oszillation)
-FEEDIN_ENTER_MARGIN_KW = 0.2          # Eintritt sobald Einspeisung ≥ Limit − Marge
+FEEDIN_ENTER_MARGIN_KW = 0.2          # Feedforward-Start, wenn Einspeisung beim Eintritt ≥ Limit − Marge
 FEEDIN_SOC_HEADROOM_PCT = 98          # ab diesem SOC keine Aufnahme mehr → inaktiv
 FEEDIN_INITIAL_ESTIMATE_FACTOR = 0.8  # konservativer Feedforward-Startwert beim Eintritt
 

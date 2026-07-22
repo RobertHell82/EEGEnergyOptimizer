@@ -7,6 +7,12 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.1-dev] - 2026-07-22
+
+### Geändert
+
+- **„Einspeisebegrenzung optimieren" grundlegend überarbeitet: prognosebasiertes Drosseln statt reaktiver Abregelungs-Erkennung.** Das Feature greift jetzt, sobald die PV-Restprognose für heute den restlichen Tagesverbrauch (inkl. Sicherheitspuffer) plus die fehlende Batterieenergie übersteigt — dieselbe Prüfung wie bei der Morgen-Einspeisung, aber ohne deren Zeitfenster (Hysterese ×1,1 bei Reaktivierung am selben Tag, aktiv nur tagsüber ab 1 h vor Sonnenaufgang). Solange die Batterie heute sicher noch voll wird, wird das Voll-Laden gedrosselt: Einspeisung bis zum Limit, nur der Überschuss darüber lädt die Batterie (Ladeleistung 0 = Laden vollständig blockiert, kein Austritt mehr). Reicht die Prognose nicht, lädt die Batterie normal mit voller Leistung. Bisher aktivierte sich die Regelung nur, wenn die Einspeisung bereits am Limit klebte — was außerhalb der Morgen-Einspeisung praktisch nie eintrat, weil der Überschuss zuerst in die Batterie floss. Zustandspriorität: bei geregelter Ladeleistung > 0 vor der Morgen-Einspeisung; bei 0 im Morgen-Fenster wird weiterhin „Morgen-Einspeisung" angezeigt (identische Ausführung), die Nacht-Entladung (inkl. Slot B) behält Vorrang. Neue Diagnose-Keys `feedin_limit_forecast_low`/`feedin_limit_not_daytime` (ersetzt `feedin_limit_no_surplus`); Statustexte, Panel-Beschreibungen und Guide entsprechend aktualisiert.
+
 ## [1.3.0-dev] - 2026-07-22
 
 ### Hinzugefügt

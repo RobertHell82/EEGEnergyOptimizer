@@ -94,7 +94,7 @@ optimizer.py: async_run_cycle(mode)
 
 - **Morgen-Einspeisung**: Battery charging blocked to maximize morning EEG feed-in
 - **Nacht-Entladung**: Battery discharging for evening EEG feed-in
-- **Einspeisebegrenzung**: Battery charge power dynamically regulated so grid feed-in stays at the configured export limit instead of the inverter curtailing surplus PV (Huawei/Fronius only, opt-in). Feedback loop on measured grid export, adjusted every 60s, asymmetric (slow up / fast down for anti grid-import). Takes priority over Morgen-Einspeisung so surplus above the limit is charged rather than lost.
+- **Einspeisebegrenzung**: While the PV forecast guarantees the battery will still get full today (same check as Morgen-Einspeisung, without its time window; daytime-only, hysteresis ×1.1 on same-day reactivation), full-power charging is throttled: feed-in goes to the grid up to the configured export limit, only the surplus above the limit charges the battery (Huawei/Fronius only, opt-in). Charge power 0 = charging fully blocked while feed-in is below the limit. Feedback loop on measured grid export, adjusted every 60s, asymmetric (slow up / fast down for anti grid-import). With charge power > 0 it takes priority over Morgen-Einspeisung; with 0 the morning state is displayed (identical execution) and discharge keeps priority.
 - **Normal**: Standard operation (inverter in auto mode)
 
 ### Activity Log

@@ -3092,16 +3092,17 @@ class EegOptimizerPanel extends HTMLElement {
           <input type="number" data-field="feedin_limit_kw"
                  value="${this._wizardData.feedin_limit_kw ?? ""}"
                  min="0.1" max="100" step="0.1" placeholder="z.B. 4">
-          <div class="help-text">Die maximale Leistung, die dein Wechselrichter ins Netz einspeisen darf (Vorgabe deines Netzbetreibers). Sobald mehr PV-Leistung vorhanden ist, l&auml;dt die Batterie den &Uuml;berschuss, statt ihn abzuregeln.</div>
+          <div class="help-text">Die maximale Leistung, die dein Wechselrichter ins Netz einspeisen darf (Vorgabe deines Netzbetreibers). Bis zu diesem Limit wird eingespeist &mdash; nur der &Uuml;berschuss dar&uuml;ber l&auml;dt die Batterie.</div>
         </div>
       </div>` : "";
 
     return `
       <p style="margin-bottom:16px;color:var(--secondary-text-color)">
-        An sonnigen Tagen produziert deine Anlage oft mehr, als eingespeist werden darf &mdash;
-        der Wechselrichter regelt den &Uuml;berschuss dann ab (die Energie geht verloren).
-        Diese Optimierung l&auml;dt den &Uuml;berschuss stattdessen in die Batterie und h&auml;lt
-        die Netzeinspeisung dabei genau am erlaubten Limit.
+        Normalerweise l&auml;dt die Batterie mit voller Leistung &mdash; ist sie voll, regelt der
+        Wechselrichter alles &uuml;ber dem Einspeiselimit ab (die Energie geht verloren).
+        Diese Optimierung dreht das um: Solange die Batterie laut Prognose heute sicher noch
+        voll wird, speist der &Uuml;berschuss bis zum erlaubten Limit ins Netz ein und nur der
+        Anteil dar&uuml;ber l&auml;dt die Batterie &mdash; maximal einspeisen, nichts abregeln.
         <a data-action="show-dialog" data-dialog="einspeisebegrenzung" style="cursor:pointer;text-decoration:underline">Anleitung</a>
       </p>
       <div class="feature-toggle">
@@ -3110,7 +3111,7 @@ class EegOptimizerPanel extends HTMLElement {
             <ha-icon icon="mdi:transmission-tower-export"></ha-icon>
             <div class="feature-card-text">
               <span class="feature-title">Einspeisebegrenzung optimieren</span>
-              <span class="feature-desc">Regelt die Batterie-Ladeleistung dynamisch, sodass die Netzeinspeisung am erlaubten Limit bleibt und &Uuml;berschuss geladen statt abgeregelt wird. Kombiniert sich automatisch mit der Morgen-Einspeisung.</span>
+              <span class="feature-desc">Drosselt das Batterie-Laden, solange die Batterie laut Prognose heute sicher noch voll wird: Einspeisung bis zum Limit, nur der &Uuml;berschuss dar&uuml;ber l&auml;dt die Batterie. Kombiniert sich automatisch mit der Morgen-Einspeisung.</span>
             </div>
             <div class="feature-badge ${on ? "on" : "off"}">${on ? "Aktiv" : "Aus"}</div>
           </div>
@@ -3471,7 +3472,7 @@ class EegOptimizerPanel extends HTMLElement {
               <ha-icon icon="mdi:transmission-tower-export"></ha-icon>
               <div class="feature-card-text">
                 <span class="feature-title">Einspeisebegrenzung optimieren</span>
-                <span class="feature-desc">Regelt die Batterie-Ladeleistung dynamisch, sodass die Netzeinspeisung am erlaubten Limit bleibt und Überschuss geladen statt abgeregelt wird.</span>
+                <span class="feature-desc">Drosselt das Batterie-Laden, solange die Batterie laut Prognose heute sicher noch voll wird: Einspeisung bis zum Limit, nur der Überschuss darüber lädt die Batterie.</span>
               </div>
               <div class="feature-badge ${feedinOn ? "on" : "off"}">${feedinOn ? "Aktiv" : "Aus"}</div>
             </div>
@@ -4014,15 +4015,18 @@ class EegOptimizerPanel extends HTMLElement {
       dConditionsHtml = this._renderDischargeConditions(ma, dStatus);
     }
 
-    // --- Einspeisebegrenzung: nur einblenden wenn gerade aktiv (regelt die
-    // Ladeleistung). Volle Breite über der 2-Karten-Zeile. ---
+    // --- Einspeisebegrenzung: nur einblenden wenn gerade aktiv (drosselt das
+    // Laden). Volle Breite über der 2-Karten-Zeile. ---
+    const feedinChargeText = (ma.ladeleistung_kw ?? 0) > 0
+      ? `Batterie lädt Überschuss mit ${fmtDe(ma.ladeleistung_kw ?? 0, 1)} kW`
+      : `Laden blockiert — volle Einspeisung bis zum Limit`;
     const feedinCardHtml = (ma.feedin_status === "aktiv") ? `
       <div class="card" style="margin-bottom:16px">
         <h3 class="status-card-title" style="margin-top:0">
           <ha-icon icon="mdi:transmission-tower-export" style="--mdc-icon-size:20px;color:var(--success-color,#4caf50)"></ha-icon>
           Einspeisebegrenzung
         </h3>
-        <div class="status-indicator green">● AKTIV — Einspeisung ${fmtDe(ma.feedin_grid_kw ?? 0, 1)} kW / Limit ${fmtDe(ma.feedin_limit_kw ?? 0, 1)} kW — Batterie lädt Überschuss mit ${fmtDe(ma.ladeleistung_kw ?? 0, 1)} kW</div>
+        <div class="status-indicator green">● AKTIV — Einspeisung ${fmtDe(ma.feedin_grid_kw ?? 0, 1)} kW / Limit ${fmtDe(ma.feedin_limit_kw ?? 0, 1)} kW — ${feedinChargeText}</div>
       </div>` : "";
 
     return `

@@ -2,20 +2,25 @@
      Quelle: docs/guides/einspeisebegrenzung.md
      Neu generieren mit: python scripts/build_guides.py -->
 <h2 class="guide-title">Einspeisebegrenzung optimieren</h2>
-<p>Viele Netzbetreiber begrenzen, wie viel Leistung deine PV-Anlage ins Netz einspeisen darf (z. B. 4 kW). An sonnigen Tagen produziert die Anlage oft mehr, als eingespeist werden darf — der Wechselrichter <strong>regelt den Überschuss dann ab, und diese Energie geht verloren</strong>.</p>
-<p>Diese Optimierung lädt den Überschuss stattdessen in die Batterie und hält die Netzeinspeisung dabei genau am erlaubten Limit.</p>
+<p>Viele Netzbetreiber begrenzen, wie viel Leistung deine PV-Anlage ins Netz einspeisen darf (z. B. 4 kW). Normalerweise lädt die Batterie zuerst mit voller Leistung — ist sie voll, <strong>regelt der Wechselrichter alles über dem Limit ab, und diese Energie geht verloren</strong>.</p>
+<p>Diese Optimierung dreht das um: Solange die Batterie laut Prognose heute sicher noch voll wird, speist der PV-Überschuss <strong>bis zum erlaubten Limit ins Netz</strong> ein — nur der Anteil darüber lädt die Batterie. So wird maximal in die Energiegemeinschaft eingespeist, nichts abgeregelt, und die Batterie füllt sich trotzdem — verteilt über den Tag.</p>
 <h3>Voraussetzungen</h3>
 <ul>
 <li>Wechselrichter <strong>Huawei SUN2000</strong> oder <strong>Fronius Gen24</strong> (nur diese erlauben eine gezielte, variable Ladeleistungs-Begrenzung)</li>
 <li>Ein korrekt konfigurierter <strong>Netzleistungs-Sensor</strong> (misst Einspeisung/Bezug)</li>
+<li>Eine <strong>PV-Prognose</strong> (Solcast / Forecast.Solar) — sie entscheidet, ob die Batterie heute sicher noch voll wird</li>
 <li>Eine Batterie mit freier Aufnahmekapazität</li>
 </ul>
 <h3>So funktioniert es</h3>
-<p>Sobald die Netzeinspeisung am Limit „klebt" — das Anzeichen dafür, dass der Wechselrichter gerade abregelt — erhöht der Optimizer die Batterie-Ladeleistung schrittweise, bis der Überschuss vollständig in die Batterie fließt und die Einspeisung knapp unter dem Limit bleibt.</p>
+<p>Die Optimierung wird aktiv, wenn die PV-Restprognose für heute den restlichen Tagesverbrauch (inkl. Sicherheitspuffer) <strong>plus</strong> die noch fehlende Batterieenergie übersteigt — dieselbe Prüfung wie bei der Morgen-Einspeisung, aber ohne deren Zeitfenster. Nur dann darf das Laden gedrosselt werden; reicht die Prognose nicht, lädt die Batterie ganz normal mit voller Leistung (die Batterie hat Vorrang).</p>
+<p>Ist die Optimierung aktiv:</p>
 <ul>
+<li><strong>Einspeisung unter dem Limit</strong>: Das Laden ist blockiert — der gesamte Überschuss fließt ins Netz.</li>
+<li><strong>Einspeisung am Limit</strong> (der Wechselrichter würde abregeln): Die Batterie-Ladeleistung wird schrittweise erhöht, bis genau der Anteil oberhalb des Limits in die Batterie fließt und die Einspeisung am Limit bleibt.</li>
 <li><strong>Nachregelung alle 60 Sekunden</strong>: langsames, vorsichtiges Anheben der Ladeleistung.</li>
 <li><strong>Sofortiger Netzbezug-Schutz</strong>: Bricht die PV-Leistung ein (z. B. Wolke), wird die Ladeleistung umgehend reduziert, damit die Batterie <strong>niemals aus dem Netz</strong> lädt.</li>
 <li><strong>Kombiniert mit der Morgen-Einspeisung</strong>: Auch während der morgendlichen Einspeisung wird nur der Anteil oberhalb des Limits geladen — der Rest fließt weiter in die Energiegemeinschaft.</li>
+<li>Sinkt die Prognose im Tagesverlauf unter den Restbedarf, deaktiviert sich die Optimierung und die Batterie lädt wieder mit voller Leistung, damit sie bis zum Abend voll wird.</li>
 </ul>
 <h3>Konfiguration</h3>
 <table>
