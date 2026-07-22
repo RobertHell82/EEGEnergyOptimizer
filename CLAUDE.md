@@ -94,6 +94,7 @@ optimizer.py: async_run_cycle(mode)
 
 - **Morgen-Einspeisung**: Battery charging blocked to maximize morning EEG feed-in
 - **Nacht-Entladung**: Battery discharging for evening EEG feed-in
+- **Einspeisebegrenzung**: Battery charge power dynamically regulated so grid feed-in stays at the configured export limit instead of the inverter curtailing surplus PV (Huawei/Fronius only, opt-in). Feedback loop on measured grid export, adjusted every 60s, asymmetric (slow up / fast down for anti grid-import). Takes priority over Morgen-Einspeisung so surplus above the limit is charged rather than lost.
 - **Normal**: Standard operation (inverter in auto mode)
 
 ### Activity Log
@@ -198,7 +199,7 @@ The config flow is a single-click setup that creates a config entry with `setup_
 6. Inverter connection test
 7. Live dashboard with energy flow, charts, manual controls, activity log
 
-Config entry version: 19 (migrations in `__init__.py`)
+Config entry version: 20 (migrations in `__init__.py`)
 
 ## Development Notes
 

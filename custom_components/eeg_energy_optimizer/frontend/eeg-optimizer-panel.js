@@ -50,9 +50,14 @@ const WIZARD_STEPS = [
   "Prognose",
   "Batterie",
   "Ladung & Einspeisung",
+  "Einspeisebegrenzung",
   "Erweiterte Einstellungen",
   "Zusammenfassung",
 ];
+
+// Wechselrichter mit variablem Ladelimit — nur für diese ist die
+// Einspeisebegrenzung verfügbar (Watt- bzw. %-genaues Ladelimit).
+const FEEDIN_LIMIT_INVERTERS = ["huawei_sun2000", "fronius_gen24"];
 
 
 const WIZARD_DEFAULTS = {
@@ -117,6 +122,9 @@ const WIZARD_DEFAULTS = {
   discharge_b_end_cap: "07:00",
   enable_peakshare: true,
   peakshare_community: "BEG",
+  // Einspeisebegrenzung optimieren (nur Huawei/Fronius). Opt-in.
+  enable_feedin_limit: false,
+  feedin_limit_kw: 4,
   discharge_power_kw: 5.0,
   min_soc: 10,
   safety_buffer_pct: 25,
@@ -152,6 +160,7 @@ const DIALOG_CONTENT = {
   solax: { file: "solax.html" },
   solaredge: { file: "solaredge.html" },
   fronius: { file: "fronius.html" },
+  einspeisebegrenzung: { file: "einspeisebegrenzung.html" },
 };
 
 // Suppress HA-internal unhandled promise rejections that crash the panel
@@ -511,9 +520,13 @@ class EegOptimizerPanel extends HTMLElement {
         }
         if (field === "expert_mode") {
           this._wizardData[field] = target.checked;
-          // Skip step 5 if leaving expert mode while on it
-          if (!target.checked && this._wizardStep === 5) {
-            this._wizardStep = 6;
+          // Verlässt man den Expert-Step durch Deaktivieren, zum nächsten
+          // sichtbaren Schritt weiterspringen (Step wird sonst unsichtbar).
+          if (
+            !target.checked &&
+            WIZARD_STEPS[this._wizardStep] === "Erweiterte Einstellungen"
+          ) {
+            this._wizardStep = this._seekVisibleStep(this._wizardStep, 1);
           }
           this._saveWizardProgress();
           this._render();
@@ -608,11 +621,8 @@ class EegOptimizerPanel extends HTMLElement {
         this._nextStep();
         break;
       case "prev-step":
-        this._wizardStep = Math.max(0, this._wizardStep - 1);
-        // Skip "Erweiterte Einstellungen" (step 5) in non-expert mode
-        if (this._wizardStep === 5 && !this._wizardData.expert_mode) {
-          this._wizardStep = 4;
-        }
+        // Zum vorherigen sichtbaren Schritt (überspringt bedingt versteckte).
+        this._wizardStep = this._seekVisibleStep(this._wizardStep, -1);
         this._saveWizardProgress();
         this._refreshStepData();
         break;
@@ -1025,6 +1035,30 @@ class EegOptimizerPanel extends HTMLElement {
     this._render();
   }
 
+  // Ist ein Wizard-Schritt für die aktuelle Konfiguration sichtbar? Bedingt
+  // sichtbare Schritte werden bei der Navigation übersprungen und in der
+  // Fortschrittsanzeige nicht mitgezählt (robuster als hartkodierte Indizes).
+  _stepVisible(idx) {
+    const name = WIZARD_STEPS[idx];
+    if (name === "Erweiterte Einstellungen") {
+      return !!this._wizardData.expert_mode;
+    }
+    if (name === "Einspeisebegrenzung") {
+      return FEEDIN_LIMIT_INVERTERS.includes(this._wizardData.inverter_type);
+    }
+    return true;
+  }
+
+  // Nächsten sichtbaren Schritt in Richtung dir (+1/-1) finden. Randschritte
+  // (0 und letzter) sind immer sichtbar und begrenzen die Suche.
+  _seekVisibleStep(from, dir) {
+    let s = from + dir;
+    while (s > 0 && s < WIZARD_STEPS.length - 1 && !this._stepVisible(s)) {
+      s += dir;
+    }
+    return Math.max(0, Math.min(WIZARD_STEPS.length - 1, s));
+  }
+
   async _nextStep() {
     if (this._navigating) return;
     this._navigating = true;
@@ -1045,11 +1079,8 @@ class EegOptimizerPanel extends HTMLElement {
         if (!ok) return;
       }
 
-      this._wizardStep = Math.min(WIZARD_STEPS.length - 1, this._wizardStep + 1);
-      // Skip "Erweiterte Einstellungen" (step 5) in non-expert mode
-      if (this._wizardStep === 5 && !this._wizardData.expert_mode) {
-        this._wizardStep = 6;
-      }
+      // Zum nächsten sichtbaren Schritt (überspringt bedingt versteckte).
+      this._wizardStep = this._seekVisibleStep(this._wizardStep, 1);
       this._saveWizardProgress();
       await this._refreshStepData();
     } finally {
@@ -1185,6 +1216,19 @@ class EegOptimizerPanel extends HTMLElement {
         }
         return true;
       default:
+        // Einspeisebegrenzung: bei aktivem Feature muss ein positives Limit
+        // gesetzt sein (namensbasiert, robust gegen Schritt-Umnummerierung).
+        if (WIZARD_STEPS[this._wizardStep] === "Einspeisebegrenzung") {
+          if (this._wizardData.enable_feedin_limit) {
+            const limit = parseFloat(this._wizardData.feedin_limit_kw);
+            if (!(limit > 0)) {
+              this._showValidationError(
+                "Bitte ein Einspeiselimit größer als 0 kW angeben."
+              );
+              return false;
+            }
+          }
+        }
         return true;
     }
   }
@@ -2209,36 +2253,28 @@ class EegOptimizerPanel extends HTMLElement {
 
   _renderWizard() {
     const step = this._wizardStep;
-    const isExpert = this._wizardData.expert_mode;
-    const total = isExpert ? WIZARD_STEPS.length : WIZARD_STEPS.length - 1;
-    // In non-expert mode, step 6 (Zusammenfassung) becomes display-step 5
-    const displayStep = (!isExpert && step > 5) ? step - 1 : step;
+    // Fortschritt nur über die aktuell sichtbaren Schritte (bedingte Steps wie
+    // Expert/Einspeisebegrenzung werden nicht mitgezählt).
+    const visibleSteps = WIZARD_STEPS
+      .map((_, i) => i)
+      .filter((i) => this._stepVisible(i));
+    const total = visibleSteps.length;
+    const displayStep = Math.max(0, visibleSteps.indexOf(step));
     const progress = ((displayStep + 1) / total) * 100;
 
-    let stepContent = "";
-    switch (step) {
-      case 0:
-        stepContent = this._renderStep0();
-        break;
-      case 1:
-        stepContent = this._renderStep1();
-        break;
-      case 2:
-        stepContent = this._renderStep2();
-        break;
-      case 3:
-        stepContent = this._renderStep3();
-        break;
-      case 4:
-        stepContent = this._renderStep4();
-        break;
-      case 5:
-        stepContent = this._renderStep5();
-        break;
-      case 6:
-        stepContent = this._renderStep6();
-        break;
-    }
+    // Namensbasiertes Renderer-Mapping — robust gegen Einfügen neuer Schritte.
+    const RENDERERS = {
+      "Willkommen": "_renderStep0",
+      "Wechselrichter": "_renderStep1",
+      "Prognose": "_renderStep2",
+      "Batterie": "_renderStep3",
+      "Ladung & Einspeisung": "_renderStep4",
+      "Einspeisebegrenzung": "_renderStepFeedin",
+      "Erweiterte Einstellungen": "_renderStep5",
+      "Zusammenfassung": "_renderStep6",
+    };
+    const rendererName = RENDERERS[WIZARD_STEPS[step]];
+    const stepContent = rendererName ? this[rendererName]() : "";
 
     const backBtn =
       step > 0
@@ -2435,6 +2471,7 @@ class EegOptimizerPanel extends HTMLElement {
           pvHelp,
           "sensor"
         )}
+        ${!FEEDIN_LIMIT_INVERTERS.includes(this._wizardData.inverter_type) ? `
         <div class="field-group" style="margin-top:12px">
           <label>PV-Spitzenleistung (kWp, optional)</label>
           <input type="number" data-field="pv_peak_kwp"
@@ -2442,7 +2479,7 @@ class EegOptimizerPanel extends HTMLElement {
                  min="0" max="200" step="0.1"
                  placeholder="z.B. 9.9">
           <div class="help-text">Anlagen-Spitzenleistung in kWp. Wird f&uuml;r serverseitige Plausibilit&auml;tspr&uuml;fung der Forecast-Werte verwendet. Leer lassen wenn unbekannt.</div>
-        </div>
+        </div>` : ""}
         ${froniusSelected ? `
           <p style="font-size:12px;color:var(--secondary-text-color);margin:8px 0 4px;line-height:1.5">
             Fronius liefert Batterie- und Netzleistung als <strong>zwei getrennte, immer positive Sensoren</strong>
@@ -3044,6 +3081,52 @@ class EegOptimizerPanel extends HTMLElement {
       </div>` : ""}`;
   }
 
+  /* ── Step 5: Einspeisebegrenzung ──────────────── */
+
+  _renderStepFeedin() {
+    const on = !!this._wizardData.enable_feedin_limit;
+    const limitParams = on ? `
+      <div class="feature-params">
+        <div class="field-group">
+          <label>Einspeiselimit (kW) *</label>
+          <input type="number" data-field="feedin_limit_kw"
+                 value="${this._wizardData.feedin_limit_kw ?? ""}"
+                 min="0.1" max="100" step="0.1" placeholder="z.B. 4">
+          <div class="help-text">Die maximale Leistung, die dein Wechselrichter ins Netz einspeisen darf (Vorgabe deines Netzbetreibers). Sobald mehr PV-Leistung vorhanden ist, l&auml;dt die Batterie den &Uuml;berschuss, statt ihn abzuregeln.</div>
+        </div>
+      </div>` : "";
+
+    return `
+      <p style="margin-bottom:16px;color:var(--secondary-text-color)">
+        An sonnigen Tagen produziert deine Anlage oft mehr, als eingespeist werden darf &mdash;
+        der Wechselrichter regelt den &Uuml;berschuss dann ab (die Energie geht verloren).
+        Diese Optimierung l&auml;dt den &Uuml;berschuss stattdessen in die Batterie und h&auml;lt
+        die Netzeinspeisung dabei genau am erlaubten Limit.
+        <a data-action="show-dialog" data-dialog="einspeisebegrenzung" style="cursor:pointer;text-decoration:underline">Anleitung</a>
+      </p>
+      <div class="feature-toggle">
+        <div class="feature-card ${on ? "selected" : ""}" data-action="toggle-feature" data-feature="enable_feedin_limit" style="cursor:pointer">
+          <div class="feature-card-header">
+            <ha-icon icon="mdi:transmission-tower-export"></ha-icon>
+            <div class="feature-card-text">
+              <span class="feature-title">Einspeisebegrenzung optimieren</span>
+              <span class="feature-desc">Regelt die Batterie-Ladeleistung dynamisch, sodass die Netzeinspeisung am erlaubten Limit bleibt und &Uuml;berschuss geladen statt abgeregelt wird. Kombiniert sich automatisch mit der Morgen-Einspeisung.</span>
+            </div>
+            <div class="feature-badge ${on ? "on" : "off"}">${on ? "Aktiv" : "Aus"}</div>
+          </div>
+          <div style="text-align:center;font-size:12px;color:var(--secondary-text-color);margin-top:4px">Zum ${on ? "Deaktivieren" : "Aktivieren"} hier klicken</div>
+        </div>
+        ${limitParams}
+      </div>
+      <div class="field-group" style="margin-top:16px">
+        <label>PV-Spitzenleistung (kWp, optional)</label>
+        <input type="number" data-field="pv_peak_kwp"
+               value="${this._wizardData.pv_peak_kwp || ""}"
+               min="0" max="200" step="0.1" placeholder="z.B. 9.9">
+        <div class="help-text">Anlagen-Spitzenleistung in kWp. Optional &mdash; wird f&uuml;r die serverseitige Plausibilit&auml;tspr&uuml;fung der Prognosewerte genutzt, ist f&uuml;r die Einspeisebegrenzung selbst aber nicht erforderlich.</div>
+      </div>`;
+  }
+
   /* ── Step 5: Erweiterte Einstellungen ────────── */
 
   _renderStep5() {
@@ -3178,6 +3261,9 @@ class EegOptimizerPanel extends HTMLElement {
     const isExpert = d.expert_mode;
     const mDelay = d.enable_morning_delay;
     const nDischarge = d.enable_night_discharge;
+    // Einspeisebegrenzung: nur bei Wechselrichtern mit variablem Ladelimit.
+    const feedinSupported = FEEDIN_LIMIT_INVERTERS.includes(d.inverter_type);
+    const feedinOn = !!d.enable_feedin_limit;
 
     const morningFields = mDelay ? `
       <div class="feature-params">
@@ -3317,6 +3403,11 @@ class EegOptimizerPanel extends HTMLElement {
           <ha-icon icon="mdi:battery-arrow-down-outline" style="--mdc-icon-size:18px"></ha-icon>
           <span>Nacht-Entladung</span>
         </button>
+        ${feedinSupported ? `
+        <button class="settings-tab ${activeTab === "feedin" ? "active" : ""}" data-action="set-settings-tab" data-tab="feedin" role="tab">
+          <ha-icon icon="mdi:transmission-tower-export" style="--mdc-icon-size:18px"></ha-icon>
+          <span>Einspeisebegrenzung</span>
+        </button>` : ""}
         <button class="settings-tab ${activeTab === "telemetry" ? "active" : ""}" data-action="set-settings-tab" data-tab="telemetry" role="tab">
           <ha-icon icon="mdi:chart-line" style="--mdc-icon-size:18px"></ha-icon>
           <span>EEG-Statistik</span>
@@ -3358,6 +3449,41 @@ class EegOptimizerPanel extends HTMLElement {
             </div>
           </div>
           ${dischargeFields}
+        </div>
+      </div>`;
+
+    const feedinLimitParams = feedinOn ? `
+      <div class="feature-params">
+        <div class="field-group">
+          <label>Einspeiselimit (kW)</label>
+          <input type="number" data-field="settings_feedin_limit_kw"
+                 value="${d.feedin_limit_kw ?? 4}"
+                 min="0.1" max="100" step="0.1">
+          <div class="help-text">Die maximale Leistung, die dein Wechselrichter ins Netz einspeisen darf. Bei mehr PV-Leistung lädt die Batterie den Überschuss, statt ihn abzuregeln.</div>
+        </div>
+      </div>` : "";
+
+    const feedinTab = `
+      <div class="card" style="margin-bottom:16px">
+        <div class="feature-toggle">
+          <div class="feature-card ${feedinOn ? "selected" : ""}" data-action="toggle-settings-feature" data-feature="enable_feedin_limit" style="cursor:pointer">
+            <div class="feature-card-header">
+              <ha-icon icon="mdi:transmission-tower-export"></ha-icon>
+              <div class="feature-card-text">
+                <span class="feature-title">Einspeisebegrenzung optimieren</span>
+                <span class="feature-desc">Regelt die Batterie-Ladeleistung dynamisch, sodass die Netzeinspeisung am erlaubten Limit bleibt und Überschuss geladen statt abgeregelt wird.</span>
+              </div>
+              <div class="feature-badge ${feedinOn ? "on" : "off"}">${feedinOn ? "Aktiv" : "Aus"}</div>
+            </div>
+          </div>
+          ${feedinLimitParams}
+        </div>
+        <div class="field-group" style="margin-top:16px">
+          <label>PV-Spitzenleistung (kWp, optional)</label>
+          <input type="number" data-field="settings_pv_peak_kwp"
+                 value="${d.pv_peak_kwp || ""}"
+                 min="0" max="200" step="0.1" placeholder="z.B. 9.9">
+          <div class="help-text">Anlagen-Spitzenleistung in kWp. Optional — für die serverseitige Plausibilitätsprüfung der Prognosewerte; für die Einspeisebegrenzung selbst nicht erforderlich.</div>
         </div>
       </div>`;
 
@@ -3420,6 +3546,7 @@ class EegOptimizerPanel extends HTMLElement {
     let tabContent;
     switch (activeTab) {
       case "evening":   tabContent = eveningTab; break;
+      case "feedin":    tabContent = feedinSupported ? feedinTab : morningTab; break;
       case "telemetry": tabContent = telemetryTab; break;
       case "advanced":  tabContent = advancedTab; break;
       case "morning":
@@ -3887,7 +4014,19 @@ class EegOptimizerPanel extends HTMLElement {
       dConditionsHtml = this._renderDischargeConditions(ma, dStatus);
     }
 
+    // --- Einspeisebegrenzung: nur einblenden wenn gerade aktiv (regelt die
+    // Ladeleistung). Volle Breite über der 2-Karten-Zeile. ---
+    const feedinCardHtml = (ma.feedin_status === "aktiv") ? `
+      <div class="card" style="margin-bottom:16px">
+        <h3 class="status-card-title" style="margin-top:0">
+          <ha-icon icon="mdi:transmission-tower-export" style="--mdc-icon-size:20px;color:var(--success-color,#4caf50)"></ha-icon>
+          Einspeisebegrenzung
+        </h3>
+        <div class="status-indicator green">● AKTIV — Einspeisung ${fmtDe(ma.feedin_grid_kw ?? 0, 1)} kW / Limit ${fmtDe(ma.feedin_limit_kw ?? 0, 1)} kW — Batterie lädt Überschuss mit ${fmtDe(ma.ladeleistung_kw ?? 0, 1)} kW</div>
+      </div>` : "";
+
     return `
+      ${feedinCardHtml}
       <div class="status-cards-row">
         <div class="card">
           <h3 class="status-card-title" style="margin-top:0">

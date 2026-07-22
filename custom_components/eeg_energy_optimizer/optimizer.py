@@ -22,11 +22,13 @@ from .const import (
     CONF_DISCHARGE_B_END_CAP,
     CONF_DISCHARGE_B_START_TIME,
     CONF_DISCHARGE_POWER_KW,
+    CONF_ENABLE_FEEDIN_LIMIT,
     CONF_ENABLE_MORNING_DELAY,
     CONF_ENABLE_NIGHT_DISCHARGE,
     CONF_ENABLE_PEAKSHARE,
     CONF_ENABLE_SLOT_A,
     CONF_ENABLE_SLOT_B,
+    CONF_FEEDIN_LIMIT_KW,
     CONF_GRID_POWER_SENSOR,
     CONF_INVERTER_TYPE,
     CONF_MIN_SOC,
@@ -41,13 +43,23 @@ from .const import (
     DEFAULT_DISCHARGE_B_END_CAP,
     DEFAULT_DISCHARGE_B_START_TIME,
     DEFAULT_DISCHARGE_POWER_KW,
+    DEFAULT_ENABLE_FEEDIN_LIMIT,
     DEFAULT_ENABLE_PEAKSHARE,
+    DEFAULT_FEEDIN_LIMIT_KW,
     DEFAULT_MIN_SOC,
     DEFAULT_MORNING_END_TIME,
     DEFAULT_MORNING_START_OFFSET,
     DEFAULT_PEAKSHARE_COMMUNITY,
     DEFAULT_SAFETY_BUFFER_PCT,
+    FEEDIN_ADJUST_INTERVAL_SECONDS,
+    FEEDIN_DEADBAND_KW,
+    FEEDIN_ENTER_MARGIN_KW,
+    FEEDIN_INITIAL_ESTIMATE_FACTOR,
+    FEEDIN_SOC_HEADROOM_PCT,
+    FEEDIN_STEP_UP_KW,
     INVERTER_SIGN_CONVENTIONS,
+    INVERTER_TYPE_FRONIUS,
+    INVERTER_TYPE_HUAWEI,
     MANUAL_OVERRIDE_MAX_HOURS,
     MODE_EIN,
     MODE_TEST,
@@ -55,6 +67,7 @@ from .const import (
     RESERVE_EXIT_HYSTERESIS_PCT,
     STARTUP_GRACE_SECONDS,
     STATE_ABEND_ENTLADUNG,
+    STATE_EINSPEISEBEGRENZUNG,
     STATE_MORGEN_EINSPEISUNG,
     STATE_NORMAL,
 )
@@ -115,6 +128,15 @@ REASON_SLOT_B_PRE_SUNRISE_CUTOFF = "slot_b_pre_sunrise_cutoff"
 # Nacht-Entladung erzwingt (Vorrang vor Morgen-Einspeisung/Automatik).
 REASON_MANUAL_DISCHARGE_OVERRIDE = "manual_discharge_override"
 
+# Einspeisebegrenzung optimieren (Huawei/Fronius): PV-Überschuss über dem
+# Einspeiselimit wird geladen statt abgeregelt.
+REASON_FEEDIN_LIMIT_DISABLED = "feedin_limit_disabled"
+REASON_FEEDIN_LIMIT_UNSUPPORTED_INVERTER = "feedin_limit_unsupported_inverter"
+REASON_FEEDIN_LIMIT_NO_GRID_SENSOR = "feedin_limit_no_grid_sensor"
+REASON_FEEDIN_LIMIT_BATTERY_FULL = "feedin_limit_battery_full"
+REASON_FEEDIN_LIMIT_ACTIVE = "feedin_limit_active"
+REASON_FEEDIN_LIMIT_NO_SURPLUS = "feedin_limit_no_surplus"
+
 # Closed-Set-Garantie für Tests + Backend-Diagnose
 ALL_REASONS: frozenset[str] = frozenset({
     REASON_PV_FORECAST_EXCEEDS_DEMAND,
@@ -148,6 +170,13 @@ ALL_REASONS: frozenset[str] = frozenset({
     REASON_SLOT_B_WINDOW_EXPIRED,
     REASON_SLOT_B_PRE_SUNRISE_CUTOFF,
     REASON_MANUAL_DISCHARGE_OVERRIDE,
+    # Einspeisebegrenzung optimieren
+    REASON_FEEDIN_LIMIT_DISABLED,
+    REASON_FEEDIN_LIMIT_UNSUPPORTED_INVERTER,
+    REASON_FEEDIN_LIMIT_NO_GRID_SENSOR,
+    REASON_FEEDIN_LIMIT_BATTERY_FULL,
+    REASON_FEEDIN_LIMIT_ACTIVE,
+    REASON_FEEDIN_LIMIT_NO_SURPLUS,
 })
 
 # Deutsche Texte für UI-Renderer (D-38). Telemetrie sendet nur Keys.
@@ -183,6 +212,13 @@ REASON_LABELS_DE: dict[str, str] = {
     REASON_SLOT_B_WINDOW_EXPIRED: "Slot-B-Fenster abgelaufen",
     REASON_SLOT_B_PRE_SUNRISE_CUTOFF: "Slot B beendet vor Sonnenaufgang",
     REASON_MANUAL_DISCHARGE_OVERRIDE: "Manuelle Entladung (vom Benutzer gestartet)",
+    # Einspeisebegrenzung optimieren
+    REASON_FEEDIN_LIMIT_DISABLED: "Einspeisebegrenzung deaktiviert",
+    REASON_FEEDIN_LIMIT_UNSUPPORTED_INVERTER: "Einspeisebegrenzung für diesen Wechselrichter nicht verfügbar",
+    REASON_FEEDIN_LIMIT_NO_GRID_SENSOR: "Netzleistungs-Sensor nicht verfügbar",
+    REASON_FEEDIN_LIMIT_BATTERY_FULL: "Batterie voll — keine Aufnahme möglich",
+    REASON_FEEDIN_LIMIT_ACTIVE: "Einspeisebegrenzung aktiv (Überschuss wird geladen)",
+    REASON_FEEDIN_LIMIT_NO_SURPLUS: "Kein Überschuss über dem Einspeiselimit",
 }
 
 
@@ -313,6 +349,14 @@ class Snapshot:
     sunset_today: datetime | None = None
     sim_factor: float = 1.0
 
+    # Live-Momentanleistungen (kW) für die Einspeisebegrenzungs-Regelung.
+    # Sign-Konventionen wie _current_power_readings: grid_now_kw > 0 = Export,
+    # battery_now_kw > 0 = Laden. None wenn Sensor fehlt/unavailable.
+    pv_now_kw: float | None = None
+    grid_now_kw: float | None = None
+    consumption_now_kw: float | None = None
+    battery_now_kw: float | None = None
+
     def to_telemetry_dict(self) -> dict:
         """Schlanke Snapshot-Kopie für State-Change-Payload (D-09).
 
@@ -338,6 +382,9 @@ class Decision:
     ladung_blockiert: bool = False
     entladung_aktiv: bool = False
     entladeleistung_kw: float = 0.0
+    # Einspeisebegrenzung: dynamisch geregelte Batterie-Ladeleistung (kW). Nur im
+    # Zustand STATE_EINSPEISEBEGRENZUNG != 0; ansonsten 0.0.
+    ladeleistung_kw: float = 0.0
     min_soc_berechnet: float = 0.0
     nächste_aktion: str = ""
     markdown: str = ""
@@ -380,6 +427,12 @@ class Decision:
     discharge_window_start: str = ""
     discharge_window_end: str = ""
     discharge_hysteresis_active: bool = False
+
+    # Einspeisebegrenzungs-Statuskarte (analog morning_*/discharge_*)
+    feedin_status: str = "deaktiviert"
+    feedin_grid_kw: float = 0.0
+    feedin_limit_kw: float = 0.0
+    feedin_charge_kw: float = 0.0
 
     # Phase 11: aktiver Slot ("A" | "B" | None für Legacy/Pause)
     discharge_active_slot: str | None = None
@@ -446,9 +499,24 @@ class EEGOptimizer:
         self._enable_morning_delay = config.get(CONF_ENABLE_MORNING_DELAY, True)
         self._enable_night_discharge = config.get(CONF_ENABLE_NIGHT_DISCHARGE, True)
 
+        # Einspeisebegrenzung optimieren (nur Huawei/Fronius). Opt-in.
+        self._enable_feedin_limit = config.get(
+            CONF_ENABLE_FEEDIN_LIMIT, DEFAULT_ENABLE_FEEDIN_LIMIT
+        )
+        self._feedin_limit_kw = config.get(
+            CONF_FEEDIN_LIMIT_KW, DEFAULT_FEEDIN_LIMIT_KW
+        )
+        # Regler-Zustand (Integrator): aktuell befohlene Ladeleistung + letzter
+        # Nachregelungs-Zeitpunkt (60-s-Throttle).
+        self._feedin_charge_kw: float = 0.0
+        self._feedin_last_adjust: datetime | None = None
+
         # Inverter deduplication
         self._prev_zustand: str | None = None
         self._last_decision: Decision | None = None
+        # Einspeisebegrenzung: letzte gesetzte Ladeleistung, damit _execute trotz
+        # gleichbleibendem Zustand bei geänderter Leistung nachregelt.
+        self._prev_charge_kw: float = 0.0
 
         # Hysteresis: track dates when states were first activated today.
         # If a state was already active and then deactivated on the same day,
@@ -673,6 +741,14 @@ class EEGOptimizer:
             sunset_today=resolved_sunset_today,
         )
 
+        # Live-Momentanleistungen für die Einspeisebegrenzungs-Regelung. Nutzt
+        # dieselbe Quelle wie die Telemetrie (korrekte Sign-Konventionen).
+        readings = self._current_power_readings()
+        snap.pv_now_kw = readings.get("pv_now_kw")
+        snap.grid_now_kw = readings.get("grid_now_kw")
+        snap.consumption_now_kw = readings.get("consumption_now_kw")
+        snap.battery_now_kw = readings.get("battery_now_kw")
+
         # Apply test overrides if active
         overrides = self._hass.data.get("eeg_energy_optimizer", {}).get(
             self._entry_id, {}
@@ -715,17 +791,19 @@ class EEGOptimizer:
         Wichtig: Bei fehlenden Sensoren NICHT 0.0 zurückgeben — Backend-
         Analytics unterscheiden "0 W exportiert" von "konnten nicht lesen".
         """
-        from .power_readings import compute_pv_now_kw
+        from .power_readings import compute_pv_now_kw, resolve_sign
 
         cfg = self._config
         inv_type = cfg.get(CONF_INVERTER_TYPE, "")
-        signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
-        battery_sign = signs.get("battery_sign", 1)
-        grid_sign = signs.get("grid_sign", 1)
+        grid_sensor = cfg.get(CONF_GRID_POWER_SENSOR, "")
+        battery_sensor = cfg.get(CONF_BATTERY_POWER_SENSOR, "")
+        # resolve_sign berücksichtigt Huawei-EMMA-Sensoren (invertiertes Vorzeichen).
+        battery_sign = resolve_sign(inv_type, battery_sensor, "battery_sign")
+        grid_sign = resolve_sign(inv_type, grid_sensor, "grid_sign")
 
         pv_now_kw = compute_pv_now_kw(self._hass, cfg)
-        grid_raw = _read_power_kw(self._hass, cfg.get(CONF_GRID_POWER_SENSOR, ""))
-        bat_raw = _read_power_kw(self._hass, cfg.get(CONF_BATTERY_POWER_SENSOR, ""))
+        grid_raw = _read_power_kw(self._hass, grid_sensor)
+        bat_raw = _read_power_kw(self._hass, battery_sensor)
         cons_raw = _read_power_kw(self._hass, CONSUMPTION_SENSOR)
 
         return {
@@ -1169,6 +1247,102 @@ class EEGOptimizer:
         if pv_today > bedarf:
             return (True, [REASON_IN_MORNING_WINDOW, REASON_PV_FORECAST_EXCEEDS_DEMAND], [])
         return (False, [], [REASON_IN_MORNING_WINDOW, REASON_PV_FORECAST_BELOW_THRESHOLD])
+
+    def _reset_feedin(self) -> None:
+        """Regler-Zustand der Einspeisebegrenzung zurücksetzen."""
+        self._feedin_charge_kw = 0.0
+        self._feedin_last_adjust = None
+
+    def _should_limit_feedin(
+        self, snap: Snapshot
+    ) -> tuple[bool, float, list[str], list[str]]:
+        """Determine feed-in-limit charge regulation.
+
+        Ziel: Batterie-Ladeleistung so regeln, dass die Netzeinspeisung am
+        konfigurierten Einspeiselimit bleibt und der Wechselrichter den
+        Überschuss lädt statt abzuregeln. Nur Huawei/Fronius.
+
+        Erkennungsprinzip: Der Wechselrichter begrenzt beim Abregeln die
+        Einspeisung EXAKT aufs Limit — nie darüber. "Wird abgeregelt" erkennt
+        der Regler daran, dass die Einspeisung am Limit klebt, und tastet die
+        Ladeleistung testend hoch. Asymmetrisch: langsam hoch (feste Schritte),
+        schnell runter (proportional → Netzbezug-Schutz).
+
+        Returns:
+            tuple ``(aktiv, ladeleistung_kw, reasons, blocked_by)`` mit
+            snake_case-Keys aus ALL_REASONS (analog _should_block_charging).
+        """
+        # Guard 1: Feature aus
+        if not self._enable_feedin_limit:
+            self._reset_feedin()
+            return (False, 0.0, [], [REASON_FEEDIN_LIMIT_DISABLED])
+
+        # Guard 2: nur Wechselrichter mit variablem Ladelimit (Watt/%)
+        inv_type = self._config.get(CONF_INVERTER_TYPE, "")
+        if inv_type not in (INVERTER_TYPE_HUAWEI, INVERTER_TYPE_FRONIUS):
+            self._reset_feedin()
+            return (False, 0.0, [], [REASON_FEEDIN_LIMIT_UNSUPPORTED_INVERTER])
+
+        # Guard 3: Netz-/SOC-Sensor verfügbar (Regelung braucht die Messung)
+        grid = snap.grid_now_kw
+        if grid is None or snap.battery_soc is None:
+            self._reset_feedin()
+            return (False, 0.0, [], [REASON_FEEDIN_LIMIT_NO_GRID_SENSOR])
+
+        # Guard 4: Batterie voll → keine Aufnahme möglich
+        if snap.battery_soc >= FEEDIN_SOC_HEADROOM_PCT:
+            self._reset_feedin()
+            return (False, 0.0, [], [REASON_FEEDIN_LIMIT_BATTERY_FULL])
+
+        limit = self._feedin_limit_kw
+        was_active = self._last_eval_zustand == STATE_EINSPEISEBEGRENZUNG
+
+        # Eintritt: nur wenn die Einspeisung am/nahe Limit klebt (potenzielle
+        # Abregelung). Startwert = konservative Feedforward-Schätzung, mind. ein
+        # Schritt, damit der Regler bei fehlender Schätzung sicher hochläuft.
+        if not was_active:
+            if grid < limit - FEEDIN_ENTER_MARGIN_KW:
+                self._reset_feedin()
+                return (False, 0.0, [], [REASON_FEEDIN_LIMIT_NO_SURPLUS])
+            estimate = 0.0
+            if snap.pv_now_kw is not None and snap.consumption_now_kw is not None:
+                estimate = max(
+                    0.0, snap.pv_now_kw - snap.consumption_now_kw - limit
+                ) * FEEDIN_INITIAL_ESTIMATE_FACTOR
+            self._feedin_charge_kw = max(estimate, FEEDIN_STEP_UP_KW)
+            self._feedin_last_adjust = snap.now
+
+        # Aktiver Regelschritt nur alle FEEDIN_ADJUST_INTERVAL_SECONDS.
+        do_adjust = (
+            self._feedin_last_adjust is None
+            or (snap.now - self._feedin_last_adjust).total_seconds()
+            >= FEEDIN_ADJUST_INTERVAL_SECONDS
+        )
+        if was_active and do_adjust:
+            error = grid - limit  # + = Einspeisung am/über Limit
+            if error >= -FEEDIN_DEADBAND_KW:
+                # klebt am Limit → vorsichtig hochtasten ("langsam hoch")
+                self._feedin_charge_kw += FEEDIN_STEP_UP_KW
+            else:
+                # unter Limit → proportional absenken ("schnell runter")
+                self._feedin_charge_kw += error
+            self._feedin_last_adjust = snap.now
+
+        # Netzbezug-Schutz JEDEN Zyklus (schneller als der 60-s-Regeltakt): die
+        # Ladeleistung darf nie den aktuellen PV-Überschuss übersteigen, sonst
+        # lädt die Batterie aus dem Netz.
+        charge = max(0.0, self._feedin_charge_kw)
+        if snap.pv_now_kw is not None and snap.consumption_now_kw is not None:
+            upper = max(0.0, snap.pv_now_kw - snap.consumption_now_kw)
+            charge = min(charge, upper)
+        self._feedin_charge_kw = charge
+
+        # Austritt: kein Überschuss mehr (Ladeleistung auf 0 heruntergeregelt).
+        if charge <= 0.0:
+            self._reset_feedin()
+            return (False, 0.0, [], [REASON_FEEDIN_LIMIT_NO_SURPLUS])
+
+        return (True, charge, [REASON_FEEDIN_LIMIT_ACTIVE], [])
 
     def _calc_min_soc(self, snap: Snapshot) -> float:
         """Calculate dynamic minimum SOC for discharge.
@@ -1693,9 +1867,19 @@ class EEGOptimizer:
         # _evaluate_manual_override.
         manual_override = self._evaluate_manual_override(snap)
 
+        # Einspeisebegrenzung optimieren (Huawei/Fronius): dynamische
+        # Ladeleistung, wenn PV-Überschuss sonst über dem Einspeiselimit
+        # abgeregelt würde. Übergreifend — kombiniert mit der Morgen-
+        # Einspeisung (rettet dort die sonst verlorene Energie).
+        limit_feedin, feedin_charge_kw, feedin_reasons_keys, feedin_blocked_by_keys = (
+            self._should_limit_feedin(snap)
+        )
+
         # Determine state
         if manual_override is not None:
             zustand = STATE_ABEND_ENTLADUNG
+        elif limit_feedin:
+            zustand = STATE_EINSPEISEBEGRENZUNG
         elif block:
             zustand = STATE_MORGEN_EINSPEISUNG
         elif should_discharge:
@@ -1755,6 +1939,11 @@ class EEGOptimizer:
         elif manual_override is not None:
             nächste_aktion = (
                 f"Manuelle Entladung bis {int(round(manual_override['target_soc']))} %"
+            )
+        elif zustand == STATE_EINSPEISEBEGRENZUNG:
+            nächste_aktion = (
+                f"Einspeisebegrenzung {self._feedin_limit_kw:.1f} kW — "
+                f"lade Überschuss mit {feedin_charge_kw:.1f} kW"
             )
         elif zustand == STATE_MORGEN_EINSPEISUNG:
             nächste_aktion = (
@@ -1857,6 +2046,12 @@ class EEGOptimizer:
             discharge_hysteresis_active=hysteresis_active,
             # Phase 11: aktiver Slot ("A" | "B" | None für Legacy/Pause).
             discharge_active_slot=active_slot,
+            # Einspeisebegrenzung: dynamisch geregelte Ladeleistung + Statuskarte.
+            ladeleistung_kw=round(feedin_charge_kw, 2),
+            feedin_status=("aktiv" if zustand == STATE_EINSPEISEBEGRENZUNG else "inaktiv"),
+            feedin_grid_kw=round(snap.grid_now_kw, 2) if snap.grid_now_kw is not None else 0.0,
+            feedin_limit_kw=round(self._feedin_limit_kw, 2),
+            feedin_charge_kw=round(feedin_charge_kw, 2),
         )
 
         # Populate PeakShare fields if a plan was computed today.
@@ -1893,6 +2088,9 @@ class EEGOptimizer:
         if manual_override is not None:
             decision.reasons = [REASON_MANUAL_DISCHARGE_OVERRIDE]
             decision.blocked_by = []
+        elif zustand == STATE_EINSPEISEBEGRENZUNG:
+            decision.reasons = list(feedin_reasons_keys)
+            decision.blocked_by = []
         elif zustand == STATE_MORGEN_EINSPEISUNG:
             decision.reasons = list(block_reasons_keys)
             decision.blocked_by = list(dis_blocked_by_keys)
@@ -1923,6 +2121,15 @@ class EEGOptimizer:
         lines.append(f"## Status")
         lines.append(f"{decision.zustand}")
         lines.append("")
+
+        if decision.zustand == STATE_EINSPEISEBEGRENZUNG:
+            lines.append("### Einspeisebegrenzung aktiv")
+            lines.append(f"- Einspeiselimit: {decision.feedin_limit_kw:.1f} kW")
+            lines.append(f"- Aktuelle Einspeisung: {decision.feedin_grid_kw:.1f} kW")
+            lines.append(
+                f"- Batterie-Ladeleistung (geregelt): {decision.ladeleistung_kw:.1f} kW"
+            )
+            lines.append("")
 
         if decision.ladung_blockiert:
             schwelle = decision.energiebedarf_kwh * (1 + self._safety_buffer_pct / 100)
@@ -2053,12 +2260,28 @@ class EEGOptimizer:
         inv_type = self._config.get("inverter_type", "")
         needs_repeat = inv_type == "solax_gen4" and is_active_state
 
-        if decision.zustand == self._prev_zustand and not needs_repeat:
+        # Einspeisebegrenzung regelt die Ladeleistung kontinuierlich (alle 60 s)
+        # nach. Bei gleichbleibendem Zustand muss daher auch dann neu geschrieben
+        # werden, wenn sich die berechnete Ladeleistung geändert hat — sonst
+        # bliebe nur der erste Wert stehen.
+        charge_changed = (
+            decision.zustand == STATE_EINSPEISEBEGRENZUNG
+            and abs(decision.ladeleistung_kw - self._prev_charge_kw) > 0.05
+        )
+
+        if (
+            decision.zustand == self._prev_zustand
+            and not needs_repeat
+            and not charge_changed
+        ):
             return
 
         try:
             if decision.zustand == STATE_MORGEN_EINSPEISUNG:
                 await self._inverter.async_set_charge_limit(0)
+            elif decision.zustand == STATE_EINSPEISEBEGRENZUNG:
+                await self._inverter.async_set_charge_limit(decision.ladeleistung_kw)
+                self._prev_charge_kw = decision.ladeleistung_kw
             elif decision.zustand == STATE_ABEND_ENTLADUNG:
                 await self._inverter.async_set_discharge(
                     decision.entladeleistung_kw,
@@ -2066,6 +2289,7 @@ class EEGOptimizer:
                 )
             else:
                 await self._inverter.async_stop_forcible()
+                self._prev_charge_kw = 0.0
 
             self._prev_zustand = decision.zustand
         except Exception as exc:
@@ -2075,7 +2299,10 @@ class EEGOptimizer:
             # gewrappt — eine Exception darin darf den Optimizer-Zyklus nicht
             # zerlegen.
             if self._failure_callback is not None:
-                if decision.zustand == STATE_MORGEN_EINSPEISUNG:
+                if decision.zustand in (
+                    STATE_MORGEN_EINSPEISUNG,
+                    STATE_EINSPEISEBEGRENZUNG,
+                ):
                     action = "charge"
                 elif decision.zustand == STATE_ABEND_ENTLADUNG:
                     action = "discharge"

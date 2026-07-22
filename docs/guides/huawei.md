@@ -1,9 +1,7 @@
 # Huawei Solar Integration einrichten
 
-> [!IMPORTANT]
-> **Verbindung direkt zum Wechselrichter/Dongle erforderlich.** Der EEG Energy Optimizer wird ausschließlich für die **direkte** Anbindung an den SUN2000-Wechselrichter (bzw. dessen Dongle) unterstützt und getestet.
->
-> **Huawei über EMMA wird nicht unterstützt.** Bei einer Verbindung über das EMMA-Energiemanagement (`sensor.emma_*`-Entitäten) ist keine Batteriesteuerung möglich — EMMA übernimmt selbst das Batteriemanagement, sodass die zum Steuern nötigen Dienste (`forcible_discharge_soc`, Ladeleistungs-Limit) nicht bereitstehen. Zusätzlich weichen Sensor-Namen und -Vorzeichen ab. Bitte verbinde Home Assistant direkt mit dem Wechselrichter/Dongle.
+> [!NOTE]
+> **EMMA-Energiemanagement:** Wird Home Assistant über das Huawei-EMMA angebunden, tragen die Sensoren den Präfix `sensor.emma_…` und liefern die Leistung mit umgekehrtem Vorzeichen gegenüber der direkten SUN2000-Anbindung. Der EEG Energy Optimizer erkennt solche Sensoren automatisch und dreht das Vorzeichen entsprechend um — trage die `sensor.emma_*`-Entitäten einfach in der Sensor-Zuordnung ein.
 
 ## 1. Wechselrichter vorbereiten
 

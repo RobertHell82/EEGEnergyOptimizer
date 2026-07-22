@@ -19,6 +19,8 @@ from .const import (
     CONF_BATTERY_CAPACITY_KWH,
     CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
+    CONF_ENABLE_FEEDIN_LIMIT,
+    CONF_FEEDIN_LIMIT_KW,
     CONF_FORECAST_SOURCE,
     CONF_INVERTER_TYPE,
     CONF_PV_PEAK_KWP,
@@ -37,6 +39,8 @@ from .const import (
     COMBINED_BATTERY_SOC_SENSOR_ID,
     COMBINED_GRID_POWER_SENSOR_ID,
     CONSUMPTION_SENSOR,
+    DEFAULT_ENABLE_FEEDIN_LIMIT,
+    DEFAULT_FEEDIN_LIMIT_KW,
     DEFAULT_LOOKBACK_WEEKS,
     FAILURE_DEDUP_WINDOW_S,
     FORECAST_NONE_STREAK_THRESHOLD,
@@ -1020,6 +1024,17 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # summiert die echten Sensorwerte. Setze ihn aber nicht zurück,
             # damit der User seine Konfiguration nachvollziehen kann.
         hass.config_entries.async_update_entry(entry, data=new_data, version=19)
+
+    if entry.version < 20:
+        # v20 — Feature "Einspeisebegrenzung optimieren" (Huawei/Fronius).
+        # Additive, sichere Migration: Feature standardmäßig AUS, damit sich
+        # bestehende Installationen nicht verändern. Der Nutzer aktiviert es
+        # bewusst im Wizard/Settings. feedin_limit_kw dient nur als sinnvoller
+        # Vorbelegungswert und ist ohne aktives Feature wirkungslos.
+        new_data = {**entry.data}
+        new_data.setdefault(CONF_ENABLE_FEEDIN_LIMIT, DEFAULT_ENABLE_FEEDIN_LIMIT)
+        new_data.setdefault(CONF_FEEDIN_LIMIT_KW, DEFAULT_FEEDIN_LIMIT_KW)
+        hass.config_entries.async_update_entry(entry, data=new_data, version=20)
 
     return True
 

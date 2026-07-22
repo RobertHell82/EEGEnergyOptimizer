@@ -17,8 +17,38 @@ from .const import (
     CONF_INVERTER_TYPE,
     CONF_PV_POWER_SENSOR,
     CONF_PV_POWER_SENSOR_2,
+    EMMA_SENSOR_PREFIX,
     INVERTER_SIGN_CONVENTIONS,
+    INVERTER_TYPE_HUAWEI,
 )
+
+
+def resolve_sign(inv_type: str, entity_id: str | None, kind: str) -> int:
+    """Effektives Vorzeichen (+1/-1) für einen grid-/battery-Leistungssensor.
+
+    Einzige Anwendungsstelle der Vorzeichen-Konvention — alle Aufrufer
+    (Sensoren, Optimizer-Snapshot, Feed-in-Statistik) leiten ihr Vorzeichen
+    hierüber ab.
+
+    Basis ist ``INVERTER_SIGN_CONVENTIONS[inv_type][kind]`` (pro Inverter-Typ).
+    Sonderfall Huawei-EMMA: Sensoren des EMMA-Energiemanagements (entity_id-
+    Präfix ``sensor.emma…``) liefern die Leistung mit umgekehrtem Vorzeichen
+    gegenüber der SUN2000-Konvention — für einen solchen Sensor wird das
+    Basis-Vorzeichen invertiert.
+
+    Args:
+        inv_type: Konfigurierter Inverter-Typ (CONF_INVERTER_TYPE).
+        entity_id: entity_id des konkreten Sensors (kann None/leer sein).
+        kind: ``"grid_sign"`` oder ``"battery_sign"``.
+    """
+    base = INVERTER_SIGN_CONVENTIONS.get(inv_type, {}).get(kind, 1)
+    if (
+        inv_type == INVERTER_TYPE_HUAWEI
+        and entity_id
+        and entity_id.lower().startswith(EMMA_SENSOR_PREFIX)
+    ):
+        return -base
+    return base
 
 
 # Bekannte Einheiten-Aliase, alle in der KEY in lowercase. Deckt die in HA-

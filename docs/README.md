@@ -47,4 +47,6 @@ Home Assistant über eine eigene Internet-Adresse erreichbar machen — ohne Por
 
 ## ℹ️ Funktionsweise
 
-Wie Morgen-Einspeisung, Nacht-Entladung und PeakShare funktionieren, ist in der **[Projekt-Übersicht](../README.md)** beschrieben.
+Wie Morgen-Einspeisung, Nacht-Entladung, Einspeisebegrenzung und PeakShare funktionieren, ist in der **[Projekt-Übersicht](../README.md)** beschrieben.
+
+Die **Einspeisebegrenzung** (nur Huawei/Fronius) lädt PV-Überschuss oberhalb deines Einspeiselimits in die Batterie, statt ihn vom Wechselrichter abregeln zu lassen — Details in der Anleitung auf der gleichnamigen Wizard-Seite.

@@ -7,7 +7,15 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
-## Unreleased
+## [1.3.0-dev] - 2026-07-22
+
+### Hinzugefügt
+
+- **Neues Feature „Einspeisebegrenzung optimieren" (Huawei/Fronius, opt-in).** Regelt die Batterie-Ladeleistung dynamisch, sodass die Netzeinspeisung am konfigurierten Einspeiselimit bleibt und PV-Überschuss geladen statt vom Wechselrichter abgeregelt wird. Erkennt das Abregeln daran, dass die Einspeisung am Limit „klebt", und tastet die Ladeleistung testend hoch (Feedback auf die gemessene Netzeinspeisung, Nachregelung alle 60 s). Asymmetrische Regelung — langsames Anheben, sofortiges Absenken bei PV-Einbruch (Netzbezug-Schutz). Kombiniert sich mit der Morgen-Einspeisung (rettet dort sonst abgeregelte Energie) und hat Vorrang, solange Überschuss über dem Limit anfällt. Neuer Optimizer-Zustand `Einspeisebegrenzung`, neue Wizard-Seite + Settings-Sektion (nur Huawei/Fronius), neuer Anleitungs-Guide. Standardmäßig **aus** — bestehende Installationen bleiben unverändert (Config-Migration v20).
+
+### Geändert
+
+- **Huawei-EMMA-Sensoren werden jetzt unterstützt (automatische Vorzeichen-Korrektur).** Sensoren des Huawei-EMMA-Energiemanagements (entity_id-Präfix `sensor.emma_…`) liefern Netz- und Batterieleistung mit umgekehrtem Vorzeichen gegenüber der direkten SUN2000-Anbindung. Die neue zentrale Funktion `power_readings.resolve_sign` erkennt solche Sensoren bei Huawei-Setups und dreht das Vorzeichen automatisch um — Hausverbrauch, Netz-/Batterieleistung, Feed-in-Statistik und Optimizer-Snapshot leiten ihr Vorzeichen jetzt einheitlich hierüber ab. Der bisherige Hinweis „Huawei über EMMA wird nicht unterstützt" (Guide + README) entfällt.
 
 ## [1.2.18] - 2026-07-17
 

@@ -25,6 +25,8 @@ from .const import (
     CONF_BATTERY_POWER_SENSOR_2,
     CONF_BATTERY_SOC_SENSOR,
     CONF_DISCHARGE_POWER_KW,
+    CONF_ENABLE_FEEDIN_LIMIT,
+    CONF_FEEDIN_LIMIT_KW,
     CONF_GRID_POWER_EXPORT_SENSOR,
     CONF_GRID_POWER_IMPORT_SENSOR,
     CONF_GRID_POWER_SENSOR,
@@ -551,6 +553,31 @@ async def ws_save_config(
             )
             return
         new_data["fronius_modbus_port"] = port
+
+    # Einspeisebegrenzung optimieren: nur Huawei/Fronius unterstützen ein
+    # variables Ladelimit. Bei aktivem Feature muss ein positives Limit gesetzt
+    # sein — ohne Grenzwert kann der Regler nichts ausrichten.
+    if new_data.get("inverter_type") not in (
+        INVERTER_TYPE_HUAWEI,
+        INVERTER_TYPE_FRONIUS,
+    ):
+        new_data[CONF_ENABLE_FEEDIN_LIMIT] = False
+    elif new_data.get(CONF_ENABLE_FEEDIN_LIMIT):
+        try:
+            limit_kw = float(new_data.get(CONF_FEEDIN_LIMIT_KW, 0))
+        except (TypeError, ValueError):
+            connection.send_error(
+                msg["id"], "invalid_config", "Ungültiges Einspeiselimit (kW)"
+            )
+            return
+        if limit_kw <= 0:
+            connection.send_error(
+                msg["id"],
+                "invalid_config",
+                "Einspeiselimit muss größer als 0 kW sein",
+            )
+            return
+        new_data[CONF_FEEDIN_LIMIT_KW] = limit_kw
 
     # Pair-sensor → synthetic-sensor redirection. If the user (or auto-detect)
     # filled the directional pair config keys, point the canonical battery_/

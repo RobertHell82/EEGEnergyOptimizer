@@ -248,3 +248,43 @@ class TestComputePvNowKw:
         }
         hass = _make_hass({"sensor.solaredge_ac_power": _make_state("4.5", "kW")})
         assert compute_pv_now_kw(hass, cfg) == 4.5
+
+
+# ---------------------------------------------------------------------------
+# resolve_sign — zentrale Vorzeichen-Auflösung inkl. Huawei-EMMA-Sonderfall
+# ---------------------------------------------------------------------------
+
+from custom_components.eeg_energy_optimizer.power_readings import resolve_sign
+
+
+class TestResolveSign:
+    """Basis-Vorzeichen aus INVERTER_SIGN_CONVENTIONS, EMMA-Inversion bei Huawei."""
+
+    def test_huawei_normal_sensor_keeps_base_sign(self):
+        assert resolve_sign("huawei_sun2000", "sensor.power_meter_wirkleistung", "grid_sign") == 1
+        assert resolve_sign("huawei_sun2000", "sensor.batteries_ladeleistung", "battery_sign") == 1
+
+    def test_huawei_emma_sensor_inverts_grid_sign(self):
+        assert resolve_sign("huawei_sun2000", "sensor.emma_einspeiseleistung", "grid_sign") == -1
+
+    def test_huawei_emma_sensor_inverts_battery_sign(self):
+        assert resolve_sign("huawei_sun2000", "sensor.emma_batterieleistung", "battery_sign") == -1
+
+    def test_emma_prefix_case_insensitive(self):
+        assert resolve_sign("huawei_sun2000", "SENSOR.EMMA_Einspeiseleistung", "grid_sign") == -1
+
+    def test_emma_prefix_only_for_huawei(self):
+        # SolaX-Basis grid_sign=-1; ein (untypischer) emma-Sensor ändert nichts,
+        # weil die EMMA-Sonderlogik nur für Huawei greift.
+        assert resolve_sign("solax_gen4", "sensor.emma_grid", "grid_sign") == -1
+
+    def test_solax_base_signs(self):
+        assert resolve_sign("solax_gen4", "sensor.solax_grid", "grid_sign") == -1
+        assert resolve_sign("solax_gen4", "sensor.solax_bat", "battery_sign") == -1
+
+    def test_none_or_empty_entity_keeps_base(self):
+        assert resolve_sign("huawei_sun2000", None, "grid_sign") == 1
+        assert resolve_sign("huawei_sun2000", "", "grid_sign") == 1
+
+    def test_unknown_inverter_defaults_to_positive(self):
+        assert resolve_sign("", "sensor.foo", "grid_sign") == 1

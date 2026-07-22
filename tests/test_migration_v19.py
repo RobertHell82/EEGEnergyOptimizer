@@ -29,9 +29,12 @@ async def test_solaredge_v18_to_v19_sets_combined_sensors():
 
     await async_migrate_entry(hass, entry)
 
-    # Die letzte update_entry-Call ist v19
-    last = hass.config_entries.async_update_entry.call_args_list[-1]
-    args, kwargs = last
+    # v19-spezifischen Call gezielt suchen (seit v20 folgen weitere Calls).
+    v19_call = next(
+        c for c in hass.config_entries.async_update_entry.call_args_list
+        if c.kwargs.get("version") == 19
+    )
+    args, kwargs = v19_call
     new_data = kwargs.get("data") or args[1]
     assert new_data["battery_soc_sensor"] == "sensor.eeg_energy_optimizer_combined_soc"
     assert new_data["battery_capacity_sensor"] == "sensor.eeg_energy_optimizer_combined_capacity"
@@ -58,8 +61,11 @@ async def test_non_solaredge_v18_to_v19_unchanged():
 
         await async_migrate_entry(hass, entry)
 
-        last = hass.config_entries.async_update_entry.call_args_list[-1]
-        _args, kwargs = last
+        v19_call = next(
+            c for c in hass.config_entries.async_update_entry.call_args_list
+            if c.kwargs.get("version") == 19
+        )
+        _args, kwargs = v19_call
         new_data = kwargs.get("data") or _args[1]
         # Andere Driver: kein Touch
         assert new_data["battery_soc_sensor"] == f"sensor.{inv_type}_battery_soc"
@@ -68,14 +74,15 @@ async def test_non_solaredge_v18_to_v19_unchanged():
 
 
 @pytest.mark.asyncio
-async def test_solaredge_already_v19_no_migration():
-    """Schon v19: keine erneute Migration."""
+async def test_solaredge_already_latest_no_migration():
+    """Schon auf aktueller Schema-Version: keine erneute Migration."""
     from custom_components.eeg_energy_optimizer import async_migrate_entry
 
     hass = MagicMock()
     hass.config_entries.async_update_entry = MagicMock()
     entry = MagicMock()
-    entry.version = 19
+    # Aktuelle Schema-Version (config_flow.VERSION). Bei Anhebung hier mitziehen.
+    entry.version = 20
     entry.data = {
         "inverter_type": "solaredge_storedge",
         "battery_soc_sensor": "sensor.eeg_energy_optimizer_combined_soc",
@@ -83,5 +90,5 @@ async def test_solaredge_already_v19_no_migration():
 
     await async_migrate_entry(hass, entry)
 
-    # Keine Update-Calls — v19 ist bereits aktuell
+    # Keine Update-Calls — Entry ist bereits auf der aktuellen Version
     assert hass.config_entries.async_update_entry.call_count == 0
