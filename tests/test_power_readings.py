@@ -288,3 +288,82 @@ class TestResolveSign:
 
     def test_unknown_inverter_defaults_to_positive(self):
         assert resolve_sign("", "sensor.foo", "grid_sign") == 1
+
+
+# ---------------------------------------------------------------------------
+# resolve_backfill_signs — Vorzeichen für den Statistik-Backfill
+# ---------------------------------------------------------------------------
+
+from custom_components.eeg_energy_optimizer.const import (
+    CONF_BATTERY_POWER_CHARGE_SENSOR,
+    CONF_BATTERY_POWER_DISCHARGE_SENSOR,
+    CONF_GRID_POWER_EXPORT_SENSOR,
+    CONF_GRID_POWER_IMPORT_SENSOR,
+    CONF_GRID_POWER_SENSOR,
+)
+from custom_components.eeg_energy_optimizer.power_readings import (
+    resolve_backfill_signs,
+)
+
+
+class TestResolveBackfillSigns:
+    """Backfill nutzt dieselbe Vorzeichen-Logik wie die Live-Pfade.
+
+    Regression für den EMMA-Bug: Der Backfill griff direkt auf
+    INVERTER_SIGN_CONVENTIONS zu (ohne EMMA-Inversion) und überschrieb bei
+    EMMA-Anlagen bei jedem HA-Start die Hausverbrauch-Statistik mit falsch
+    berechneten Werten.
+    """
+
+    def test_huawei_normal_sensors(self):
+        cfg = {
+            CONF_INVERTER_TYPE: "huawei_sun2000",
+            CONF_BATTERY_POWER_SENSOR: "sensor.batteries_ladeleistung",
+            CONF_GRID_POWER_SENSOR: "sensor.power_meter_wirkleistung",
+        }
+        assert resolve_backfill_signs(cfg) == (1, 1)
+
+    def test_huawei_emma_sensors_invert_both(self):
+        cfg = {
+            CONF_INVERTER_TYPE: "huawei_sun2000",
+            CONF_BATTERY_POWER_SENSOR: "sensor.emma_batterieleistung",
+            CONF_GRID_POWER_SENSOR: "sensor.emma_einspeiseleistung",
+        }
+        assert resolve_backfill_signs(cfg) == (-1, -1)
+
+    def test_huawei_mixed_emma_grid_only(self):
+        cfg = {
+            CONF_INVERTER_TYPE: "huawei_sun2000",
+            CONF_BATTERY_POWER_SENSOR: "sensor.batteries_ladeleistung",
+            CONF_GRID_POWER_SENSOR: "sensor.emma_einspeiseleistung",
+        }
+        assert resolve_backfill_signs(cfg) == (1, -1)
+
+    def test_solax_single_sensors(self):
+        cfg = {
+            CONF_INVERTER_TYPE: "solax_gen4",
+            CONF_BATTERY_POWER_SENSOR: "sensor.solax_bat",
+            CONF_GRID_POWER_SENSOR: "sensor.solax_grid",
+        }
+        assert resolve_backfill_signs(cfg) == (-1, -1)
+
+    def test_pairs_use_base_sign(self):
+        """Paar-Konfiguration (Fronius): kanonische Kombination → Basis-Vorzeichen."""
+        cfg = {
+            CONF_INVERTER_TYPE: "fronius_gen24",
+            CONF_BATTERY_POWER_CHARGE_SENSOR: "sensor.fronius_charging",
+            CONF_BATTERY_POWER_DISCHARGE_SENSOR: "sensor.fronius_discharging",
+            CONF_GRID_POWER_EXPORT_SENSOR: "sensor.fronius_einspeisung",
+            CONF_GRID_POWER_IMPORT_SENSOR: "sensor.fronius_bezug",
+        }
+        assert resolve_backfill_signs(cfg) == (1, 1)
+
+    def test_incomplete_pair_falls_back_to_single(self):
+        """Nur ein Paar-Sensor gesetzt → Single-Pfad mit resolve_sign."""
+        cfg = {
+            CONF_INVERTER_TYPE: "huawei_sun2000",
+            CONF_BATTERY_POWER_CHARGE_SENSOR: "sensor.only_charge",
+            CONF_BATTERY_POWER_SENSOR: "sensor.emma_batterieleistung",
+            CONF_GRID_POWER_SENSOR: "sensor.emma_einspeiseleistung",
+        }
+        assert resolve_backfill_signs(cfg) == (-1, -1)

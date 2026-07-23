@@ -77,7 +77,7 @@ optimizer.py: async_run_cycle(mode)
 | 12 | PV-Prognose morgen | fast | PV forecast tomorrow |
 | 13 | Hausverbrauch | fast | Calculated: PV - Battery - Grid (kW, MEASUREMENT) |
 | 14 | PV-Leistung | fast | Current PV production (kW, MEASUREMENT) |
-| 15 | Netzleistung | fast | Current grid power — positive = import, negative = export (kW, MEASUREMENT) |
+| 15 | Netzleistung | fast | Current grid power — positive = export (Einspeisung), negative = import (kW, MEASUREMENT) |
 | 16 | Batterieleistung | fast | Current battery power — positive = charge, negative = discharge (kW, MEASUREMENT) |
 | 17 | Register-Writes | fast | Cumulative inverter Modbus write counter (used for SolarEdge NVRAM monitoring) |
 | 18 | Entscheidung | 30s | Current optimizer state + Markdown dashboard |

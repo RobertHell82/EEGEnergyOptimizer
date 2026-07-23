@@ -57,7 +57,6 @@ from .const import (
     FEEDIN_INITIAL_ESTIMATE_FACTOR,
     FEEDIN_SOC_HEADROOM_PCT,
     FEEDIN_STEP_UP_KW,
-    INVERTER_SIGN_CONVENTIONS,
     INVERTER_TYPE_FRONIUS,
     INVERTER_TYPE_HUAWEI,
     MANUAL_OVERRIDE_MAX_HOURS,
@@ -560,10 +559,14 @@ class EEGOptimizer:
         self._discharge_aborted_date: str | None = None  # ISO date "YYYY-MM-DD"
         self._is_solaredge = inv_type_cfg == "solaredge_storedge"
 
-        # Grid sensor for watchdog
+        # Grid sensor for watchdog. resolve_sign statt Direktzugriff auf
+        # INVERTER_SIGN_CONVENTIONS — der Watchdog läuft zwar nur bei
+        # SolarEdge (nie EMMA), aber alle Sign-Auflösungen sollen über
+        # dieselbe Stelle gehen (Lehre aus dem EMMA-Backfill-Bug).
+        from .power_readings import resolve_sign as _resolve_sign
         self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, "")
         inv_type = config.get(CONF_INVERTER_TYPE, "")
-        self._grid_sign = INVERTER_SIGN_CONVENTIONS.get(inv_type, {}).get("grid_sign", 1)
+        self._grid_sign = _resolve_sign(inv_type, self._grid_sensor_id, "grid_sign")
 
         # Phase 12: Slot-A/B Config-Reads (Phase-11 Dual-Master entfernt)
         # SolarEdge erzwingt XOR-Constraint via websocket_api save-path und

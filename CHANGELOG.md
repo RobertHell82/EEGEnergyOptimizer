@@ -7,6 +7,13 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.2-dev] - 2026-07-23
+
+### Behoben
+
+- **Huawei EMMA: Statistik-Backfill verfälschte den historischen Hausverbrauch bei jedem Neustart.** Der Backfill (`async_backfill_hausverbrauch_stats`), der beim HA-Start den Hausverbrauch aus den Quellsensoren nachberechnet und die Langzeit-Statistik im Lookback-Fenster überschreibt, nutzte die Vorzeichen-Konvention direkt — **ohne** die in 1.3.0 eingeführte EMMA-Inversion (`resolve_sign`). Bei EMMA-Anlagen wurden Netz- und Batterieleistung dadurch mit umgekehrtem Vorzeichen verrechnet: Der historische Hausverbrauch war um `2 × (Export + Entladung)` überhöht (an Sonnentagen 3–6-facher Tagesverbrauch, z. B. 95 statt ~15 kWh) — und der Backfill machte auch korrekt live aufgezeichnete Werte bei jedem Neustart wieder kaputt. Da das Verbrauchsprofil aus genau diesen Statistiken lernt, waren alle Verbrauchsprognosen (Morgen-Einspeisung, Min-SOC, Einspeisebegrenzung) massiv zu hoch. **Der Fix ist selbstheilend:** Beim nächsten Neustart rechnet der Backfill das komplette Lookback-Fenster korrekt neu und überschreibt die fehlerhaften Werte — kein manuelles Löschen nötig. Neue gemeinsame Vorzeichen-Auflösung `power_readings.resolve_backfill_signs` (Single-Sensor via `resolve_sign` inkl. EMMA, Paar-Konfigurationen behalten das Basis-Vorzeichen).
+- **Vorzeichen-Audit:** Auch der SolarEdge-Netzbezug-Watchdog löst sein Netz-Vorzeichen jetzt über `resolve_sign` auf (statt Direktzugriff auf die Konventions-Tabelle) — funktional unverändert (der Watchdog läuft nur bei SolarEdge), aber damit gehen alle Vorzeichen-Auflösungen im Code über eine einzige Stelle. Doku-Korrektur: Der Netzleistung-Sensor ist positiv = Einspeisung (CLAUDE.md nannte fälschlich positiv = Bezug).
+
 ## [1.3.1-dev] - 2026-07-22
 
 ### Geändert

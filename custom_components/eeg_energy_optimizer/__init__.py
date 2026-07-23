@@ -464,10 +464,14 @@ async def async_backfill_hausverbrauch_stats(
         # Sign conventions per inverter type. For pair configs the synthetic
         # sensor is already canonical, so the convention is identity (1, 1)
         # for those — encoded in INVERTER_SIGN_CONVENTIONS for fronius_gen24.
+        # resolve_backfill_signs berücksichtigt zusätzlich Huawei-EMMA-Sensoren
+        # (invertiertes Vorzeichen) — MUSS identisch zu den Live-Pfaden sein,
+        # sonst überschreibt der Backfill bei jedem Start die korrekt
+        # aufgezeichnete Statistik mit falsch berechneten Werten.
+        from .power_readings import resolve_backfill_signs
         inv_type = config.get(CONF_INVERTER_TYPE, "")
         signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
-        battery_sign = signs.get("battery_sign", 1)
-        grid_sign = signs.get("grid_sign", 1)
+        battery_sign, grid_sign = resolve_backfill_signs(config)
         pv_includes_battery = signs.get("pv_includes_battery", False)
 
         lookback_weeks = config.get(CONF_LOOKBACK_WEEKS, DEFAULT_LOOKBACK_WEEKS)

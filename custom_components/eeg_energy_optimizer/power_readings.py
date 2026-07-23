@@ -13,7 +13,12 @@ from __future__ import annotations
 from typing import Any
 
 from .const import (
+    CONF_BATTERY_POWER_CHARGE_SENSOR,
+    CONF_BATTERY_POWER_DISCHARGE_SENSOR,
     CONF_BATTERY_POWER_SENSOR,
+    CONF_GRID_POWER_EXPORT_SENSOR,
+    CONF_GRID_POWER_IMPORT_SENSOR,
+    CONF_GRID_POWER_SENSOR,
     CONF_INVERTER_TYPE,
     CONF_PV_POWER_SENSOR,
     CONF_PV_POWER_SENSOR_2,
@@ -49,6 +54,50 @@ def resolve_sign(inv_type: str, entity_id: str | None, kind: str) -> int:
     ):
         return -base
     return base
+
+
+def resolve_backfill_signs(config: dict) -> tuple[int, int]:
+    """Vorzeichen ``(battery_sign, grid_sign)`` für den Statistik-Backfill.
+
+    Identische Vorzeichen-Logik wie die Live-Pfade (``resolve_sign`` inkl.
+    Huawei-EMMA-Erkennung), erweitert um Paar-Konfigurationen: Ein Lade-/
+    Entlade- bzw. Export-/Import-Paar wird im Backfill per Konstruktion
+    kanonisch kombiniert (``pos − neg``) — dort gilt das Basis-Vorzeichen
+    des Inverter-Typs (Identität für Fronius; EMMA liefert keine Paare).
+
+    Historie: Der Backfill nutzte INVERTER_SIGN_CONVENTIONS direkt und
+    übersprang damit die EMMA-Inversion — bei EMMA-Anlagen überschrieb er
+    so bei jedem HA-Start die Hausverbrauch-Statistik mit falsch (invertiert)
+    berechneten Werten. Dieser Helper hält Backfill und Live-Sensoren
+    zwangsweise konsistent.
+    """
+    inv_type = config.get(CONF_INVERTER_TYPE, "")
+    signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
+
+    has_battery_pair = bool(
+        config.get(CONF_BATTERY_POWER_CHARGE_SENSOR)
+        and config.get(CONF_BATTERY_POWER_DISCHARGE_SENSOR)
+    )
+    has_grid_pair = bool(
+        config.get(CONF_GRID_POWER_EXPORT_SENSOR)
+        and config.get(CONF_GRID_POWER_IMPORT_SENSOR)
+    )
+
+    battery_sign = (
+        signs.get("battery_sign", 1)
+        if has_battery_pair
+        else resolve_sign(
+            inv_type, config.get(CONF_BATTERY_POWER_SENSOR, ""), "battery_sign"
+        )
+    )
+    grid_sign = (
+        signs.get("grid_sign", 1)
+        if has_grid_pair
+        else resolve_sign(
+            inv_type, config.get(CONF_GRID_POWER_SENSOR, ""), "grid_sign"
+        )
+    )
+    return battery_sign, grid_sign
 
 
 # Bekannte Einheiten-Aliase, alle in der KEY in lowercase. Deckt die in HA-
