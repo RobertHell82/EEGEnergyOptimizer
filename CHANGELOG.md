@@ -7,6 +7,18 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.3] - 2026-07-27
+
+> Release konsolidiert die DEV-Iterationen 1.3.0-dev bis 1.3.3-dev (Einspeisebegrenzung optimieren + Huawei-EMMA-Support).
+
+### Hinzugefügt
+
+- **Neues Feature „Einspeisebegrenzung optimieren" (Huawei/Fronius, opt-in).** Solange die PV-Restprognose für heute den restlichen Tagesverbrauch (inkl. Sicherheitspuffer) plus die fehlende Batterieenergie übersteigt — dieselbe Prüfung wie bei der Morgen-Einspeisung, aber ohne deren Zeitfenster (aktiv nur tagsüber ab 1 h vor Sonnenaufgang, Hysterese ×1,1 bei Reaktivierung am selben Tag) — wird das Voll-Laden der Batterie gedrosselt: Die Einspeisung geht bis zum konfigurierten Einspeiselimit ins Netz, nur der Überschuss darüber lädt die Batterie (Ladeleistung 0 = Laden vollständig blockiert). Feedback-Regelung auf die gemessene Netzeinspeisung (Nachregelung alle 60 s), asymmetrisch: langsames Anheben, sofortiges Absenken bei PV-Einbruch (Netzbezug-Schutz in jedem Zyklus). Zustandspriorität: geregelte Ladeleistung > 0 vor Morgen-Einspeisung; bei 0 im Morgen-Fenster wird weiterhin „Morgen-Einspeisung" angezeigt (identische Ausführung), die Nacht-Entladung (inkl. Slot B) behält Vorrang. Neuer Optimizer-Zustand „Einspeisebegrenzung", neue Wizard-Seite + Settings-Sektion (nur Huawei/Fronius), neuer Anleitungs-Guide. Standardmäßig **aus** — bestehende Installationen bleiben unverändert (Config-Migration v20).
+
+### Geändert
+
+- **Huawei-EMMA-Sensoren werden jetzt unterstützt (automatische Netz-Vorzeichen-Korrektur).** Die Einspeiseleistung des EMMA-Energiemanagements (entity_id-Präfix `sensor.emma_…`) liefert das Netz-Vorzeichen umgekehrt gegenüber der direkten SUN2000-Anbindung. Die neue zentrale Vorzeichen-Auflösung `power_readings.resolve_sign` erkennt solche Sensoren bei Huawei-Setups und dreht das Netz-Vorzeichen automatisch um; die Batterieleistung folgt der normalen SUN2000-Konvention und bleibt unverändert. Hausverbrauch, Netz-/Batterieleistung, Feed-in-Statistik, Optimizer-Snapshot und Statistik-Backfill leiten ihr Vorzeichen einheitlich hierüber ab. Der bisherige Hinweis „Huawei über EMMA wird nicht unterstützt" (Guide + README) entfällt.
+
 ## [1.3.3-dev] - 2026-07-27
 
 ### Behoben
