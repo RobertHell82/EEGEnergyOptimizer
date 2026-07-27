@@ -36,10 +36,11 @@ def resolve_sign(inv_type: str, entity_id: str | None, kind: str) -> int:
     hierüber ab.
 
     Basis ist ``INVERTER_SIGN_CONVENTIONS[inv_type][kind]`` (pro Inverter-Typ).
-    Sonderfall Huawei-EMMA: Sensoren des EMMA-Energiemanagements (entity_id-
-    Präfix ``sensor.emma…``) liefern die Leistung mit umgekehrtem Vorzeichen
-    gegenüber der SUN2000-Konvention — für einen solchen Sensor wird das
-    Basis-Vorzeichen invertiert.
+    Sonderfall Huawei-EMMA: Die Einspeiseleistung des EMMA-Energiemanagements
+    (entity_id-Präfix ``sensor.emma…``) liefert das Netz-Vorzeichen umgekehrt
+    gegenüber der SUN2000-Konvention — NUR für ``grid_sign`` wird das
+    Basis-Vorzeichen invertiert. Die EMMA-Batterieleistung folgt der normalen
+    SUN2000-Konvention und bleibt unverändert.
 
     Args:
         inv_type: Konfigurierter Inverter-Typ (CONF_INVERTER_TYPE).
@@ -48,7 +49,8 @@ def resolve_sign(inv_type: str, entity_id: str | None, kind: str) -> int:
     """
     base = INVERTER_SIGN_CONVENTIONS.get(inv_type, {}).get(kind, 1)
     if (
-        inv_type == INVERTER_TYPE_HUAWEI
+        kind == "grid_sign"
+        and inv_type == INVERTER_TYPE_HUAWEI
         and entity_id
         and entity_id.lower().startswith(EMMA_SENSOR_PREFIX)
     ):

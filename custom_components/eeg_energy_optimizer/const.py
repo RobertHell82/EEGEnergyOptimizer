@@ -63,11 +63,13 @@ INVERTER_SIGN_CONVENTIONS = {
     "fronius_gen24": {"battery_sign": 1, "grid_sign": 1},
 }
 
-# Huawei EMMA-Energiemanagement: Sensoren des EMMA-Geräts (entity_id-Präfix
-# "sensor.emma…") liefern die Leistung mit umgekehrtem Vorzeichen gegenüber der
-# normalen SUN2000-Konvention (u. a. sensor.emma_einspeiseleistung). Wird ein
-# solcher Sensor bei einem Huawei-Setup konfiguriert, dreht resolve_sign das
-# jeweilige Vorzeichen um (siehe power_readings.resolve_sign).
+# Huawei EMMA-Energiemanagement: Die Einspeiseleistung des EMMA-Geräts
+# (entity_id-Präfix "sensor.emma…", z. B. sensor.emma_einspeiseleistung)
+# liefert das Netz-Vorzeichen umgekehrt gegenüber der normalen SUN2000-
+# Konvention. Wird ein solcher Sensor bei einem Huawei-Setup als Netz-Sensor
+# konfiguriert, dreht resolve_sign das grid_sign um (siehe
+# power_readings.resolve_sign). Die EMMA-Batterieleistung folgt der normalen
+# Konvention und wird NICHT invertiert.
 EMMA_SENSOR_PREFIX = "sensor.emma"
 
 # Entity IDs of the synthetic combined sensors created at setup time when

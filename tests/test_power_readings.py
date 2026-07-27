@@ -258,7 +258,7 @@ from custom_components.eeg_energy_optimizer.power_readings import resolve_sign
 
 
 class TestResolveSign:
-    """Basis-Vorzeichen aus INVERTER_SIGN_CONVENTIONS, EMMA-Inversion bei Huawei."""
+    """Basis-Vorzeichen aus INVERTER_SIGN_CONVENTIONS, EMMA-Inversion (nur grid_sign) bei Huawei."""
 
     def test_huawei_normal_sensor_keeps_base_sign(self):
         assert resolve_sign("huawei_sun2000", "sensor.power_meter_wirkleistung", "grid_sign") == 1
@@ -267,8 +267,10 @@ class TestResolveSign:
     def test_huawei_emma_sensor_inverts_grid_sign(self):
         assert resolve_sign("huawei_sun2000", "sensor.emma_einspeiseleistung", "grid_sign") == -1
 
-    def test_huawei_emma_sensor_inverts_battery_sign(self):
-        assert resolve_sign("huawei_sun2000", "sensor.emma_batterieleistung", "battery_sign") == -1
+    def test_huawei_emma_sensor_keeps_battery_sign(self):
+        # EMMA-Batterieleistung folgt der normalen SUN2000-Konvention —
+        # nur das Netz-Vorzeichen (grid_sign) wird invertiert.
+        assert resolve_sign("huawei_sun2000", "sensor.emma_batterieleistung", "battery_sign") == 1
 
     def test_emma_prefix_case_insensitive(self):
         assert resolve_sign("huawei_sun2000", "SENSOR.EMMA_Einspeiseleistung", "grid_sign") == -1
@@ -323,13 +325,13 @@ class TestResolveBackfillSigns:
         }
         assert resolve_backfill_signs(cfg) == (1, 1)
 
-    def test_huawei_emma_sensors_invert_both(self):
+    def test_huawei_emma_sensors_invert_grid_only(self):
         cfg = {
             CONF_INVERTER_TYPE: "huawei_sun2000",
             CONF_BATTERY_POWER_SENSOR: "sensor.emma_batterieleistung",
             CONF_GRID_POWER_SENSOR: "sensor.emma_einspeiseleistung",
         }
-        assert resolve_backfill_signs(cfg) == (-1, -1)
+        assert resolve_backfill_signs(cfg) == (1, -1)
 
     def test_huawei_mixed_emma_grid_only(self):
         cfg = {
@@ -366,4 +368,4 @@ class TestResolveBackfillSigns:
             CONF_BATTERY_POWER_SENSOR: "sensor.emma_batterieleistung",
             CONF_GRID_POWER_SENSOR: "sensor.emma_einspeiseleistung",
         }
-        assert resolve_backfill_signs(cfg) == (-1, -1)
+        assert resolve_backfill_signs(cfg) == (1, -1)

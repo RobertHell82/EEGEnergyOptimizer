@@ -7,6 +7,12 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.3-dev] - 2026-07-27
+
+### Behoben
+
+- **Huawei EMMA: Vorzeichen-Inversion gilt nur noch für die Netzleistung (Einspeiseleistung).** Die in 1.3.0 eingeführte EMMA-Erkennung (`resolve_sign`) drehte das Vorzeichen fälschlich auch für die Batterieleistung um — die EMMA-Batterieleistung folgt aber der normalen SUN2000-Konvention (positiv = Laden). Jetzt wird nur noch das Netz-Vorzeichen (`grid_sign`) bei `sensor.emma_*`-Sensoren invertiert; `battery_sign` bleibt unverändert. Betrifft Hausverbrauch-/Batterieleistung-Sensor, Optimizer-Snapshot, Feed-in-Statistik und Statistik-Backfill (heilt sich beim nächsten Neustart selbst).
+
 ## [1.3.2-dev] - 2026-07-23
 
 ### Behoben

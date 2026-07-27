@@ -2,7 +2,7 @@
      Quelle: docs/guides/huawei.md
      Neu generieren mit: python scripts/build_guides.py -->
 <h2 class="guide-title">Huawei Solar Integration einrichten</h2>
-<div class="guide-alert note"><p><strong>EMMA-Energiemanagement:</strong> Wird Home Assistant über das Huawei-EMMA angebunden, tragen die Sensoren den Präfix <code>sensor.emma_…</code> und liefern die Leistung mit umgekehrtem Vorzeichen gegenüber der direkten SUN2000-Anbindung. Der EEG Energy Optimizer erkennt solche Sensoren automatisch und dreht das Vorzeichen entsprechend um — trage die <code>sensor.emma_*</code>-Entitäten einfach in der Sensor-Zuordnung ein.</p></div>
+<div class="guide-alert note"><p><strong>EMMA-Energiemanagement:</strong> Wird Home Assistant über das Huawei-EMMA angebunden, tragen die Sensoren den Präfix <code>sensor.emma_…</code>. Die EMMA-Einspeiseleistung liefert das Netz-Vorzeichen umgekehrt gegenüber der direkten SUN2000-Anbindung — der EEG Energy Optimizer erkennt solche Sensoren automatisch und dreht das Netz-Vorzeichen entsprechend um (die Batterieleistung folgt der normalen Konvention und bleibt unverändert). Trage die <code>sensor.emma_*</code>-Entitäten einfach in der Sensor-Zuordnung ein.</p></div>
 
 <h3>1. Wechselrichter vorbereiten</h3>
 <p>Modbus TCP muss am Wechselrichter aktiviert sein, damit Home Assistant zugreifen kann:</p>
