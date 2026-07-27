@@ -77,7 +77,7 @@ optimizer.py: async_run_cycle(mode)
 | 12 | PV-Prognose morgen | fast | PV forecast tomorrow |
 | 13 | Hausverbrauch | fast | Calculated: PV - Battery - Grid (kW, MEASUREMENT) |
 | 14 | PV-Leistung | fast | Current PV production (kW, MEASUREMENT) |
-| 15 | Netzleistung | fast | Current grid power — positive = import, negative = export (kW, MEASUREMENT) |
+| 15 | Netzleistung | fast | Current grid power — positive = export (Einspeisung), negative = import (kW, MEASUREMENT) |
 | 16 | Batterieleistung | fast | Current battery power — positive = charge, negative = discharge (kW, MEASUREMENT) |
 | 17 | Register-Writes | fast | Cumulative inverter Modbus write counter (used for SolarEdge NVRAM monitoring) |
 | 18 | Entscheidung | 30s | Current optimizer state + Markdown dashboard |
@@ -94,6 +94,7 @@ optimizer.py: async_run_cycle(mode)
 
 - **Morgen-Einspeisung**: Battery charging blocked to maximize morning EEG feed-in
 - **Nacht-Entladung**: Battery discharging for evening EEG feed-in
+- **Einspeisebegrenzung**: While the PV forecast guarantees the battery will still get full today (same check as Morgen-Einspeisung, without its time window; daytime-only, hysteresis ×1.1 on same-day reactivation), full-power charging is throttled: feed-in goes to the grid up to the configured export limit, only the surplus above the limit charges the battery (Huawei/Fronius only, opt-in). Charge power 0 = charging fully blocked while feed-in is below the limit. Feedback loop on measured grid export, adjusted every 60s, asymmetric (slow up / fast down for anti grid-import). With charge power > 0 it takes priority over Morgen-Einspeisung; with 0 the morning state is displayed (identical execution) and discharge keeps priority.
 - **Normal**: Standard operation (inverter in auto mode)
 
 ### Activity Log
@@ -198,7 +199,7 @@ The config flow is a single-click setup that creates a config entry with `setup_
 6. Inverter connection test
 7. Live dashboard with energy flow, charts, manual controls, activity log
 
-Config entry version: 19 (migrations in `__init__.py`)
+Config entry version: 20 (migrations in `__init__.py`)
 
 ## Development Notes
 

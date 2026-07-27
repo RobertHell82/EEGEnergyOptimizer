@@ -13,12 +13,93 @@ from __future__ import annotations
 from typing import Any
 
 from .const import (
+    CONF_BATTERY_POWER_CHARGE_SENSOR,
+    CONF_BATTERY_POWER_DISCHARGE_SENSOR,
     CONF_BATTERY_POWER_SENSOR,
+    CONF_GRID_POWER_EXPORT_SENSOR,
+    CONF_GRID_POWER_IMPORT_SENSOR,
+    CONF_GRID_POWER_SENSOR,
     CONF_INVERTER_TYPE,
     CONF_PV_POWER_SENSOR,
     CONF_PV_POWER_SENSOR_2,
+    EMMA_SENSOR_PREFIX,
     INVERTER_SIGN_CONVENTIONS,
+    INVERTER_TYPE_HUAWEI,
 )
+
+
+def resolve_sign(inv_type: str, entity_id: str | None, kind: str) -> int:
+    """Effektives Vorzeichen (+1/-1) für einen grid-/battery-Leistungssensor.
+
+    Einzige Anwendungsstelle der Vorzeichen-Konvention — alle Aufrufer
+    (Sensoren, Optimizer-Snapshot, Feed-in-Statistik) leiten ihr Vorzeichen
+    hierüber ab.
+
+    Basis ist ``INVERTER_SIGN_CONVENTIONS[inv_type][kind]`` (pro Inverter-Typ).
+    Sonderfall Huawei-EMMA: Die Einspeiseleistung des EMMA-Energiemanagements
+    (entity_id-Präfix ``sensor.emma…``) liefert das Netz-Vorzeichen umgekehrt
+    gegenüber der SUN2000-Konvention — NUR für ``grid_sign`` wird das
+    Basis-Vorzeichen invertiert. Die EMMA-Batterieleistung folgt der normalen
+    SUN2000-Konvention und bleibt unverändert.
+
+    Args:
+        inv_type: Konfigurierter Inverter-Typ (CONF_INVERTER_TYPE).
+        entity_id: entity_id des konkreten Sensors (kann None/leer sein).
+        kind: ``"grid_sign"`` oder ``"battery_sign"``.
+    """
+    base = INVERTER_SIGN_CONVENTIONS.get(inv_type, {}).get(kind, 1)
+    if (
+        kind == "grid_sign"
+        and inv_type == INVERTER_TYPE_HUAWEI
+        and entity_id
+        and entity_id.lower().startswith(EMMA_SENSOR_PREFIX)
+    ):
+        return -base
+    return base
+
+
+def resolve_backfill_signs(config: dict) -> tuple[int, int]:
+    """Vorzeichen ``(battery_sign, grid_sign)`` für den Statistik-Backfill.
+
+    Identische Vorzeichen-Logik wie die Live-Pfade (``resolve_sign`` inkl.
+    Huawei-EMMA-Erkennung), erweitert um Paar-Konfigurationen: Ein Lade-/
+    Entlade- bzw. Export-/Import-Paar wird im Backfill per Konstruktion
+    kanonisch kombiniert (``pos − neg``) — dort gilt das Basis-Vorzeichen
+    des Inverter-Typs (Identität für Fronius; EMMA liefert keine Paare).
+
+    Historie: Der Backfill nutzte INVERTER_SIGN_CONVENTIONS direkt und
+    übersprang damit die EMMA-Inversion — bei EMMA-Anlagen überschrieb er
+    so bei jedem HA-Start die Hausverbrauch-Statistik mit falsch (invertiert)
+    berechneten Werten. Dieser Helper hält Backfill und Live-Sensoren
+    zwangsweise konsistent.
+    """
+    inv_type = config.get(CONF_INVERTER_TYPE, "")
+    signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
+
+    has_battery_pair = bool(
+        config.get(CONF_BATTERY_POWER_CHARGE_SENSOR)
+        and config.get(CONF_BATTERY_POWER_DISCHARGE_SENSOR)
+    )
+    has_grid_pair = bool(
+        config.get(CONF_GRID_POWER_EXPORT_SENSOR)
+        and config.get(CONF_GRID_POWER_IMPORT_SENSOR)
+    )
+
+    battery_sign = (
+        signs.get("battery_sign", 1)
+        if has_battery_pair
+        else resolve_sign(
+            inv_type, config.get(CONF_BATTERY_POWER_SENSOR, ""), "battery_sign"
+        )
+    )
+    grid_sign = (
+        signs.get("grid_sign", 1)
+        if has_grid_pair
+        else resolve_sign(
+            inv_type, config.get(CONF_GRID_POWER_SENSOR, ""), "grid_sign"
+        )
+    )
+    return battery_sign, grid_sign
 
 
 # Bekannte Einheiten-Aliase, alle in der KEY in lowercase. Deckt die in HA-

@@ -1178,6 +1178,14 @@ _EXPECTED_REASON_KEYS: frozenset[str] = frozenset({
     "slot_b_window_expired",
     "slot_b_pre_sunrise_cutoff",
     "manual_discharge_override",
+    # Einspeisebegrenzung optimieren
+    "feedin_limit_disabled",
+    "feedin_limit_unsupported_inverter",
+    "feedin_limit_no_grid_sensor",
+    "feedin_limit_battery_full",
+    "feedin_limit_active",
+    "feedin_limit_not_daytime",
+    "feedin_limit_forecast_low",
 })
 
 

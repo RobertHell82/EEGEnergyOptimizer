@@ -52,6 +52,12 @@ def _make_decision(**overrides):
         "discharge_start_time": "",
         # Hysteresis flag (added in the anti-oscillation revamp)
         "discharge_hysteresis_active": False,
+        # Einspeisebegrenzungs-Statuskarte
+        "feedin_status": "deaktiviert",
+        "feedin_grid_kw": 0.0,
+        "feedin_limit_kw": 0.0,
+        "feedin_charge_kw": 0.0,
+        "ladeleistung_kw": 0.0,
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

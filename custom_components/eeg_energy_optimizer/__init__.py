@@ -19,6 +19,8 @@ from .const import (
     CONF_BATTERY_CAPACITY_KWH,
     CONF_BATTERY_CAPACITY_SENSOR,
     CONF_BATTERY_SOC_SENSOR,
+    CONF_ENABLE_FEEDIN_LIMIT,
+    CONF_FEEDIN_LIMIT_KW,
     CONF_FORECAST_SOURCE,
     CONF_INVERTER_TYPE,
     CONF_PV_PEAK_KWP,
@@ -37,6 +39,8 @@ from .const import (
     COMBINED_BATTERY_SOC_SENSOR_ID,
     COMBINED_GRID_POWER_SENSOR_ID,
     CONSUMPTION_SENSOR,
+    DEFAULT_ENABLE_FEEDIN_LIMIT,
+    DEFAULT_FEEDIN_LIMIT_KW,
     DEFAULT_LOOKBACK_WEEKS,
     FAILURE_DEDUP_WINDOW_S,
     FORECAST_NONE_STREAK_THRESHOLD,
@@ -460,10 +464,14 @@ async def async_backfill_hausverbrauch_stats(
         # Sign conventions per inverter type. For pair configs the synthetic
         # sensor is already canonical, so the convention is identity (1, 1)
         # for those — encoded in INVERTER_SIGN_CONVENTIONS for fronius_gen24.
+        # resolve_backfill_signs berücksichtigt zusätzlich Huawei-EMMA-Sensoren
+        # (invertiertes Vorzeichen) — MUSS identisch zu den Live-Pfaden sein,
+        # sonst überschreibt der Backfill bei jedem Start die korrekt
+        # aufgezeichnete Statistik mit falsch berechneten Werten.
+        from .power_readings import resolve_backfill_signs
         inv_type = config.get(CONF_INVERTER_TYPE, "")
         signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
-        battery_sign = signs.get("battery_sign", 1)
-        grid_sign = signs.get("grid_sign", 1)
+        battery_sign, grid_sign = resolve_backfill_signs(config)
         pv_includes_battery = signs.get("pv_includes_battery", False)
 
         lookback_weeks = config.get(CONF_LOOKBACK_WEEKS, DEFAULT_LOOKBACK_WEEKS)
@@ -1020,6 +1028,17 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # summiert die echten Sensorwerte. Setze ihn aber nicht zurück,
             # damit der User seine Konfiguration nachvollziehen kann.
         hass.config_entries.async_update_entry(entry, data=new_data, version=19)
+
+    if entry.version < 20:
+        # v20 — Feature "Einspeisebegrenzung optimieren" (Huawei/Fronius).
+        # Additive, sichere Migration: Feature standardmäßig AUS, damit sich
+        # bestehende Installationen nicht verändern. Der Nutzer aktiviert es
+        # bewusst im Wizard/Settings. feedin_limit_kw dient nur als sinnvoller
+        # Vorbelegungswert und ist ohne aktives Feature wirkungslos.
+        new_data = {**entry.data}
+        new_data.setdefault(CONF_ENABLE_FEEDIN_LIMIT, DEFAULT_ENABLE_FEEDIN_LIMIT)
+        new_data.setdefault(CONF_FEEDIN_LIMIT_KW, DEFAULT_FEEDIN_LIMIT_KW)
+        hass.config_entries.async_update_entry(entry, data=new_data, version=20)
 
     return True
 

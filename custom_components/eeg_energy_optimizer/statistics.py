@@ -128,11 +128,12 @@ class FeedinStatistics:
         self._hass = hass
         self._entry_id = entry_id
 
-        # Grid sensor + sign convention (same pattern as NetzleistungSensor)
+        # Grid sensor + sign convention (same pattern as NetzleistungSensor);
+        # resolve_sign berücksichtigt zusätzlich Huawei-EMMA-Sensoren.
+        from .power_readings import resolve_sign
         self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, "")
         inv_type = config.get(CONF_INVERTER_TYPE, "")
-        signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
-        self._grid_sign = signs.get("grid_sign", 1)
+        self._grid_sign = resolve_sign(inv_type, self._grid_sensor_id, "grid_sign")
 
         # Persistence
         store_key = f"{DOMAIN}_{entry_id}_feedin_stats"

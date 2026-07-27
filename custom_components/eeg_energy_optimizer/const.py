@@ -63,6 +63,15 @@ INVERTER_SIGN_CONVENTIONS = {
     "fronius_gen24": {"battery_sign": 1, "grid_sign": 1},
 }
 
+# Huawei EMMA-Energiemanagement: Die Einspeiseleistung des EMMA-Geräts
+# (entity_id-Präfix "sensor.emma…", z. B. sensor.emma_einspeiseleistung)
+# liefert das Netz-Vorzeichen umgekehrt gegenüber der normalen SUN2000-
+# Konvention. Wird ein solcher Sensor bei einem Huawei-Setup als Netz-Sensor
+# konfiguriert, dreht resolve_sign das grid_sign um (siehe
+# power_readings.resolve_sign). Die EMMA-Batterieleistung folgt der normalen
+# Konvention und wird NICHT invertiert.
+EMMA_SENSOR_PREFIX = "sensor.emma"
+
 # Entity IDs of the synthetic combined sensors created at setup time when
 # the user (or auto-detect) configures pair sensors. Held as constants so
 # wizard, backfill, and sensor platform agree on the names.
@@ -116,8 +125,30 @@ CONF_SAFETY_BUFFER_PCT = "safety_buffer_pct"
 CONF_ENABLE_PEAKSHARE = "enable_peakshare"
 CONF_PEAKSHARE_COMMUNITY = "peakshare_community"
 
+# Einspeisebegrenzung optimieren: Solange die Batterie laut Prognose heute
+# sicher noch voll wird, wird das Voll-Laden gedrosselt — der PV-Überschuss
+# speist bis zum Einspeiselimit ins Netz ein, nur der Anteil darüber lädt die
+# Batterie (statt Abregelung). Opt-in, nur Huawei/Fronius (Watt- bzw.
+# %-genaues Ladelimit). Siehe optimizer._should_limit_feedin.
+CONF_ENABLE_FEEDIN_LIMIT = "enable_feedin_limit"
+CONF_FEEDIN_LIMIT_KW = "feedin_limit_kw"
+
 DEFAULT_ENABLE_PEAKSHARE = True
 DEFAULT_PEAKSHARE_COMMUNITY = "BEG"
+
+DEFAULT_ENABLE_FEEDIN_LIMIT = False
+DEFAULT_FEEDIN_LIMIT_KW = 4.0
+
+# Feintuning des Einspeisebegrenzungs-Reglers (Experten-Werte, kein UI).
+# Regelstrategie asymmetrisch: langsam hoch (feste Schritte, solange die
+# Einspeisung am Limit klebt = Abregelung), schnell runter (proportional, sobald
+# die Einspeisung unters Limit fällt → Netzbezug-Schutz).
+FEEDIN_ADJUST_INTERVAL_SECONDS = 60   # Nachregelung frühestens alle 60 s
+FEEDIN_STEP_UP_KW = 0.5               # feste Schrittweite beim Hochtasten
+FEEDIN_DEADBAND_KW = 0.15             # Toleranzband am unteren Limit-Rand (Anti-Oszillation)
+FEEDIN_ENTER_MARGIN_KW = 0.2          # Feedforward-Start, wenn Einspeisung beim Eintritt ≥ Limit − Marge
+FEEDIN_SOC_HEADROOM_PCT = 98          # ab diesem SOC keine Aufnahme mehr → inaktiv
+FEEDIN_INITIAL_ESTIMATE_FACTOR = 0.8  # konservativer Feedforward-Startwert beim Eintritt
 
 DEFAULT_UEBERSCHUSS_SCHWELLE = 1.25
 DEFAULT_MORNING_START_OFFSET = 0
@@ -163,6 +194,7 @@ OPTIMIZER_MODES = [MODE_EIN, MODE_TEST]
 STATE_MORGEN_EINSPEISUNG = "Morgen-Einspeisung"
 STATE_NORMAL = "Normal"
 STATE_ABEND_ENTLADUNG = "Nacht-Entladung"
+STATE_EINSPEISEBEGRENZUNG = "Einspeisebegrenzung"
 
 # Startup grace period: delay inverter commands after HA restart
 # to let sensors (PV forecast, sun.sun) settle with valid data
@@ -237,6 +269,9 @@ TELEMETRY_SETTINGS_KEYS = (
     "discharge_a_start_time",
     "discharge_b_start_time",
     "discharge_b_end_cap",
+    # Einspeisebegrenzung optimieren
+    "enable_feedin_limit",
+    "feedin_limit_kw",
 )
 
 # Phase 8 — Runtime Watchdog-Schwellen (08-03, D-16)

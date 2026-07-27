@@ -7,7 +7,46 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
-## Unreleased
+## [1.3.3] - 2026-07-27
+
+> Release konsolidiert die DEV-Iterationen 1.3.0-dev bis 1.3.3-dev (Einspeisebegrenzung optimieren + Huawei-EMMA-Support).
+
+### Hinzugefügt
+
+- **Neues Feature „Einspeisebegrenzung optimieren" (Huawei/Fronius, opt-in).** Solange die PV-Restprognose für heute den restlichen Tagesverbrauch (inkl. Sicherheitspuffer) plus die fehlende Batterieenergie übersteigt — dieselbe Prüfung wie bei der Morgen-Einspeisung, aber ohne deren Zeitfenster (aktiv nur tagsüber ab 1 h vor Sonnenaufgang, Hysterese ×1,1 bei Reaktivierung am selben Tag) — wird das Voll-Laden der Batterie gedrosselt: Die Einspeisung geht bis zum konfigurierten Einspeiselimit ins Netz, nur der Überschuss darüber lädt die Batterie (Ladeleistung 0 = Laden vollständig blockiert). Feedback-Regelung auf die gemessene Netzeinspeisung (Nachregelung alle 60 s), asymmetrisch: langsames Anheben, sofortiges Absenken bei PV-Einbruch (Netzbezug-Schutz in jedem Zyklus). Zustandspriorität: geregelte Ladeleistung > 0 vor Morgen-Einspeisung; bei 0 im Morgen-Fenster wird weiterhin „Morgen-Einspeisung" angezeigt (identische Ausführung), die Nacht-Entladung (inkl. Slot B) behält Vorrang. Neuer Optimizer-Zustand „Einspeisebegrenzung", neue Wizard-Seite + Settings-Sektion (nur Huawei/Fronius), neuer Anleitungs-Guide. Standardmäßig **aus** — bestehende Installationen bleiben unverändert (Config-Migration v20).
+
+### Geändert
+
+- **Huawei-EMMA-Sensoren werden jetzt unterstützt (automatische Netz-Vorzeichen-Korrektur).** Die Einspeiseleistung des EMMA-Energiemanagements (entity_id-Präfix `sensor.emma_…`) liefert das Netz-Vorzeichen umgekehrt gegenüber der direkten SUN2000-Anbindung. Die neue zentrale Vorzeichen-Auflösung `power_readings.resolve_sign` erkennt solche Sensoren bei Huawei-Setups und dreht das Netz-Vorzeichen automatisch um; die Batterieleistung folgt der normalen SUN2000-Konvention und bleibt unverändert. Hausverbrauch, Netz-/Batterieleistung, Feed-in-Statistik, Optimizer-Snapshot und Statistik-Backfill leiten ihr Vorzeichen einheitlich hierüber ab. Der bisherige Hinweis „Huawei über EMMA wird nicht unterstützt" (Guide + README) entfällt.
+
+## [1.3.3-dev] - 2026-07-27
+
+### Behoben
+
+- **Huawei EMMA: Vorzeichen-Inversion gilt nur noch für die Netzleistung (Einspeiseleistung).** Die in 1.3.0 eingeführte EMMA-Erkennung (`resolve_sign`) drehte das Vorzeichen fälschlich auch für die Batterieleistung um — die EMMA-Batterieleistung folgt aber der normalen SUN2000-Konvention (positiv = Laden). Jetzt wird nur noch das Netz-Vorzeichen (`grid_sign`) bei `sensor.emma_*`-Sensoren invertiert; `battery_sign` bleibt unverändert. Betrifft Hausverbrauch-/Batterieleistung-Sensor, Optimizer-Snapshot, Feed-in-Statistik und Statistik-Backfill (heilt sich beim nächsten Neustart selbst).
+
+## [1.3.2-dev] - 2026-07-23
+
+### Behoben
+
+- **Huawei EMMA: Statistik-Backfill verfälschte den historischen Hausverbrauch bei jedem Neustart.** Der Backfill (`async_backfill_hausverbrauch_stats`), der beim HA-Start den Hausverbrauch aus den Quellsensoren nachberechnet und die Langzeit-Statistik im Lookback-Fenster überschreibt, nutzte die Vorzeichen-Konvention direkt — **ohne** die in 1.3.0 eingeführte EMMA-Inversion (`resolve_sign`). Bei EMMA-Anlagen wurden Netz- und Batterieleistung dadurch mit umgekehrtem Vorzeichen verrechnet: Der historische Hausverbrauch war um `2 × (Export + Entladung)` überhöht (an Sonnentagen 3–6-facher Tagesverbrauch, z. B. 95 statt ~15 kWh) — und der Backfill machte auch korrekt live aufgezeichnete Werte bei jedem Neustart wieder kaputt. Da das Verbrauchsprofil aus genau diesen Statistiken lernt, waren alle Verbrauchsprognosen (Morgen-Einspeisung, Min-SOC, Einspeisebegrenzung) massiv zu hoch. **Der Fix ist selbstheilend:** Beim nächsten Neustart rechnet der Backfill das komplette Lookback-Fenster korrekt neu und überschreibt die fehlerhaften Werte — kein manuelles Löschen nötig. Neue gemeinsame Vorzeichen-Auflösung `power_readings.resolve_backfill_signs` (Single-Sensor via `resolve_sign` inkl. EMMA, Paar-Konfigurationen behalten das Basis-Vorzeichen).
+- **Vorzeichen-Audit:** Auch der SolarEdge-Netzbezug-Watchdog löst sein Netz-Vorzeichen jetzt über `resolve_sign` auf (statt Direktzugriff auf die Konventions-Tabelle) — funktional unverändert (der Watchdog läuft nur bei SolarEdge), aber damit gehen alle Vorzeichen-Auflösungen im Code über eine einzige Stelle. Doku-Korrektur: Der Netzleistung-Sensor ist positiv = Einspeisung (CLAUDE.md nannte fälschlich positiv = Bezug).
+
+## [1.3.1-dev] - 2026-07-22
+
+### Geändert
+
+- **„Einspeisebegrenzung optimieren" grundlegend überarbeitet: prognosebasiertes Drosseln statt reaktiver Abregelungs-Erkennung.** Das Feature greift jetzt, sobald die PV-Restprognose für heute den restlichen Tagesverbrauch (inkl. Sicherheitspuffer) plus die fehlende Batterieenergie übersteigt — dieselbe Prüfung wie bei der Morgen-Einspeisung, aber ohne deren Zeitfenster (Hysterese ×1,1 bei Reaktivierung am selben Tag, aktiv nur tagsüber ab 1 h vor Sonnenaufgang). Solange die Batterie heute sicher noch voll wird, wird das Voll-Laden gedrosselt: Einspeisung bis zum Limit, nur der Überschuss darüber lädt die Batterie (Ladeleistung 0 = Laden vollständig blockiert, kein Austritt mehr). Reicht die Prognose nicht, lädt die Batterie normal mit voller Leistung. Bisher aktivierte sich die Regelung nur, wenn die Einspeisung bereits am Limit klebte — was außerhalb der Morgen-Einspeisung praktisch nie eintrat, weil der Überschuss zuerst in die Batterie floss. Zustandspriorität: bei geregelter Ladeleistung > 0 vor der Morgen-Einspeisung; bei 0 im Morgen-Fenster wird weiterhin „Morgen-Einspeisung" angezeigt (identische Ausführung), die Nacht-Entladung (inkl. Slot B) behält Vorrang. Neue Diagnose-Keys `feedin_limit_forecast_low`/`feedin_limit_not_daytime` (ersetzt `feedin_limit_no_surplus`); Statustexte, Panel-Beschreibungen und Guide entsprechend aktualisiert.
+
+## [1.3.0-dev] - 2026-07-22
+
+### Hinzugefügt
+
+- **Neues Feature „Einspeisebegrenzung optimieren" (Huawei/Fronius, opt-in).** Regelt die Batterie-Ladeleistung dynamisch, sodass die Netzeinspeisung am konfigurierten Einspeiselimit bleibt und PV-Überschuss geladen statt vom Wechselrichter abgeregelt wird. Erkennt das Abregeln daran, dass die Einspeisung am Limit „klebt", und tastet die Ladeleistung testend hoch (Feedback auf die gemessene Netzeinspeisung, Nachregelung alle 60 s). Asymmetrische Regelung — langsames Anheben, sofortiges Absenken bei PV-Einbruch (Netzbezug-Schutz). Kombiniert sich mit der Morgen-Einspeisung (rettet dort sonst abgeregelte Energie) und hat Vorrang, solange Überschuss über dem Limit anfällt. Neuer Optimizer-Zustand `Einspeisebegrenzung`, neue Wizard-Seite + Settings-Sektion (nur Huawei/Fronius), neuer Anleitungs-Guide. Standardmäßig **aus** — bestehende Installationen bleiben unverändert (Config-Migration v20).
+
+### Geändert
+
+- **Huawei-EMMA-Sensoren werden jetzt unterstützt (automatische Vorzeichen-Korrektur).** Sensoren des Huawei-EMMA-Energiemanagements (entity_id-Präfix `sensor.emma_…`) liefern Netz- und Batterieleistung mit umgekehrtem Vorzeichen gegenüber der direkten SUN2000-Anbindung. Die neue zentrale Funktion `power_readings.resolve_sign` erkennt solche Sensoren bei Huawei-Setups und dreht das Vorzeichen automatisch um — Hausverbrauch, Netz-/Batterieleistung, Feed-in-Statistik und Optimizer-Snapshot leiten ihr Vorzeichen jetzt einheitlich hierüber ab. Der bisherige Hinweis „Huawei über EMMA wird nicht unterstützt" (Guide + README) entfällt.
 
 ## [1.2.18] - 2026-07-17
 

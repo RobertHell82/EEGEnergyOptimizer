@@ -590,11 +590,13 @@ class HausverbrauchSensor(SensorEntity):
         # Optional second battery (Huawei Master/Slave) — explicit signed sensor.
         self._battery_power_2_sensor_id = config.get(CONF_BATTERY_POWER_SENSOR_2, "")
         self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, "")
-        # Sign conventions differ per inverter type (defined in const.py)
+        # Sign conventions differ per inverter type (defined in const.py);
+        # resolve_sign berücksichtigt zusätzlich Huawei-EMMA-Sensoren.
+        from .power_readings import resolve_sign
         inv_type = config.get(CONF_INVERTER_TYPE, "")
         signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
-        self._battery_sign = signs.get("battery_sign", 1)
-        self._grid_sign = signs.get("grid_sign", 1)
+        self._battery_sign = resolve_sign(inv_type, self._battery_power_sensor_id, "battery_sign")
+        self._grid_sign = resolve_sign(inv_type, self._grid_sensor_id, "grid_sign")
         self._pv_includes_battery = signs.get("pv_includes_battery", False)
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_hausverbrauch"
         self._attr_device_info = _device_info(entry.entry_id)
@@ -724,9 +726,9 @@ class NetzleistungSensor(SensorEntity):
     def __init__(self, hass: Any, entry: Any, config: dict) -> None:
         self.hass = hass
         self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, "")
+        from .power_readings import resolve_sign
         inv_type = config.get(CONF_INVERTER_TYPE, "")
-        signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
-        self._grid_sign = signs.get("grid_sign", 1)
+        self._grid_sign = resolve_sign(inv_type, self._grid_sensor_id, "grid_sign")
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_netzleistung"
         self._attr_device_info = _device_info(entry.entry_id)
         self._attr_native_value: float | None = None
@@ -762,9 +764,9 @@ class BatterieleistungSensor(SensorEntity):
     def __init__(self, hass: Any, entry: Any, config: dict) -> None:
         self.hass = hass
         self._battery_sensor_id = config.get(CONF_BATTERY_POWER_SENSOR, "")
+        from .power_readings import resolve_sign
         inv_type = config.get(CONF_INVERTER_TYPE, "")
-        signs = INVERTER_SIGN_CONVENTIONS.get(inv_type, {})
-        self._battery_sign = signs.get("battery_sign", 1)
+        self._battery_sign = resolve_sign(inv_type, self._battery_sensor_id, "battery_sign")
         # Second battery (multi-inverter). Explicit config wins (e.g. Huawei
         # Master/Slave, where the second battery has its own signed sensor);
         # otherwise derive it from the second PV sensor prefix (SolarEdge:
@@ -896,6 +898,12 @@ class EntscheidungsSensor(SensorEntity):
             "discharge_power_kw": decision.discharge_power_kw,
             "discharge_start_time": decision.discharge_start_time,
             "discharge_hysteresis_active": decision.discharge_hysteresis_active,
+            # Einspeisebegrenzungs-Statuskarte
+            "feedin_status": decision.feedin_status,
+            "feedin_grid_kw": round(decision.feedin_grid_kw, 2),
+            "feedin_limit_kw": round(decision.feedin_limit_kw, 2),
+            "feedin_charge_kw": round(decision.feedin_charge_kw, 2),
+            "ladeleistung_kw": round(decision.ladeleistung_kw, 2),
         }
         self.async_write_ha_state()
 
