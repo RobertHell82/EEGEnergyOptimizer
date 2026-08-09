@@ -15,6 +15,8 @@ from custom_components.eeg_energy_optimizer.const import (
     CONF_DISCHARGE_POWER_KW,
     CONF_ENABLE_SLOT_A,
     CONF_ENABLE_SLOT_B,
+    CONF_GRID_POWER_SENSOR,
+    CONF_INVERTER_TYPE,
     CONF_MIN_SOC,
     CONF_MORNING_END_TIME,
     CONF_SAFETY_BUFFER_PCT,
@@ -25,6 +27,7 @@ from custom_components.eeg_energy_optimizer.const import (
     DEFAULT_MIN_SOC,
     DEFAULT_MORNING_END_TIME,
     DEFAULT_SAFETY_BUFFER_PCT,
+    GRID_IMPORT_PAUSE_MINUTES,
     MODE_AUS,
     MODE_EIN,
     MODE_TEST,
@@ -38,7 +41,9 @@ from custom_components.eeg_energy_optimizer.optimizer import (
     EEGOptimizer,
     REASON_BEFORE_DISCHARGE_START,
     REASON_DISCHARGE_ABORTED_TODAY,
+    REASON_DISCHARGE_PAUSED_GRID_IMPORT,
     REASON_HARD_CUTOFF_AFTER_4AM,
+    REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE,
     REASON_HYSTERESIS_STRICT,
     REASON_IN_MORNING_WINDOW,
     REASON_LABELS_DE,
@@ -1166,6 +1171,8 @@ _EXPECTED_REASON_KEYS: frozenset[str] = frozenset({
     "tomorrow_pv_sufficient",
     "tomorrow_pv_insufficient",
     "discharge_aborted_today",
+    "discharge_paused_grid_import",
+    "house_load_exceeds_discharge",
     # Sensor availability
     "battery_soc_unavailable",
     # Phase 11: Dual-Window-Entladung (D-09 additiv)
@@ -2137,3 +2144,261 @@ class TestManualDischargeOverride:
             decision = opt._evaluate(snap, MODE_TEST)
         assert decision.zustand == STATE_MORGEN_EINSPEISUNG
         assert REASON_MANUAL_DISCHARGE_OVERRIDE not in decision.reasons
+
+
+# ---------------------------------------------------------------------------
+# Netzbezug-Watchdog
+# ---------------------------------------------------------------------------
+
+class TestGridImportWatchdog:
+    """Anhaltender Netzbezug während der Entladung.
+
+    SolarEdge bricht für den Rest des Tages ab (Maximize-Export deckt den
+    Hausverbrauch nicht, der Zustand heilt sich nicht von selbst); alle
+    anderen Wechselrichter pausieren nur befristet, weil dort nur eine
+    vorübergehende Lastspitze über der fixen Entladeleistung liegt.
+    """
+
+    GRID_SENSOR = "sensor.grid_power"
+
+    def _set_grid(self, mock_hass, kw, unit="kW"):
+        """Grid-Sensor auf einen Wert setzen (positiv = Einspeisung)."""
+        state = MagicMock()
+        state.state = str(kw)
+        state.attributes = {"unit_of_measurement": unit}
+        mock_hass.states.get = MagicMock(return_value=state)
+
+    def _make_opt(self, mock_hass, mock_inverter, mock_coordinator, mock_provider,
+                  inverter_type):
+        cfg = _make_config(**{
+            CONF_INVERTER_TYPE: inverter_type,
+            CONF_GRID_POWER_SENSOR: self.GRID_SENSOR,
+        })
+        return _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, cfg
+        )
+
+    def _discharging(self, now):
+        return Decision(
+            timestamp=now.isoformat(),
+            zustand=STATE_ABEND_ENTLADUNG,
+            entladung_aktiv=True,
+            entladeleistung_kw=5.0,
+        )
+
+    def _trip(self, opt, mock_hass, now):
+        """Watchdog auslösen: Netzbezug 2 kW, erst Timerstart, dann > 5 Min."""
+        self._set_grid(mock_hass, -2.0)
+        snap = _make_snapshot(now=now)
+        opt._check_grid_import_watchdog(self._discharging(now), snap)
+
+        later = now + timedelta(minutes=6)
+        snap_later = _make_snapshot(now=later)
+        decision = opt._check_grid_import_watchdog(
+            self._discharging(later), snap_later
+        )
+        return decision, later
+
+    def test_huawei_pauses_instead_of_aborting(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        opt = self._make_opt(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider,
+            "huawei_sun2000",
+        )
+        decision, later = self._trip(opt, mock_hass, now)
+
+        assert decision.zustand == STATE_NORMAL
+        assert decision.entladung_aktiv is False
+        assert decision.entladeleistung_kw == 0.0
+        assert REASON_DISCHARGE_PAUSED_GRID_IMPORT in decision.blocked_by
+        assert REASON_DISCHARGE_ABORTED_TODAY not in decision.blocked_by
+        # Pause, kein Tagesabbruch
+        assert opt._discharge_aborted_date is None
+        assert opt._discharge_paused_until == later + timedelta(
+            minutes=GRID_IMPORT_PAUSE_MINUTES
+        )
+
+    def test_pause_blocks_discharge_then_expires(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Während der Pause blockiert der Guard, danach läuft die Entladung wieder."""
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        opt = self._make_opt(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider,
+            "huawei_sun2000",
+        )
+        opt._discharge_paused_until = now + timedelta(minutes=10)
+
+        snap_kwargs = dict(
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+
+        should, _, _, blocked_by, _ = opt._should_discharge(
+            _make_snapshot(now=now, **snap_kwargs)
+        )
+        assert should is False
+        assert REASON_DISCHARGE_PAUSED_GRID_IMPORT in blocked_by
+
+        after = now + timedelta(minutes=11)
+        should, _, _, blocked_by, _ = opt._should_discharge(
+            _make_snapshot(now=after, **snap_kwargs)
+        )
+        assert should is True
+        assert REASON_DISCHARGE_PAUSED_GRID_IMPORT not in blocked_by
+        # Abgelaufene Pause wird aufgeräumt
+        assert opt._discharge_paused_until is None
+
+    def test_solaredge_still_aborts_for_the_day(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        opt = self._make_opt(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider,
+            "solaredge_storedge",
+        )
+        decision, later = self._trip(opt, mock_hass, now)
+
+        assert decision.zustand == STATE_NORMAL
+        assert REASON_DISCHARGE_ABORTED_TODAY in decision.blocked_by
+        assert REASON_DISCHARGE_PAUSED_GRID_IMPORT not in decision.blocked_by
+        assert opt._discharge_aborted_date == later.strftime("%Y-%m-%d")
+        assert opt._discharge_paused_until is None
+
+    def test_short_import_spike_does_not_trip(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Netzbezug unter 5 Min setzt den Timer zurück, ohne zu pausieren."""
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        opt = self._make_opt(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider,
+            "huawei_sun2000",
+        )
+        self._set_grid(mock_hass, -2.0)
+        opt._check_grid_import_watchdog(
+            self._discharging(now), _make_snapshot(now=now)
+        )
+        assert opt._grid_import_since == now
+
+        # Nach 2 Minuten ist der Bezug wieder weg
+        later = now + timedelta(minutes=2)
+        self._set_grid(mock_hass, 0.5)
+        decision = opt._check_grid_import_watchdog(
+            self._discharging(later), _make_snapshot(now=later)
+        )
+        assert decision.zustand == STATE_ABEND_ENTLADUNG
+        assert opt._grid_import_since is None
+        assert opt._discharge_paused_until is None
+
+    def test_watt_sensor_is_converted(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Ein Sensor in W darf nicht als kW interpretiert werden."""
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        opt = self._make_opt(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider,
+            "huawei_sun2000",
+        )
+        # -500 W = -0.5 kW → unter der 1-kW-Schwelle, darf nicht auslösen
+        self._set_grid(mock_hass, -500.0, unit="W")
+        opt._check_grid_import_watchdog(
+            self._discharging(now), _make_snapshot(now=now)
+        )
+        assert opt._grid_import_since is None
+
+
+class TestHouseLoadEntryGuard:
+    """Eintritts-Check: Hausverbrauch über Entladeleistung.
+
+    Der EEG-Nutzen einer Entladung ist (Entladeleistung − Hausverbrauch).
+    Liegt die Last darüber, kommt bei der Gemeinschaft nichts an und die
+    Differenz wird aus dem Netz gekauft — dann gar nicht erst starten.
+    """
+
+    def _snap(self, now, **overrides):
+        base = dict(
+            battery_soc=80.0,
+            battery_capacity_kwh=10.0,
+            consumption_overnight_kwh=3.0,
+            pv_tomorrow_kwh=40.0,
+            consumption_tomorrow_daylight_kwh=9.0,
+            sunrise=datetime(2026, 6, 16, 5, 30, tzinfo=timezone.utc),
+        )
+        base.update(overrides)
+        return _make_snapshot(now=now, **base)
+
+    def test_high_house_load_blocks_start(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """6 kW Last bei 5 kW Entladeleistung → kein Start."""
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        should, _, _, blocked_by, _ = opt._should_discharge(
+            self._snap(now, consumption_now_kw=6.0)
+        )
+        assert should is False
+        assert REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE in blocked_by
+
+    def test_load_below_discharge_power_starts(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """3 kW Last bei 5 kW Entladeleistung → 2 kW gehen an die EEG."""
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        should, _, _, blocked_by, _ = opt._should_discharge(
+            self._snap(now, consumption_now_kw=3.0)
+        )
+        assert should is True
+        assert REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE not in blocked_by
+
+    def test_recheck_on_next_cycle_when_load_drops(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Keine Sperrzeit: sobald die Last fällt, läuft die Entladung an."""
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+
+        should, _, _, _, _ = opt._should_discharge(
+            self._snap(now, consumption_now_kw=7.0)
+        )
+        assert should is False
+
+        # 30 s später ist die Lastspitze weg
+        later = now + timedelta(seconds=30)
+        should, _, _, blocked_by, _ = opt._should_discharge(
+            self._snap(later, consumption_now_kw=2.0)
+        )
+        assert should is True
+        assert REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE not in blocked_by
+
+    def test_running_discharge_is_not_stopped(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Läuft die Entladung bereits, greift der Watchdog — nicht dieser Guard."""
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        opt._last_eval_zustand = STATE_ABEND_ENTLADUNG
+
+        should, _, _, blocked_by, _ = opt._should_discharge(
+            self._snap(now, consumption_now_kw=6.0)
+        )
+        assert should is True
+        assert REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE not in blocked_by
+
+    def test_missing_sensor_fails_open(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Ohne Hausverbrauchs-Messwert wird nicht blockiert."""
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        should, _, _, blocked_by, _ = opt._should_discharge(
+            self._snap(now, consumption_now_kw=None)
+        )
+        assert should is True
+        assert REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE not in blocked_by

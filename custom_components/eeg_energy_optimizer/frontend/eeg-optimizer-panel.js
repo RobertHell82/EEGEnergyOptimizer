@@ -4001,7 +4001,9 @@ class EegOptimizerPanel extends HTMLElement {
         else if (r.includes("PV-Prognose morgen")) reasonParts.push("PV morgen nicht ausreichend");
         else if (r.includes("abgelaufen")) reasonParts.push("Entladefenster abgelaufen");
         else if (r.includes("04:00")) reasonParts.push("Entladung endet um 04:00");
+        else if (r.includes("Netzbezug") && r.includes("pausiert")) reasonParts.push("Netzbezug-Schutz: Entladung kurz pausiert");
         else if (r.includes("Netzbezug")) reasonParts.push("Netzbezug-Schutz aktiv");
+        else if (r.includes("Hausverbrauch")) reasonParts.push("Hausverbrauch über Entladeleistung");
         else reasonParts.push(r);
       });
       const reasonText = reasonParts.length > 0 ? reasonParts.join(", ") : "Bedingungen nicht erfüllt";

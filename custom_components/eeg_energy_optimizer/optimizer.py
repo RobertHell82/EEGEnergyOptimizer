@@ -57,6 +57,7 @@ from .const import (
     FEEDIN_INITIAL_ESTIMATE_FACTOR,
     FEEDIN_SOC_HEADROOM_PCT,
     FEEDIN_STEP_UP_KW,
+    GRID_IMPORT_PAUSE_MINUTES,
     INVERTER_TYPE_FRONIUS,
     INVERTER_TYPE_HUAWEI,
     MANUAL_OVERRIDE_MAX_HOURS,
@@ -111,6 +112,8 @@ REASON_SOC_BELOW_MIN = "soc_below_min"
 REASON_TOMORROW_PV_SUFFICIENT = "tomorrow_pv_sufficient"
 REASON_TOMORROW_PV_INSUFFICIENT = "tomorrow_pv_insufficient"
 REASON_DISCHARGE_ABORTED_TODAY = "discharge_aborted_today"
+REASON_DISCHARGE_PAUSED_GRID_IMPORT = "discharge_paused_grid_import"
+REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE = "house_load_exceeds_discharge"
 REASON_BATTERY_SOC_UNAVAILABLE = "battery_soc_unavailable"
 
 # Phase 11: Dual-Window-Entladung — Slot-aware Reasons (D-09 additiv)
@@ -160,6 +163,8 @@ ALL_REASONS: frozenset[str] = frozenset({
     REASON_TOMORROW_PV_SUFFICIENT,
     REASON_TOMORROW_PV_INSUFFICIENT,
     REASON_DISCHARGE_ABORTED_TODAY,
+    REASON_DISCHARGE_PAUSED_GRID_IMPORT,
+    REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE,
     REASON_BATTERY_SOC_UNAVAILABLE,
     # Phase 11: Dual-Window
     REASON_BEFORE_SLOT_A,
@@ -203,6 +208,12 @@ REASON_LABELS_DE: dict[str, str] = {
     REASON_TOMORROW_PV_SUFFICIENT: "PV-Prognose morgen ausreichend",
     REASON_TOMORROW_PV_INSUFFICIENT: "PV-Prognose morgen zu gering",
     REASON_DISCHARGE_ABORTED_TODAY: "Entladung heute wegen Netzbezug abgebrochen",
+    REASON_DISCHARGE_PAUSED_GRID_IMPORT: (
+        f"Entladung wegen Netzbezug pausiert ({GRID_IMPORT_PAUSE_MINUTES} Min)"
+    ),
+    REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE: (
+        "Hausverbrauch über Entladeleistung — Entladung würde nicht einspeisen"
+    ),
     REASON_BATTERY_SOC_UNAVAILABLE: "Batterie-SOC-Sensor nicht verfügbar",
     # Phase 11: Dual-Window
     REASON_BEFORE_SLOT_A: "Vor Slot-A-Start (Abend)",
@@ -551,18 +562,26 @@ class EEGOptimizer:
         self._startup_time: datetime = _now()
         self._grace_period_logged: bool = False
 
-        # Grid import watchdog during discharge (SolarEdge only)
-        # SolarEdge "Discharge to Maximize Export" pushes to grid but doesn't
-        # cover household demand — the house draws from grid simultaneously.
-        # If grid import > 1 kW persists for > 5 minutes, abort discharge for the day.
+        # Netzbezug-Watchdog während der Entladung. Greift bei allen
+        # Wechselrichtern, aber mit unterschiedlicher Konsequenz:
+        #   SolarEdge: "Discharge to Maximize Export" schiebt alles ins Netz und
+        #     deckt den Hausverbrauch NICHT — das Haus zieht parallel voll aus
+        #     dem Netz. Der Zustand heilt sich nicht von selbst → Abbruch für
+        #     den Rest des Tages.
+        #   Huawei/Fronius/SolaX: die Batterie deckt den Hausverbrauch zuerst;
+        #     Netzbezug entsteht nur, wenn die Last über der fixen
+        #     Entladeleistung liegt. Das ist typischerweise eine vorübergehende
+        #     Lastspitze (E-Auto, Wärmepumpe) → nur Pause, danach neuer Versuch.
         self._grid_import_since: datetime | None = None
         self._discharge_aborted_date: str | None = None  # ISO date "YYYY-MM-DD"
+        self._discharge_paused_until: datetime | None = None
         self._is_solaredge = inv_type_cfg == "solaredge_storedge"
 
         # Grid sensor for watchdog. resolve_sign statt Direktzugriff auf
-        # INVERTER_SIGN_CONVENTIONS — der Watchdog läuft zwar nur bei
-        # SolarEdge (nie EMMA), aber alle Sign-Auflösungen sollen über
-        # dieselbe Stelle gehen (Lehre aus dem EMMA-Backfill-Bug).
+        # INVERTER_SIGN_CONVENTIONS — bei Huawei kann der Netz-Sensor ein
+        # EMMA-Sensor mit umgekehrtem Vorzeichen sein, und alle
+        # Sign-Auflösungen sollen über dieselbe Stelle gehen (Lehre aus dem
+        # EMMA-Backfill-Bug).
         from .power_readings import resolve_sign as _resolve_sign
         self._grid_sensor_id = config.get(CONF_GRID_POWER_SENSOR, "")
         inv_type = config.get(CONF_INVERTER_TYPE, "")
@@ -1433,10 +1452,19 @@ class EEGOptimizer:
         if min_soc >= 100.0:
             return ([REASON_OVERNIGHT_DEMAND_TOO_HIGH], min_soc)
 
-        # SolarEdge-Discharge-Aborted-Watchdog (slot-übergreifend)
+        # Netzbezug-Watchdog (slot-übergreifend): SolarEdge bricht für den Tag
+        # ab, alle anderen pausieren nur befristet.
         today_str = snap.now.strftime("%Y-%m-%d")
         if self._is_solaredge and self._discharge_aborted_date == today_str:
             return ([REASON_DISCHARGE_ABORTED_TODAY], min_soc)
+        if self._discharge_paused_until is not None:
+            if snap.now < self._discharge_paused_until:
+                return ([REASON_DISCHARGE_PAUSED_GRID_IMPORT], min_soc)
+            # Pause abgelaufen — Entladung darf wieder anlaufen.
+            _LOGGER.info(
+                "Netzbezug-Watchdog: Pause abgelaufen, Entladung wieder freigegeben"
+            )
+            self._discharge_paused_until = None
 
         # Tomorrow-PV-Surplus-Check (slot-übergreifend)
         consumption_with_buffer = snap.consumption_tomorrow_daylight_kwh * (
@@ -1451,6 +1479,33 @@ class EEGOptimizer:
         )
         if pv_tomorrow < tomorrow_demand:
             return ([REASON_TOMORROW_PV_INSUFFICIENT], min_soc)
+
+        # Lastvoraus-Check: Der EEG-Nutzen einer Entladung ist
+        # (Entladeleistung − Hausverbrauch). Liegt die aktuelle Last über der
+        # Entladeleistung, geht die gesamte Batterieenergie ins eigene Haus,
+        # bei der Energiegemeinschaft kommt nichts an, und die Differenz wird
+        # aus dem Netz gekauft. Dann gar nicht erst starten.
+        #
+        # Blockiert bewusst nur den EINTRITT: Eine bereits laufende Entladung
+        # beendet der Netzbezug-Watchdog (mit seiner 5-Minuten-Entprellung),
+        # sonst würde eine um die Schwelle pendelnde Last die Entladung takten
+        # und unnötige Modbus-Writes erzeugen.
+        #
+        # Fail-open bei fehlendem Hausverbrauchs-Sensor: ohne Messwert wird
+        # nicht blockiert — der Watchdog bleibt als Auffangnetz.
+        is_running = self._last_eval_zustand == STATE_ABEND_ENTLADUNG
+        if (
+            not is_running
+            and snap.consumption_now_kw is not None
+            and snap.consumption_now_kw > self._discharge_power_kw
+        ):
+            _LOGGER.info(
+                "Entladung nicht gestartet: Hausverbrauch %.1f kW über "
+                "Entladeleistung %.1f kW — keine Einspeisung möglich",
+                snap.consumption_now_kw,
+                self._discharge_power_kw,
+            )
+            return ([REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE], min_soc)
 
         return ([], min_soc)
 
@@ -2386,21 +2441,31 @@ class EEGOptimizer:
                     _LOGGER.exception("Inverter failure callback raised")
 
     def _check_grid_import_watchdog(self, decision: Decision, snap: Snapshot) -> Decision:
-        """Check for sustained grid import during discharge and abort if needed.
+        """Check for sustained grid import during discharge and intervene.
 
-        SolarEdge only: "Discharge to Maximize Export" pushes power to grid
-        but doesn't cover household demand — the house draws from grid
-        simultaneously. If grid import exceeds 1 kW for more than 5
-        consecutive minutes, the discharge is aborted for the rest of the day.
+        Läuft bei allen Wechselrichtern: Netzbezug > 1 kW für > 5
+        zusammenhängende Minuten während der Nacht-Entladung bedeutet, dass die
+        Entladung ihren Zweck (Einspeisung für die EEG) nicht erfüllt und
+        stattdessen Netzstrom gekauft wird.
 
-        Huawei/SolaX cover household demand first, so this issue doesn't apply.
+        Die Konsequenz hängt vom Wechselrichter ab:
+
+        - **SolarEdge**: "Discharge to Maximize Export" schiebt alles ins Netz
+          und deckt den Hausverbrauch nicht — das Haus zieht parallel voll aus
+          dem Netz. Der Zustand heilt sich nicht von selbst, deshalb wird die
+          Entladung für den Rest des Tages abgebrochen.
+        - **Huawei/Fronius/SolaX**: Die Batterie deckt den Hausverbrauch zuerst;
+          Netzbezug entsteht nur, wenn die Last über der fix eingestellten
+          Entladeleistung liegt. Das ist meist eine vorübergehende Lastspitze,
+          deshalb wird die Entladung nur für
+          ``GRID_IMPORT_PAUSE_MINUTES`` pausiert und danach neu bewertet.
 
         Returns the (possibly modified) decision.
         """
         now = snap.now
 
-        # Only monitor SolarEdge during active discharge
-        if not self._is_solaredge or decision.zustand != STATE_ABEND_ENTLADUNG:
+        # Nur während aktiver Entladung überwachen
+        if decision.zustand != STATE_ABEND_ENTLADUNG:
             self._grid_import_since = None
             return decision
 
@@ -2428,27 +2493,46 @@ class EEGOptimizer:
                     abs(grid_kw),
                 )
             elif (now - self._grid_import_since).total_seconds() >= 300:
-                # 5 minutes of sustained grid import — abort discharge for today
-                self._discharge_aborted_date = now.strftime("%Y-%m-%d")
                 self._grid_import_since = None
-                _LOGGER.error(
-                    "Netzbezug-Watchdog: Netzbezug > 1 kW seit > 5 Min — "
-                    "Entladung für heute (%s) abgebrochen",
-                    self._discharge_aborted_date,
-                )
+                if self._is_solaredge:
+                    self._discharge_aborted_date = now.strftime("%Y-%m-%d")
+                    reason_key = REASON_DISCHARGE_ABORTED_TODAY
+                    _LOGGER.error(
+                        "Netzbezug-Watchdog: Netzbezug > 1 kW seit > 5 Min — "
+                        "Entladung für heute (%s) abgebrochen",
+                        self._discharge_aborted_date,
+                    )
+                    decision.nächste_aktion = "Entladung abgebrochen (Netzbezug)"
+                    decision.discharge_reasons.append(
+                        "Entladung heute wegen Netzbezug > 1 kW für > 5 Min abgebrochen"
+                    )
+                else:
+                    self._discharge_paused_until = now + timedelta(
+                        minutes=GRID_IMPORT_PAUSE_MINUTES
+                    )
+                    reason_key = REASON_DISCHARGE_PAUSED_GRID_IMPORT
+                    _LOGGER.warning(
+                        "Netzbezug-Watchdog: Netzbezug > 1 kW seit > 5 Min — "
+                        "Entladung bis %s pausiert (%d Min)",
+                        self._discharge_paused_until.strftime("%H:%M"),
+                        GRID_IMPORT_PAUSE_MINUTES,
+                    )
+                    decision.nächste_aktion = (
+                        f"Entladung pausiert bis "
+                        f"{self._discharge_paused_until.strftime('%H:%M')} (Netzbezug)"
+                    )
+                    decision.discharge_reasons.append(
+                        f"Entladung wegen Netzbezug > 1 kW für > 5 Min für "
+                        f"{GRID_IMPORT_PAUSE_MINUTES} Min pausiert"
+                    )
                 # Override decision to Normal
                 decision.zustand = STATE_NORMAL
                 decision.entladung_aktiv = False
                 decision.entladeleistung_kw = 0.0
-                decision.nächste_aktion = "Entladung abgebrochen (Netzbezug)"
-                decision.discharge_reasons.append(
-                    "Entladung heute wegen Netzbezug > 1 kW für > 5 Min abgebrochen"
-                )
                 # Katalog-Key in blocked_by spiegeln, damit der Activity-Log-Check
-                # in __init__.py (REASON_DISCHARGE_ABORTED_TODAY in decision.blocked_by)
-                # auch auf dem Watchdog-Zyklus selbst greift (D-09).
-                if REASON_DISCHARGE_ABORTED_TODAY not in decision.blocked_by:
-                    decision.blocked_by.append(REASON_DISCHARGE_ABORTED_TODAY)
+                # in __init__.py auch auf dem Watchdog-Zyklus selbst greift (D-09).
+                if reason_key not in decision.blocked_by:
+                    decision.blocked_by.append(reason_key)
                 # Da Zustand auf Normal gewechselt hat: passing-reasons löschen.
                 decision.reasons = []
         else:
