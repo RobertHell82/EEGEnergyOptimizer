@@ -7,6 +7,12 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [Unveröffentlicht]
+
+### Geändert
+
+- **Netzbezug-Watchdog schützt jetzt alle Wechselrichter — mit 15-Minuten-Pause statt Tagesabbruch.** Bisher lief der Watchdog nur bei SolarEdge. Tatsächlich kann Netzbezug während der Nacht-Entladung bei jedem Wechselrichter auftreten: Die Entladeleistung ist fix (Standard 5 kW), und liegt der Hausverbrauch darüber, wird die Differenz aus dem Netz gekauft, statt für die EEG einzuspeisen. Neu wird der Watchdog bei allen Typen ausgewertet (Netzbezug > 1 kW für > 5 zusammenhängende Minuten), die Konsequenz unterscheidet sich aber: **SolarEdge** bricht weiterhin für den Rest des Tages ab, weil „Discharge to Maximize Export" den Hausverbrauch grundsätzlich nicht deckt und sich der Zustand nicht von selbst löst. **Huawei/Fronius/SolaX** pausieren die Entladung nur 15 Minuten und bewerten danach neu — dort ist die Ursache typischerweise eine vorübergehende Lastspitze (E-Auto, Wärmepumpe), die nicht die ganze Nacht kosten soll. Neuer Diagnose-Key `discharge_paused_grid_import`; Aktivitätsprotokoll und Panel weisen Pause und Abbruch getrennt aus.
+
 ## [1.3.3] - 2026-07-27
 
 > Release konsolidiert die DEV-Iterationen 1.3.0-dev bis 1.3.3-dev (Einspeisebegrenzung optimieren + Huawei-EMMA-Support).

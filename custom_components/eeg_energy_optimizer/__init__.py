@@ -44,6 +44,7 @@ from .const import (
     DEFAULT_LOOKBACK_WEEKS,
     FAILURE_DEDUP_WINDOW_S,
     FORECAST_NONE_STREAK_THRESHOLD,
+    GRID_IMPORT_PAUSE_MINUTES,
     INVERTER_SIGN_CONVENTIONS,
     SENSOR_UNAVAIL_THRESHOLD_S,
     STATE_ABEND_ENTLADUNG,
@@ -52,7 +53,11 @@ from .const import (
     TELEMETRY_SETTINGS_KEYS,
 )
 from .inverter import create_inverter
-from .optimizer import EEGOptimizer, REASON_DISCHARGE_ABORTED_TODAY
+from .optimizer import (
+    EEGOptimizer,
+    REASON_DISCHARGE_ABORTED_TODAY,
+    REASON_DISCHARGE_PAUSED_GRID_IMPORT,
+)
 from .telemetry import TelemetryReporter
 from .telemetry_buffer import TelemetryBuffer
 from .websocket_api import async_register_websocket_commands
@@ -1700,11 +1705,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 elif decision.zustand != prev_zustand[0]:
                     reason = decision.zustand
                     # Watchdog: Begründung anhängen wenn Entladung wegen Netzbezug
-                    # abgebrochen — Detektion über kanonischen Katalog-Key (D-09)
-                    # statt String-Suche in der deutschen Freitext-Liste.
-                    if (prev_zustand[0] == STATE_ABEND_ENTLADUNG
-                            and REASON_DISCHARGE_ABORTED_TODAY in decision.blocked_by):
-                        reason = "Normal — Netzbezug > 1 kW für > 5 Min, Entladung für heute abgebrochen"
+                    # abgebrochen bzw. pausiert — Detektion über kanonischen
+                    # Katalog-Key (D-09) statt String-Suche in der deutschen
+                    # Freitext-Liste.
+                    if prev_zustand[0] == STATE_ABEND_ENTLADUNG:
+                        if REASON_DISCHARGE_ABORTED_TODAY in decision.blocked_by:
+                            reason = "Normal — Netzbezug > 1 kW für > 5 Min, Entladung für heute abgebrochen"
+                        elif REASON_DISCHARGE_PAUSED_GRID_IMPORT in decision.blocked_by:
+                            reason = (
+                                f"Normal — Netzbezug > 1 kW für > 5 Min, Entladung für "
+                                f"{GRID_IMPORT_PAUSE_MINUTES} Min pausiert"
+                            )
                     _log_activity(decision, reason)
                     prev_zustand[0] = decision.zustand
                 else:

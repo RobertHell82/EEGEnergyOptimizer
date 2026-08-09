@@ -200,6 +200,13 @@ STATE_EINSPEISEBEGRENZUNG = "Einspeisebegrenzung"
 # to let sensors (PV forecast, sun.sun) settle with valid data
 STARTUP_GRACE_SECONDS = 90
 
+# Netzbezug-Watchdog: anhaltender Netzbezug (> 1 kW für > 5 Min) während der
+# Nacht-Entladung. SolarEdge bricht für den Rest des Tages ab (Maximize-Export
+# deckt den Hausverbrauch nicht); alle anderen Wechselrichter pausieren nur —
+# eine kurzzeitige Lastspitze (E-Auto, Wärmepumpe) soll nicht die ganze Nacht
+# kosten.
+GRID_IMPORT_PAUSE_MINUTES = 15
+
 # Manuelle Entladung (Huawei-only): Sicherheits-Notbremse. Der Override endet
 # normalerweise selbst, sobald der Ziel-SOC erreicht ist. Falls das nie eintritt
 # (z.B. SOC bleibt durch Last/Nachladen über dem Ziel hängen, Sensorausfall oder
@@ -228,7 +235,7 @@ CONF_ENABLE_MANUAL_CONTROL = "enable_manual_control"
 # Backend-URL und Bootstrap-Token werden nur im RELEASE-Repo gefüllt.
 # Im DEV-Repo bleiben sie leer → TelemetryReporter ist ein No-Op.
 # Siehe .planning/milestones/v1.1-phases/08-ha-reporter-modul/08-CONTEXT.md, D-01.
-TELEMETRY_BACKEND_URL = "https://eeg-telemetry.robert-hell.workers.dev"
+TELEMETRY_BACKEND_URL = "https://telemetry.ew-ansfelden.cc"
 # Siehe 08-CONTEXT.md D-01 — Bootstrap-Token gibt Anlagen das Recht, sich am Backend
 # einmalig zu registrieren. Pro Anlage wird ein eigener api_key generiert; der hardcoded
 # Bootstrap-Token dient nur als IP-Rate-Limit-Schutz, nicht als echte Authentifizierung.
