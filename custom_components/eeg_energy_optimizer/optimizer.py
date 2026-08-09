@@ -113,6 +113,7 @@ REASON_TOMORROW_PV_SUFFICIENT = "tomorrow_pv_sufficient"
 REASON_TOMORROW_PV_INSUFFICIENT = "tomorrow_pv_insufficient"
 REASON_DISCHARGE_ABORTED_TODAY = "discharge_aborted_today"
 REASON_DISCHARGE_PAUSED_GRID_IMPORT = "discharge_paused_grid_import"
+REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE = "house_load_exceeds_discharge"
 REASON_BATTERY_SOC_UNAVAILABLE = "battery_soc_unavailable"
 
 # Phase 11: Dual-Window-Entladung — Slot-aware Reasons (D-09 additiv)
@@ -163,6 +164,7 @@ ALL_REASONS: frozenset[str] = frozenset({
     REASON_TOMORROW_PV_INSUFFICIENT,
     REASON_DISCHARGE_ABORTED_TODAY,
     REASON_DISCHARGE_PAUSED_GRID_IMPORT,
+    REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE,
     REASON_BATTERY_SOC_UNAVAILABLE,
     # Phase 11: Dual-Window
     REASON_BEFORE_SLOT_A,
@@ -208,6 +210,9 @@ REASON_LABELS_DE: dict[str, str] = {
     REASON_DISCHARGE_ABORTED_TODAY: "Entladung heute wegen Netzbezug abgebrochen",
     REASON_DISCHARGE_PAUSED_GRID_IMPORT: (
         f"Entladung wegen Netzbezug pausiert ({GRID_IMPORT_PAUSE_MINUTES} Min)"
+    ),
+    REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE: (
+        "Hausverbrauch über Entladeleistung — Entladung würde nicht einspeisen"
     ),
     REASON_BATTERY_SOC_UNAVAILABLE: "Batterie-SOC-Sensor nicht verfügbar",
     # Phase 11: Dual-Window
@@ -1474,6 +1479,33 @@ class EEGOptimizer:
         )
         if pv_tomorrow < tomorrow_demand:
             return ([REASON_TOMORROW_PV_INSUFFICIENT], min_soc)
+
+        # Lastvoraus-Check: Der EEG-Nutzen einer Entladung ist
+        # (Entladeleistung − Hausverbrauch). Liegt die aktuelle Last über der
+        # Entladeleistung, geht die gesamte Batterieenergie ins eigene Haus,
+        # bei der Energiegemeinschaft kommt nichts an, und die Differenz wird
+        # aus dem Netz gekauft. Dann gar nicht erst starten.
+        #
+        # Blockiert bewusst nur den EINTRITT: Eine bereits laufende Entladung
+        # beendet der Netzbezug-Watchdog (mit seiner 5-Minuten-Entprellung),
+        # sonst würde eine um die Schwelle pendelnde Last die Entladung takten
+        # und unnötige Modbus-Writes erzeugen.
+        #
+        # Fail-open bei fehlendem Hausverbrauchs-Sensor: ohne Messwert wird
+        # nicht blockiert — der Watchdog bleibt als Auffangnetz.
+        is_running = self._last_eval_zustand == STATE_ABEND_ENTLADUNG
+        if (
+            not is_running
+            and snap.consumption_now_kw is not None
+            and snap.consumption_now_kw > self._discharge_power_kw
+        ):
+            _LOGGER.info(
+                "Entladung nicht gestartet: Hausverbrauch %.1f kW über "
+                "Entladeleistung %.1f kW — keine Einspeisung möglich",
+                snap.consumption_now_kw,
+                self._discharge_power_kw,
+            )
+            return ([REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE], min_soc)
 
         return ([], min_soc)
 

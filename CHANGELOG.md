@@ -9,6 +9,10 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 ## [Unveröffentlicht]
 
+### Hinzugefügt
+
+- **Die Nacht-Entladung startet nicht mehr, wenn der Hausverbrauch über der Entladeleistung liegt.** Der EEG-Nutzen einer Entladung ist die Differenz aus Entladeleistung und momentanem Hausverbrauch — liegt die Last darüber (z. B. 7 kW E-Auto-Ladung bei 5 kW Entladeleistung), fließt die gesamte Batterieenergie ins eigene Haus, bei der Energiegemeinschaft kommt nichts an, und die Differenz wird zusätzlich aus dem Netz gekauft. Der neue Guard prüft das in jedem 30-Sekunden-Zyklus vor dem Start; fällt die Last unter die Entladeleistung, läuft die Entladung sofort an (keine Sperrzeit). Blockiert wird bewusst nur der Eintritt — eine bereits laufende Entladung beendet weiterhin der Netzbezug-Watchdog mit seiner 5-Minuten-Entprellung, damit eine um die Schwelle pendelnde Last die Entladung nicht taktet. Ohne verfügbaren Hausverbrauchs-Messwert wird nicht blockiert. Neuer Diagnose-Key `house_load_exceeds_discharge`.
+
 ### Geändert
 
 - **Netzbezug-Watchdog schützt jetzt alle Wechselrichter — mit 15-Minuten-Pause statt Tagesabbruch.** Bisher lief der Watchdog nur bei SolarEdge. Tatsächlich kann Netzbezug während der Nacht-Entladung bei jedem Wechselrichter auftreten: Die Entladeleistung ist fix (Standard 5 kW), und liegt der Hausverbrauch darüber, wird die Differenz aus dem Netz gekauft, statt für die EEG einzuspeisen. Neu wird der Watchdog bei allen Typen ausgewertet (Netzbezug > 1 kW für > 5 zusammenhängende Minuten), die Konsequenz unterscheidet sich aber: **SolarEdge** bricht weiterhin für den Rest des Tages ab, weil „Discharge to Maximize Export" den Hausverbrauch grundsätzlich nicht deckt und sich der Zustand nicht von selbst löst. **Huawei/Fronius/SolaX** pausieren die Entladung nur 15 Minuten und bewerten danach neu — dort ist die Ursache typischerweise eine vorübergehende Lastspitze (E-Auto, Wärmepumpe), die nicht die ganze Nacht kosten soll. Neuer Diagnose-Key `discharge_paused_grid_import`; Aktivitätsprotokoll und Panel weisen Pause und Abbruch getrennt aus.
