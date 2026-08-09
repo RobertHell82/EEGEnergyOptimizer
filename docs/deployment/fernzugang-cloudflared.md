@@ -47,41 +47,7 @@ Der Zugang läuft über einen sogenannten **Cloudflare Tunnel**: Dein Home Assis
 
 ---
 
-## Schritt 3: Home Assistant für den Zugriff vorbereiten
-
-Damit Home Assistant den Zugriff über den Tunnel akzeptiert, muss ein kleiner
-Eintrag in der Datei `configuration.yaml` ergänzt werden.
-
-1. Falls noch nicht vorhanden, installiere die App **„File editor"**: **Einstellungen
-   → Apps →** rechts unten **App installieren →** nach **„File editor"** suchen →
-   **Installieren**. Aktiviere anschließend **„Im Menü anzeigen"** und klicke auf
-   **Starten**.
-2. Öffne **„File editor"** (linke Seitenleiste oder in der App auf **„Weboberfläche
-   öffnen"**).
-3. Klicke oben links auf das **Ordner-Symbol** 📁, um den Datei-Browser zu öffnen.
-4. Wähle in der Dateiliste die Datei **`configuration.yaml`** aus (sie liegt im
-   Hauptverzeichnis, das direkt beim Öffnen angezeigt wird).
-5. Füge diesen Block ein. Ist bereits ein `http:`-Abschnitt vorhanden, ergänze nur
-   die Zeilen darunter:
-
-   ```yaml
-   http:
-     use_x_forwarded_for: true
-     trusted_proxies:
-       - 172.30.33.0/24
-   ```
-
-6. Klicke oben rechts auf das **Speichern-Symbol** 💾 (oder Strg+S).
-7. Starte Home Assistant neu: **Einstellungen → System →** Power-Symbol oben
-   rechts **→ Home Assistant neu starten**.
-
-> [!NOTE]
-> Ohne diesen Eintrag zeigt Home Assistant beim Aufruf von außen die Meldung
-> „400: Bad Request".
-
----
-
-## Schritt 4: Starten und testen
+## Schritt 3: Starten und testen
 
 1. Öffne wieder die **Cloudflared**-App, Tab **„Info"**.
 2. Aktiviere **„Beim Systemstart starten"**.
@@ -101,5 +67,35 @@ Der Home Assistant ist nun mit Cloudflare verbunden. Zum Prüfen:
 | Problem | Lösung |
 |---|---|
 | „Cloudflared" erscheint nicht im Store | Seite neu laden (Strg+F5); prüfen, ob das Repository hinterlegt ist (Schritt 1 erneut ausführen) |
-| „400: Bad Request" beim Aufruf über die neue URL aus dem Internet | `trusted_proxies`-Eintrag aus Schritt 3 fehlt oder Home Assistant wurde nicht neu gestartet |
+| „400: Bad Request" beim Aufruf über die neue URL aus dem Internet | Tritt nur bei älteren Home-Assistant-Versionen auf — siehe unten |
 | Adresse lädt nicht / Tunnel offline | Im Protokoll (Log) der **Cloudflared**-App prüfen, ob der Token korrekt eingetragen ist; App neu starten |
+
+### „400: Bad Request" — nur bei älteren Home-Assistant-Versionen
+
+Aktuelle Home-Assistant-Versionen akzeptieren den Zugriff über den Tunnel von
+sich aus. Erscheint beim Aufruf von außen trotzdem „400: Bad Request", läuft
+eine ältere Version, die den Tunnel noch nicht selbst als vertrauenswürdig
+einstuft. Dann hilft der frühere Zusatzeintrag:
+
+1. Installiere die App **„File editor"**: **Einstellungen → Apps →** rechts unten
+   **App installieren →** nach **„File editor"** suchen → **Installieren**.
+   Aktiviere anschließend **„Im Menü anzeigen"** und klicke auf **Starten**.
+2. Öffne **„File editor"**, klicke oben links auf das **Ordner-Symbol** 📁 und
+   wähle im Hauptverzeichnis die Datei **`configuration.yaml`**.
+3. Füge diesen Block ein. Ist bereits ein `http:`-Abschnitt vorhanden, ergänze
+   nur die Zeilen darunter:
+
+   ```yaml
+   http:
+     use_x_forwarded_for: true
+     trusted_proxies:
+       - 172.30.33.0/24
+   ```
+
+4. Speichern (💾 oder Strg+S) und Home Assistant neu starten:
+   **Einstellungen → System →** Power-Symbol oben rechts **→ Home Assistant
+   neu starten**.
+
+> [!TIP]
+> Besser als der Zusatzeintrag ist ein Update auf die aktuelle
+> Home-Assistant-Version — dann wird er gar nicht gebraucht.

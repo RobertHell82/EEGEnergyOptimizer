@@ -7,6 +7,12 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [Unveröffentlicht]
+
+### Dokumentation
+
+- **Fernzugang-Anleitung (Cloudflare Tunnel): Der `configuration.yaml`-Schritt entfällt.** Aktuelle Home-Assistant-Versionen akzeptieren den Zugriff über den Tunnel von sich aus, der frühere `http:`-Block mit `use_x_forwarded_for` und `trusted_proxies` ist nicht mehr nötig. Die Einrichtung besteht damit nur noch aus drei Schritten (App installieren, Token eintragen, starten) — der File-editor-Umweg fällt für Neuinstallationen komplett weg. Der Zusatzeintrag ist als Fallback für ältere Home-Assistant-Versionen in die Problem-Tabelle gewandert.
+
 ## [1.3.4] - 2026-08-09
 
 > Release entspricht der DEV-Iteration 1.3.4-dev (Netzbezug-Schutz für die Nacht-Entladung).
