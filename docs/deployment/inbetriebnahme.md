@@ -103,6 +103,17 @@ Wenn alle Schritte erledigt sind, läuft der EEG Energy Optimizer und steuert
 deinen Speicher passend zu den Einspeise-Zeitfenstern der Energiegemeinschaft.
 Den Status siehst du jederzeit im **EEG Optimizer Panel**.
 
+> [!NOTE]
+> **Einlaufzeit — mindestens eine Woche laufen lassen:** Der Optimizer lernt das
+> Verbrauchsprofil deines Haushalts aus den aufgezeichneten Daten — getrennt nach
+> Wochentag und Stunde. Direkt nach der Inbetriebnahme sind noch keine
+> Verbrauchsdaten vorhanden; erst nach **etwa einer Woche** Dauerbetrieb liegt
+> für jeden Wochentag ein eigenes Profil vor. Bis dahin behilft sich der
+> Optimizer mit den Daten ähnlicher Wochentage — die Prognosen (und damit die
+> Lade-/Entladeentscheidungen) werden mit jeder weiteren Woche genauer. Lass das
+> Gerät daher durchgehend laufen und beurteile das Verhalten des Optimizers
+> frühestens nach einer Woche.
+
 > [!TIP]
 > Auf deinem Gerät ist ein **Fernzugang für die EEG** eingerichtet, damit wir dich
 > beim Setup unterstützen können. Sobald alles läuft, kannst du ihn bei Bedarf
