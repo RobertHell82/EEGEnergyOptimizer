@@ -7,7 +7,13 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
-## [Unveröffentlicht]
+## [1.3.5-dev] - 2026-08-11
+
+### Behoben
+
+- **Fronius: Nacht-Entladung konnte am eigenen SOC-Floor einfrieren — Batterie blockiert, Hausverbrauch die restliche Nacht aus dem Netz.** Beim Entladestart wurde der berechnete Ziel-SOC exakt als `MinRsvPct` (Reservekapazität) an den Wechselrichter geschrieben. Der Fronius stoppte die Entladung selbst an dieser Grenze (Anzeige „Minimum SOC"), der SOC konnte die Austrittsschwelle des Optimizers (Ziel-SOC − 2 %) dadurch nie erreichen — der erzwungene Entlademodus blieb aktiv, die Batterie war komplett eingefroren (auch keine Eigenverbrauchs-Entladung) und das Haus zog aus dem Netz. Da die nächtliche Grundlast typischerweise unter 1 kW liegt, griff auch der Netzbezug-Watchdog nicht. Zwei Korrekturen: (1) `MinRsvPct` wird jetzt mit 5 % Sicherheitsabstand unter dem Ziel-SOC geschrieben — die Entladung beendet immer der Optimizer, der Floor ist nur noch Sicherheitsnetz für den Fall eines HA-Ausfalls während der Entladung. (2) Der im Lauf der Nacht sinkende Ziel-SOC wird bei Änderung ≥ 1 % an den Wechselrichter nachgeführt (alle Typen außer SolarEdge/NVRAM; bei Huawei beendet sich die forcible discharge dadurch nicht mehr zu früh am veralteten Start-Ziel).
+- **Fronius: Die Wiederherstellung der ursprünglichen Reservekapazität überlebt jetzt HA-Neustarts.** Der vor der Entladung gesicherte `MinRsvPct`-Vorwert lag nur im RAM — nach einem Neustart mitten in der Entladung ging er verloren und die erhöhte Reserve blieb dauerhaft im Wechselrichter stehen (Batterie im Automatikbetrieb nur noch bis zum alten Ziel-SOC nutzbar). Der Vorwert wird jetzt zusätzlich via Storage persistiert (Muster analog SolaX) und beim Stop auch nach einem Neustart korrekt restauriert; ein fehlgeschlagener Restore-Write wird im nächsten Zyklus wiederholt.
+- **Fehlgeschlagene Wechselrichter-Kommandos werden im nächsten 30-Sekunden-Zyklus wiederholt.** Bisher galt ein Kommando auch bei Fehlschlag (z. B. Modbus-Verbindungsabriss genau im Zyklus des Zustandswechsels) als ausgeführt — ein gescheitertes „Stop" wurde nie wiederholt und der Wechselrichter blieb im erzwungenen Modus. Jetzt wird der Zustandswechsel erst nach erfolgreichem Write als erledigt markiert.
 
 ### Dokumentation
 
