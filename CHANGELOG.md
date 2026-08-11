@@ -7,6 +7,20 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.5] - 2026-08-11
+
+> Release entspricht der DEV-Iteration 1.3.5-dev (Fronius-Nacht-Entladungs-Deadlock behoben).
+
+### Behoben
+
+- **Fronius: Nacht-Entladung konnte am eigenen SOC-Floor einfrieren — Batterie blockiert, Hausverbrauch die restliche Nacht aus dem Netz.** Der berechnete Ziel-SOC wurde beim Entladestart exakt als `MinRsvPct` (Reservekapazität) geschrieben; der Wechselrichter stoppte die Entladung selbst an dieser Grenze (Anzeige „Minimum SOC"), die Austrittsschwelle des Optimizers (Ziel-SOC − 2 %) war dadurch nie erreichbar und der erzwungene Entlademodus blieb aktiv — auch die Eigenverbrauchs-Entladung war blockiert. Jetzt wird `MinRsvPct` mit 5 % Sicherheitsabstand unter dem Ziel-SOC geschrieben (die Entladung beendet immer der Optimizer), und der im Lauf der Nacht sinkende Ziel-SOC wird bei Änderung ≥ 1 % an den Wechselrichter nachgeführt (alle Typen außer SolarEdge).
+- **Fronius: Die Wiederherstellung der ursprünglichen Reservekapazität überlebt jetzt HA-Neustarts.** Der vor der Entladung gesicherte Vorwert wird via Storage persistiert; ein fehlgeschlagener Restore-Write wird im nächsten Zyklus wiederholt.
+- **Fehlgeschlagene Wechselrichter-Kommandos werden im nächsten 30-Sekunden-Zyklus wiederholt** statt als erledigt markiert zu werden.
+
+### Dokumentation
+
+- Fernzugang-Anleitung (Cloudflare Tunnel): Der `configuration.yaml`-Schritt entfällt.
+
 ## [1.3.5-dev] - 2026-08-11
 
 ### Behoben
