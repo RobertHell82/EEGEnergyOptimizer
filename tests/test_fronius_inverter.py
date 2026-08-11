@@ -8,6 +8,7 @@ import pytest
 from custom_components.eeg_energy_optimizer.inverter.base import InverterBase
 from custom_components.eeg_energy_optimizer.inverter.fronius import (
     FroniusInverter,
+    _MINRSV_SAFETY_MARGIN_PCT,
     _OFFSET_INWRTE,
     _OFFSET_MINRSVPCT,
     _OFFSET_OUTWRTE,
@@ -58,6 +59,29 @@ def mock_modbus_client():
     return client
 
 
+class _NoopStore:
+    """In-memory Store-Ersatz für Tests, die Storage nicht prüfen."""
+
+    def __init__(self):
+        self.saved: list[dict] = []
+        self._data: dict = {}
+
+    async def async_load(self):
+        return self._data
+
+    async def async_save(self, data):
+        self._data = dict(data)
+        self.saved.append(dict(data))
+
+
+def _install_noop_store(inv: FroniusInverter) -> _NoopStore:
+    noop = _NoopStore()
+    inv._state_store._store = noop
+    inv._state_store._data = {}
+    inv._state_store._loaded = False
+    return noop
+
+
 @pytest.fixture
 def inverter(mock_hass, fronius_config, mock_modbus_client):
     """FroniusInverter with mocked client and pre-discovered Model 124 base."""
@@ -66,6 +90,7 @@ def inverter(mock_hass, fronius_config, mock_modbus_client):
     inv._model124_base = 40070
     inv._wchamax = 5000  # 5 kW residential battery
     inv._wchamax_date = date.today().isoformat()
+    _install_noop_store(inv)
     return inv
 
 
@@ -174,10 +199,14 @@ class TestAsyncSetDischarge:
         self, inverter, mock_modbus_client
     ):
         """power_kw=2.5, target_soc=15 → InWRte=-5000 (forced discharge),
-        OutWRte=+5000, MinRsvPct=1500, WinTms=0, RvrtTms=0, StorCtl_Mod=3.
+        OutWRte=+5000, MinRsvPct=1000 (Ziel − 5 % Sicherheitsabstand),
+        WinTms=0, RvrtTms=0, StorCtl_Mod=3.
 
         InWRte is the negative of the discharge percent (in two's-complement
         16-bit), per Fronius Modbus manual example 6 — see _set_discharge_locked.
+        MinRsvPct liegt bewusst UNTER dem Ziel-SOC (_MINRSV_SAFETY_MARGIN_PCT),
+        damit der Optimizer die Entladung an seiner Austrittsschwelle beendet
+        und der Fronius nicht vorher am Floor einfriert ("Minimum SOC").
         """
         # Pre-discharge MinRsvPct read returns 500 (5%)
         mock_modbus_client.read_holding_registers = AsyncMock(
@@ -192,7 +221,10 @@ class TestAsyncSetDischarge:
         # -5000 as unsigned 16-bit = 60536
         assert (calls[0].kwargs["address"], calls[0].kwargs["value"]) == (base + _OFFSET_INWRTE, (-5000) & 0xFFFF)
         assert (calls[1].kwargs["address"], calls[1].kwargs["value"]) == (base + _OFFSET_OUTWRTE, 5000)
-        assert (calls[2].kwargs["address"], calls[2].kwargs["value"]) == (base + _OFFSET_MINRSVPCT, 1500)
+        assert (calls[2].kwargs["address"], calls[2].kwargs["value"]) == (
+            base + _OFFSET_MINRSVPCT,
+            int((15 - _MINRSV_SAFETY_MARGIN_PCT) * 100),  # 1000 = 10%
+        )
         assert (calls[3].kwargs["address"], calls[3].kwargs["value"]) == (base + _OFFSET_WINTMS, 0)
         assert (calls[4].kwargs["address"], calls[4].kwargs["value"]) == (base + _OFFSET_RVRTTMS, 0)
         assert (calls[5].kwargs["address"], calls[5].kwargs["value"]) == (base + _OFFSET_STORCTL_MOD, 3)
@@ -244,6 +276,108 @@ class TestAsyncSetDischarge:
         assert inverter._minrsvpct_pre_discharge is None
 
 
+class TestMinRsvPctSafetyMargin:
+    """Der SOC-Floor liegt _MINRSV_SAFETY_MARGIN_PCT unter dem Ziel-SOC.
+
+    Regression für den Nacht-Entladungs-Deadlock: Floor == Ziel-SOC ließ den
+    Fronius die Entladung selbst stoppen ("Minimum SOC"), der SOC konnte die
+    Optimizer-Austrittsschwelle (Ziel − 2 %) nie erreichen, der erzwungene
+    Entlademodus blieb die ganze Nacht aktiv und das Haus zog aus dem Netz.
+    """
+
+    async def test_floor_is_margin_below_target(self, inverter, mock_modbus_client):
+        await inverter.async_set_discharge(2.5, target_soc=70)
+        calls = mock_modbus_client.write_register.call_args_list
+        base = inverter._model124_base
+        minrsv_writes = [
+            c.kwargs["value"]
+            for c in calls
+            if c.kwargs["address"] == base + _OFFSET_MINRSVPCT
+        ]
+        assert minrsv_writes == [int((70 - _MINRSV_SAFETY_MARGIN_PCT) * 100)]
+
+    async def test_floor_clamped_to_zero(self, inverter, mock_modbus_client):
+        """target_soc unterhalb des Abstands darf keinen negativen Floor ergeben."""
+        await inverter.async_set_discharge(2.5, target_soc=3)
+        calls = mock_modbus_client.write_register.call_args_list
+        base = inverter._model124_base
+        minrsv_writes = [
+            c.kwargs["value"]
+            for c in calls
+            if c.kwargs["address"] == base + _OFFSET_MINRSVPCT
+        ]
+        assert minrsv_writes == [0]
+
+    def test_margin_exceeds_exit_hysteresis(self):
+        """Der Abstand MUSS größer sein als die Optimizer-Austrittshysterese,
+        sonst kehrt der Deadlock zurück (Floor über der Austrittsschwelle)."""
+        from custom_components.eeg_energy_optimizer.const import (
+            RESERVE_EXIT_HYSTERESIS_PCT,
+        )
+
+        assert _MINRSV_SAFETY_MARGIN_PCT > RESERVE_EXIT_HYSTERESIS_PCT
+
+
+class TestMinRsvPctStorePersistence:
+    """Pre-Discharge-MinRsvPct überlebt HA-Neustarts via FroniusStateStore."""
+
+    async def test_snapshot_saved_to_store(self, inverter, mock_modbus_client):
+        """Erster Entladestart persistiert den gelesenen Vorwert im Store."""
+        noop = _install_noop_store(inverter)
+        mock_modbus_client.read_holding_registers = AsyncMock(
+            return_value=_ok_response([500])
+        )
+        await inverter.async_set_discharge(2.5, target_soc=15)
+        assert noop.saved == [{"minrsvpct_original": 500}]
+
+    async def test_snapshot_from_store_after_restart(
+        self, inverter, mock_modbus_client
+    ):
+        """Nach HA-Neustart mitten in der Entladung: Store-Wert hat Vorrang
+        vor dem Register-Read — das Register enthält bereits unseren
+        abgesenkten Floor (Snapshot-Vergiftung vermeiden)."""
+        noop = _install_noop_store(inverter)
+        noop._data = {"minrsvpct_original": 500}
+        await inverter.async_set_discharge(2.5, target_soc=15)
+        # Vorwert aus dem Store übernommen, kein Register-Read nötig
+        assert inverter._minrsvpct_pre_discharge == 500
+        mock_modbus_client.read_holding_registers.assert_not_called()
+
+    async def test_stop_forcible_restores_from_store_after_restart(
+        self, inverter, mock_modbus_client
+    ):
+        """Neustart-Szenario: RAM-Cache leer, Store hält den Vorwert —
+        stop_forcible restauriert aus dem Store und löscht ihn danach."""
+        noop = _install_noop_store(inverter)
+        noop._data = {"minrsvpct_original": 500}
+        assert inverter._minrsvpct_pre_discharge is None
+
+        result = await inverter.async_stop_forcible()
+        assert result is True
+        calls = mock_modbus_client.write_register.call_args_list
+        assert (calls[3].kwargs["address"], calls[3].kwargs["value"]) == (
+            inverter._model124_base + _OFFSET_MINRSVPCT,
+            500,
+        )
+        # Store-Eintrag nach erfolgreichem Restore gelöscht
+        assert noop.saved[-1] == {}
+
+    async def test_store_cleared_after_successful_restore(
+        self, inverter, mock_modbus_client
+    ):
+        """Regulärer Zyklus: Snapshot → Restore → Store wieder leer."""
+        noop = _install_noop_store(inverter)
+        mock_modbus_client.read_holding_registers = AsyncMock(
+            return_value=_ok_response([500])
+        )
+        await inverter.async_set_discharge(2.5, target_soc=15)
+        assert noop._data.get("minrsvpct_original") == 500
+
+        await inverter.async_stop_forcible()
+        assert "minrsvpct_original" not in noop._data
+        assert inverter._minrsvpct_pre_discharge is None
+
+
 class TestAsyncStopForcible:
     """Stop writes StorCtl_Mod=0, then InWRte/OutWRte=10000, plus optional MinRsvPct restore."""
 
@@ -274,7 +408,12 @@ class TestAsyncStopForcible:
     async def test_stop_forcible_keeps_minrsvpct_on_failed_restore(
         self, inverter, mock_modbus_client
     ):
-        """Failed restore keeps the cached value so the next stop can retry."""
+        """Failed restore keeps the cached value and returns False.
+
+        False → der Optimizer markiert den Stop nicht als erledigt und
+        wiederholt ihn im nächsten Zyklus (statt die erhöhte Reserve bis
+        zum nächsten Zustandswechsel stehen zu lassen).
+        """
         inverter._minrsvpct_pre_discharge = 500
         responses = [
             _ok_response(),    # StorCtl_Mod=0
@@ -283,7 +422,8 @@ class TestAsyncStopForcible:
             _err_response(),   # MinRsvPct restore — fails
         ]
         mock_modbus_client.write_register = AsyncMock(side_effect=responses)
-        await inverter.async_stop_forcible()
+        result = await inverter.async_stop_forcible()
+        assert result is False
         # Cache retained for retry on the next stop_forcible
         assert inverter._minrsvpct_pre_discharge == 500
 

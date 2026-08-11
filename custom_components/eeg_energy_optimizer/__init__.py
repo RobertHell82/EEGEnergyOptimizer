@@ -1902,6 +1902,8 @@ async def _async_update_listener(
                 failure_callback=getattr(optimizer, "_failure_callback", None),
             )
             new_optimizer._prev_zustand = optimizer._prev_zustand
+            new_optimizer._prev_charge_kw = optimizer._prev_charge_kw
+            new_optimizer._prev_target_soc = optimizer._prev_target_soc
             new_optimizer._startup_time = optimizer._startup_time
             new_optimizer._grace_period_logged = optimizer._grace_period_logged
             data["optimizer"] = new_optimizer

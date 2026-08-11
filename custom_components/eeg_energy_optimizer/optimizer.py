@@ -535,6 +535,13 @@ class EEGOptimizer:
         # Einspeisebegrenzung: letzte gesetzte Ladeleistung, damit _execute trotz
         # gleichbleibendem Zustand bei geänderter Leistung nachregelt.
         self._prev_charge_kw: float = 0.0
+        # Nacht-Entladung: zuletzt an den Inverter geschriebener Ziel-SOC.
+        # Der dynamische Ziel-SOC sinkt im Lauf der Nacht (Rest-Nachtverbrauch
+        # schrumpft); _execute führt ihn bei Änderung ≥ 1 % nach, sonst bliebe
+        # der beim Entladestart geschriebene SOC-Floor stehen (Fronius:
+        # Batterie friert am veralteten MinRsvPct ein, Huawei: forcible
+        # discharge endet zu früh am alten Ziel). −1 = noch nichts geschrieben.
+        self._prev_target_soc: float = -1.0
 
         # Hysteresis: track dates when states were first activated today.
         # If a state was already active and then deactivated on the same day,
@@ -2396,29 +2403,54 @@ class EEGOptimizer:
             and abs(decision.ladeleistung_kw - self._prev_charge_kw) > 0.05
         )
 
+        # Nacht-Entladung: sinkenden Ziel-SOC bei gleichbleibendem Zustand
+        # nachführen (analog charge_changed). SolarEdge ausgenommen —
+        # NVRAM-Verschleiß, dort wird weiterhin nur bei Zustandswechsel
+        # geschrieben (Ziel-SOC wird von dessen "Maximize Export"-Modus
+        # ohnehin nicht als Stop-Kriterium genutzt).
+        discharge_target_changed = (
+            decision.zustand == STATE_ABEND_ENTLADUNG
+            and not self._is_solaredge
+            and abs(decision.min_soc_berechnet - self._prev_target_soc) >= 1.0
+        )
+
         if (
             decision.zustand == self._prev_zustand
             and not needs_repeat
             and not charge_changed
+            and not discharge_target_changed
         ):
             return
 
         try:
+            ok = True
             if decision.zustand == STATE_MORGEN_EINSPEISUNG:
-                await self._inverter.async_set_charge_limit(0)
+                ok = await self._inverter.async_set_charge_limit(0)
             elif decision.zustand == STATE_EINSPEISEBEGRENZUNG:
-                await self._inverter.async_set_charge_limit(decision.ladeleistung_kw)
-                self._prev_charge_kw = decision.ladeleistung_kw
+                ok = await self._inverter.async_set_charge_limit(
+                    decision.ladeleistung_kw
+                )
+                if ok:
+                    self._prev_charge_kw = decision.ladeleistung_kw
             elif decision.zustand == STATE_ABEND_ENTLADUNG:
-                await self._inverter.async_set_discharge(
+                ok = await self._inverter.async_set_discharge(
                     decision.entladeleistung_kw,
                     target_soc=decision.min_soc_berechnet,
                 )
+                if ok:
+                    self._prev_target_soc = decision.min_soc_berechnet
             else:
-                await self._inverter.async_stop_forcible()
-                self._prev_charge_kw = 0.0
+                ok = await self._inverter.async_stop_forcible()
+                if ok:
+                    self._prev_charge_kw = 0.0
 
-            self._prev_zustand = decision.zustand
+            # Fehlgeschlagene Writes (return False) nicht als erledigt
+            # markieren: _prev_zustand bleibt auf dem alten Wert, der nächste
+            # 30-s-Zyklus wiederholt den Befehl. Vorher wurde z. B. ein
+            # fehlgeschlagenes stop_forcible nie wiederholt — der Inverter
+            # blieb dauerhaft im erzwungenen Modus.
+            if ok:
+                self._prev_zustand = decision.zustand
         except Exception as exc:
             _LOGGER.exception("Inverter command failed for state %s", decision.zustand)
             # W-4 — Telemetrie-Hook für Inverter-Schreibfehler (D-16). Action je
