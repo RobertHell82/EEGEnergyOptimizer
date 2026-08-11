@@ -26,6 +26,11 @@ from .base import InverterBase
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
+try:
+    from homeassistant.helpers.storage import Store
+except ImportError:  # pragma: no cover — test environment
+    Store = None  # type: ignore
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -68,11 +73,76 @@ _SUNSPEC_MAX_ITERATIONS = 128
 # Scale factor for InWRte/OutWRte: SF = -2, so 10000 = 100%
 _RATE_100_PERCENT = 10000
 
+# Sicherheitsabstand zwischen dem als MinRsvPct geschriebenen SOC-Floor und
+# dem Ziel-SOC des Optimizers. Der Optimizer beendet die Entladung erst bei
+# Ziel-SOC − RESERVE_EXIT_HYSTERESIS_PCT (2 %, Schmitt-Trigger). Läge der
+# Floor exakt auf dem Ziel-SOC, stoppt der Fronius die Entladung selbst
+# (Anzeige "Minimum SOC"), der SOC kann die Austrittsschwelle nie erreichen
+# und der erzwungene Entlademodus bleibt stehen — Batterie eingefroren, das
+# Haus zieht die restliche Nacht aus dem Netz. Mit 5 % Abstand (> 2 %
+# Hysterese + ~2 % Abweichung zwischen Fronius-internem SOC und HA-Sensor)
+# beendet immer der Optimizer die Entladung; der Floor bleibt reines
+# Sicherheitsnetz für den Fall, dass HA während der Entladung ausfällt.
+_MINRSV_SAFETY_MARGIN_PCT = 5.0
+
 # Sanity bound for WChaMax (max battery power in W). No residential Fronius
 # Gen24 + battery setup exceeds this; a larger value almost certainly comes
 # from a corrupted Modbus response and would compress every charge/discharge
 # percentage calculation toward zero, making the battery appear inert.
 _WCHAMAX_SANITY_LIMIT = 25000
+
+
+class FroniusStateStore:
+    """Persistiert den Pre-Discharge-MinRsvPct über HA-Neustarts.
+
+    Beim ersten async_set_discharge einer Entladung wird der originale
+    MinRsvPct (Rohwert, SF -2) gesichert; async_stop_forcible stellt ihn
+    wieder her und löscht den Eintrag. Ohne Persistenz ginge der Snapshot
+    bei einem HA-Neustart mitten in der Entladung verloren — die neue
+    Instanz hätte keinen Vorwert, und die erhöhte Reserve bliebe dauerhaft
+    im Wechselrichter stehen (Batterie im Automatikbetrieb nur noch bis
+    zum alten Ziel-SOC nutzbar). Muster analog SolaXStateStore (Phase 12).
+    """
+
+    STORAGE_KEY = "eeg_energy_optimizer.fronius_state"
+    STORAGE_VERSION = 1
+
+    def __init__(self, hass: Any) -> None:
+        self._store = (
+            Store(hass, self.STORAGE_VERSION, self.STORAGE_KEY)
+            if Store is not None
+            else None
+        )
+        self._data: dict = {}
+        self._loaded = False
+
+    async def async_load(self) -> None:
+        if self._loaded:
+            return
+        if self._store is None:
+            self._loaded = True
+            return
+        data = await self._store.async_load()
+        self._data = data if isinstance(data, dict) else {}
+        self._loaded = True
+
+    async def async_save_original_minrsvpct(self, raw: int) -> None:
+        self._data["minrsvpct_original"] = int(raw)
+        if self._store is not None:
+            await self._store.async_save(self._data)
+
+    async def async_clear_original_minrsvpct(self) -> None:
+        if self._data.pop("minrsvpct_original", None) is not None:
+            if self._store is not None:
+                await self._store.async_save(self._data)
+
+    @property
+    def original_minrsvpct(self) -> int | None:
+        val = self._data.get("minrsvpct_original")
+        try:
+            return int(val) if val is not None else None
+        except (TypeError, ValueError):
+            return None
 
 
 class FroniusInverter(InverterBase):
@@ -90,8 +160,11 @@ class FroniusInverter(InverterBase):
         # Cached MinRsvPct value (raw register, SF -2) read before
         # async_set_discharge() overwrites it. Restored by
         # async_stop_forcible() so we do not leave the inverter with
-        # an elevated reserve in automatic mode.
+        # an elevated reserve in automatic mode. Zusätzlich im
+        # FroniusStateStore persistiert, damit der Vorwert einen
+        # HA-Neustart mitten in der Entladung überlebt.
         self._minrsvpct_pre_discharge: int | None = None
+        self._state_store = FroniusStateStore(hass)
         # Serializes Modbus operations. The 30-second optimizer cycle and
         # manual WebSocket commands (manual_discharge, manual_stop,
         # manual_block_charge) can otherwise interleave their multi-register
@@ -455,26 +528,46 @@ class FroniusInverter(InverterBase):
                 # Snapshot the current MinRsvPct so async_stop_forcible() can
                 # restore the user's configured reserve. Fronius has no
                 # auto-revert, so without this snapshot the elevated reserve
-                # would persist into automatic mode.
+                # would persist into automatic mode. Der Store hat Vorrang
+                # vor dem Register-Read: nach einem HA-Neustart mitten in der
+                # Entladung enthält das Register bereits unseren abgesenkten
+                # Floor — nur der Store hält den echten Vorwert
+                # (Snapshot-Vergiftung vermeiden).
                 if self._minrsvpct_pre_discharge is None:
-                    try:
-                        result = await self._client.read_holding_registers(
-                            address=self._model124_base + _OFFSET_MINRSVPCT,
-                            count=1,
-                            **_slave_kw(self._client, self._slave_id),
-                        )
-                        if not result.isError():
-                            self._minrsvpct_pre_discharge = result.registers[0]
-                            _LOGGER.debug(
-                                "Fronius: cached pre-discharge MinRsvPct=%d",
-                                self._minrsvpct_pre_discharge,
-                            )
-                    except Exception:
+                    await self._state_store.async_load()
+                    stored = self._state_store.original_minrsvpct
+                    if stored is not None:
+                        self._minrsvpct_pre_discharge = stored
                         _LOGGER.debug(
-                            "Fronius: could not snapshot MinRsvPct — will skip restore"
+                            "Fronius: pre-discharge MinRsvPct=%d aus Store übernommen",
+                            stored,
                         )
+                    else:
+                        try:
+                            result = await self._client.read_holding_registers(
+                                address=self._model124_base + _OFFSET_MINRSVPCT,
+                                count=1,
+                                **_slave_kw(self._client, self._slave_id),
+                            )
+                            if not result.isError():
+                                self._minrsvpct_pre_discharge = result.registers[0]
+                                await self._state_store.async_save_original_minrsvpct(
+                                    result.registers[0]
+                                )
+                                _LOGGER.debug(
+                                    "Fronius: cached pre-discharge MinRsvPct=%d",
+                                    self._minrsvpct_pre_discharge,
+                                )
+                        except Exception:
+                            _LOGGER.debug(
+                                "Fronius: could not snapshot MinRsvPct — will skip restore"
+                            )
 
-                min_rsv = int(target_soc * 100)
+                # Floor mit Sicherheitsabstand unter dem Ziel-SOC schreiben —
+                # Begründung siehe _MINRSV_SAFETY_MARGIN_PCT.
+                min_rsv = int(
+                    max(target_soc - _MINRSV_SAFETY_MARGIN_PCT, 0.0) * 100
+                )
                 if not await self._write_register(_OFFSET_MINRSVPCT, min_rsv):
                     _LOGGER.warning("Fronius: failed to set MinRsvPct (non-critical)")
 
@@ -533,20 +626,30 @@ class FroniusInverter(InverterBase):
             # Restore MinRsvPct if async_set_discharge() raised it earlier.
             # Fronius has no auto-revert: leaving the reserve elevated
             # would prevent the inverter from using the battery down to
-            # the user's configured level in automatic mode.
-            if self._minrsvpct_pre_discharge is not None:
-                restored = self._minrsvpct_pre_discharge
+            # the user's configured level in automatic mode. Quelle ist der
+            # RAM-Cache oder — nach einem HA-Neustart mitten in der
+            # Entladung — der persistierte Store-Wert.
+            restored = self._minrsvpct_pre_discharge
+            if restored is None:
+                await self._state_store.async_load()
+                restored = self._state_store.original_minrsvpct
+            if restored is not None:
                 if await self._write_register(_OFFSET_MINRSVPCT, restored):
                     _LOGGER.info(
                         "Fronius: restored MinRsvPct to %d (pre-discharge value)",
                         restored,
                     )
                     self._minrsvpct_pre_discharge = None
+                    await self._state_store.async_clear_original_minrsvpct()
                 else:
                     _LOGGER.warning(
                         "Fronius: failed to restore MinRsvPct=%d — keeping cached value for retry",
                         restored,
                     )
+                    # False, damit der Optimizer stop_forcible im nächsten
+                    # Zyklus wiederholt — sonst bliebe die erhöhte Reserve
+                    # bis zum nächsten Zustandswechsel stehen.
+                    return False
 
             _LOGGER.info("Fronius: stopped forcible mode — automatic operation restored")
             return True
