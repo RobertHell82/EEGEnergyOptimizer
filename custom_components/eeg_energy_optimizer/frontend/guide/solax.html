@@ -47,7 +47,24 @@
 </ol>
 <h3>5. Batterie-Kapazität</h3>
 <p>SolaX stellt <strong>keinen Sensor für die Batteriekapazität</strong> bereit. Die Kapazität gibst du später im Wizard manuell ein (z.B. 5.8 kWh für eine T-BAT 5.8).</p>
-<h3>6. Prüfen</h3>
+<h3>6. Zweiter Wechselrichter am Generator-Eingang</h3>
+<p>Ist am SolaX-Hybrid ein <strong>zweiter Wechselrichter als Generator</strong> angeschlossen (z.B. eine bestehende PV-Anlage am Generator-/Meter-2-Eingang), wird dessen Erzeugung <strong>nicht</strong> im normalen PV-Sensor (<code>sensor.solax_*solar_power</code>) mitgezählt — sie läuft ausschließlich über <strong>Meter 2</strong>.</p>
+<p>Der dafür benötigte Sensor ist in der SolaX-Modbus-Integration standardmäßig <strong>deaktiviert</strong> und muss aktiviert werden:</p>
+<ol>
+<li>Gehe zu <strong>Einstellungen → Geräte &amp; Dienste → SolaX Inverter Modbus</strong></li>
+<li>Klicke auf dein <strong>Wechselrichter-Gerät</strong></li>
+<li>Öffne in der Entitäten-Liste den Filter für <strong>deaktivierte Entitäten</strong> („+ x Entitäten sind deaktiviert")</li>
+<li>Suche nach <strong>„Meter 2 Measured Power"</strong></li>
+<li>Klicke auf die Entität → Zahnrad → <strong>Aktiviert</strong> → <strong>Aktualisieren</strong></li>
+<li>Warte ca. 30 Sekunden bis der Sensor Werte liefert</li>
+</ol>
+<p><em>Der Sensor heißt typischerweise <code>sensor.solax_inverter_meter_2_measured_power</code> (Prefix je Installation abweichend) und zeigt die Leistung in W.</em></p>
+<div class="guide-alert note"><p><strong>Voraussetzung:</strong> Meter 2 muss auch am Wechselrichter bzw. in der SolaX-App als Generator-/zweiter Zähler konfiguriert sein. Ohne diese Konfiguration liefert der Sensor dauerhaft 0.</p></div>
+
+<p>Im Wizard erscheint das Feld <strong>„Zweiter PV-Sensor (optional)"</strong> — es wird automatisch mit dem Meter-2-Sensor vorbelegt, sobald dieser existiert. Der Optimizer addiert diesen Wert zur PV-Leistung des Hybrid-Wechselrichters.</p>
+<div class="guide-alert warning"><p>Wird der Sensor nicht aktiviert bzw. nicht im Wizard hinterlegt, rechnet der Optimizer mit <strong>zu geringer PV-Leistung</strong>. Folge: Hausverbrauch, Morgen-Einspeisung und Einspeisebegrenzung arbeiten mit falschen Werten.</p></div>
+
+<h3>7. Prüfen</h3>
 <ol>
 <li>Unter <strong>Einstellungen → Integrationen</strong>: SolaX Inverter Modbus zeigt <strong>„geladen"</strong></li>
 <li><strong>Entwicklerwerkzeuge → Zustände</strong>: <code>sensor.solax_*battery_capacity</code> zeigt SOC (0–100%)</li>
@@ -83,6 +100,14 @@
 <tr>
 <td><strong>Sensoren „unavailable" nachts</strong></td>
 <td>Normal — Wechselrichter im Sleep Mode (kein PV, keine Last)</td>
+</tr>
+<tr>
+<td><strong>PV-Leistung zu niedrig (Generator-WR fehlt)</strong></td>
+<td><code>sensor.solax_inverter_meter_2_measured_power</code> aktivieren (→ Abschnitt 6) und im Wizard als zweiten PV-Sensor hinterlegen</td>
+</tr>
+<tr>
+<td><strong>Meter 2 Sensor zeigt immer 0</strong></td>
+<td>Meter 2 am Wechselrichter / in der SolaX-App als Generator-Zähler konfigurieren</td>
 </tr>
 </tbody>
 </table>
