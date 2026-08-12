@@ -7,6 +7,22 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.6] - 2026-08-12
+
+> Release entspricht der DEV-Iteration 1.3.6-dev (SolaX-Erkennung).
+
+### Behoben
+
+- **Setup-Wizard: Sensor-Erkennung blieb nach einem Seiten-Reload dauerhaft leer.** Nach dem Wiederherstellen des Wizard-Fortschritts läuft die Auto-Erkennung jetzt automatisch nach; „Erneut prüfen" stößt sie ebenfalls neu an.
+- **SolaX: Steuer-Entities neuerer solax_modbus-Versionen (Mode-Suffixe) werden erkannt und angesteuert.** Suffix-toleranter Scan in Erkennung und Treiber; Bestands-Configs laufen nach einem solax_modbus-Update ohne Neukonfiguration weiter.
+
+## [1.3.6-dev] - 2026-08-12
+
+### Behoben
+
+- **Setup-Wizard: Sensor-Erkennung blieb nach einem Seiten-Reload dauerhaft leer.** Der Wizard-Fortschritt wird in localStorage gesichert und beim erneuten Öffnen wiederhergestellt — dabei lief die automatische Sensor-Erkennung aber nie wieder an: Der Klick auf die bereits ausgewählte Wechselrichter-Karte stößt keine neue Erkennung an, und „Erneut prüfen" aktualisierte nur die Installations-Badges. Wer den Wizard einmal geöffnet hatte, bevor die Wechselrichter-Integration fertig geladen war, sah deshalb dauerhaft leere Sensorfelder („SolaX grün, aber kein einziger Sensor erkannt"), obwohl die serverseitige Erkennung längst alle Sensoren fand. Jetzt wird die Erkennung nach dem Wiederherstellen des Fortschritts automatisch nachgeholt, und „Erneut prüfen" auf dem Wechselrichter-Schritt stößt sie ebenfalls neu an.
+- **SolaX: Steuer-Entities neuerer solax_modbus-Versionen (Mode-Suffixe) werden jetzt erkannt und angesteuert.** Neuere solax_modbus-Versionen (≥ 2025.x) benennen die Remotecontrol-Entities mit Mode-Suffixen (z. B. `remotecontrol_power_control_mode_1`, `remotecontrol_trigger_mode_1_7`) — die bisherige Prefix-Erkennung und die konstruierten Entity-IDs fanden dadurch nichts, und der Treiber hätte die Batterie mit den alten Default-Namen nicht steuern können. Erkennung und Treiber lösen die Entities jetzt per suffix-tolerantem Scan auf (alte wie neue Benennung; `*_direct`- und `mode_8_9`-Varianten bewusst ausgeschlossen). Der Treiber prüft dabei zuerst die konfigurierte Entity und weicht auf den Scan aus, wenn sie nicht mehr existiert — Bestandsanlagen laufen nach einem solax_modbus-Update ohne Neukonfiguration weiter. Zusätzlich wird die bisher fehlende Entity `solax_remotecontrol_duration` bei der Einrichtung mit übernommen.
+
 ## [1.3.5] - 2026-08-11
 
 > Release entspricht der DEV-Iteration 1.3.5-dev (Fronius-Nacht-Entladungs-Deadlock behoben).

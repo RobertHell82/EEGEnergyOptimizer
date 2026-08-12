@@ -493,3 +493,180 @@ class TestSolaXStateStore:
         store._store = noop
         await store.async_load()
         assert store.original_current == 30.0
+
+
+# ---------------------------------------------------------------------------
+# Versionstolerante Entity-Auflösung (solax_modbus ≥2025.x Mode-Suffixe)
+# ---------------------------------------------------------------------------
+
+class _FakeState:
+    def __init__(self, entity_id: str):
+        self.entity_id = entity_id
+
+
+# Entity-Landschaft einer realen Anlage mit neuer solax_modbus-Benennung
+# (Mode-Suffixe + *_direct-Varianten, beobachtet auf X3-Hybrid Gen4, 2026-08).
+NEW_STYLE_ENTITIES = {
+    "select": [
+        "select.solax_inverter_remotecontrol_power_control_mode_1",
+        "select.solax_inverter_remotecontrol_power_control_mode_mode_8_9",
+        "select.solax_inverter_remotecontrol_power_control_mode_mode_8_9_direct",
+        "select.solax_inverter_modbus_power_control_direct",
+    ],
+    "number": [
+        "number.solax_inverter_remotecontrol_active_power_mode_1",
+        "number.solax_inverter_remotecontrol_active_power_mode_1_direct",
+        "number.solax_inverter_remotecontrol_autorepeat_duration_mode_1_9",
+        "number.solax_inverter_remotecontrol_duration_mode_1_8",
+        "number.solax_inverter_battery_charge_max_current",
+        "number.solax_inverter_selfuse_discharge_min_soc",
+    ],
+    "button": [
+        "button.solax_inverter_remotecontrol_trigger_mode_1_7",
+        "button.solax_inverter_powercontrolmode_trigger_mode_8_9",
+    ],
+}
+
+OLD_STYLE_ENTITIES = {
+    "select": ["select.solax_remotecontrol_power_control"],
+    "number": [
+        "number.solax_remotecontrol_active_power",
+        "number.solax_remotecontrol_autorepeat_duration",
+        "number.solax_remotecontrol_duration",
+        "number.solax_battery_charge_max_current",
+        "number.solax_selfuse_discharge_min_soc",
+    ],
+    "button": ["button.solax_remotecontrol_trigger"],
+}
+
+
+def _install_states(mock_hass, entities: dict) -> None:
+    all_ids = {eid for ids in entities.values() for eid in ids}
+    mock_hass.states.async_all = MagicMock(
+        side_effect=lambda domain: [_FakeState(e) for e in entities.get(domain, [])]
+    )
+    mock_hass.states.get = MagicMock(
+        side_effect=lambda eid: _FakeState(eid) if eid in all_ids else None
+    )
+
+
+class TestFindSolaxControlEntity:
+    """find_solax_control_entity matcht alte und neue solax_modbus-Benennung."""
+
+    def test_new_style_entities_resolved(self, mock_hass):
+        from custom_components.eeg_energy_optimizer.inverter.solax import (
+            find_solax_control_entity,
+        )
+        _install_states(mock_hass, NEW_STYLE_ENTITIES)
+        expected = {
+            "remotecontrol_power_control": "select.solax_inverter_remotecontrol_power_control_mode_1",
+            "remotecontrol_active_power": "number.solax_inverter_remotecontrol_active_power_mode_1",
+            "remotecontrol_autorepeat_duration": "number.solax_inverter_remotecontrol_autorepeat_duration_mode_1_9",
+            "remotecontrol_duration": "number.solax_inverter_remotecontrol_duration_mode_1_8",
+            "remotecontrol_trigger": "button.solax_inverter_remotecontrol_trigger_mode_1_7",
+            "battery_charge_max_current": "number.solax_inverter_battery_charge_max_current",
+            "selfuse_discharge_min_soc": "number.solax_inverter_selfuse_discharge_min_soc",
+        }
+        for key, entity_id in expected.items():
+            assert find_solax_control_entity(mock_hass, key) == entity_id, key
+
+    def test_old_style_entities_resolved(self, mock_hass):
+        from custom_components.eeg_energy_optimizer.inverter.solax import (
+            find_solax_control_entity,
+        )
+        _install_states(mock_hass, OLD_STYLE_ENTITIES)
+        assert (
+            find_solax_control_entity(mock_hass, "remotecontrol_power_control")
+            == "select.solax_remotecontrol_power_control"
+        )
+        assert (
+            find_solax_control_entity(mock_hass, "remotecontrol_trigger")
+            == "button.solax_remotecontrol_trigger"
+        )
+
+    def test_direct_and_mode89_variants_not_matched(self, mock_hass):
+        from custom_components.eeg_energy_optimizer.inverter.solax import (
+            find_solax_control_entity,
+        )
+        _install_states(mock_hass, {
+            "select": [
+                "select.solax_inverter_remotecontrol_power_control_mode_mode_8_9",
+                "select.solax_inverter_remotecontrol_power_control_mode_mode_8_9_direct",
+            ],
+            "number": ["number.solax_inverter_remotecontrol_active_power_mode_1_direct"],
+        })
+        assert find_solax_control_entity(mock_hass, "remotecontrol_power_control") is None
+        assert find_solax_control_entity(mock_hass, "remotecontrol_active_power") is None
+
+    def test_no_states_yields_none(self, mock_hass):
+        from custom_components.eeg_energy_optimizer.inverter.solax import (
+            find_solax_control_entity,
+        )
+        _install_states(mock_hass, {})
+        assert find_solax_control_entity(mock_hass, "remotecontrol_trigger") is None
+
+
+class TestSolaXEntityResolution:
+    """_resolve_entity: Config → Suffix-Scan → Default."""
+
+    def test_configured_entity_wins_when_it_exists(self, mock_hass):
+        entities = {
+            **NEW_STYLE_ENTITIES,
+            "number": NEW_STYLE_ENTITIES["number"] + ["number.custom_active_power"],
+        }
+        _install_states(mock_hass, entities)
+        inv = SolaXInverter(
+            mock_hass, {"solax_remotecontrol_active_power": "number.custom_active_power"}
+        )
+        assert inv._resolve_entity("remotecontrol_active_power") == "number.custom_active_power"
+
+    def test_stale_config_falls_back_to_scan(self, mock_hass):
+        """Nach solax_modbus-Update zeigt die Config auf eine umbenannte Entity."""
+        _install_states(mock_hass, NEW_STYLE_ENTITIES)
+        inv = SolaXInverter(
+            mock_hass,
+            {"solax_remotecontrol_active_power": "number.solax_inverter_remotecontrol_active_power"},
+        )
+        assert (
+            inv._resolve_entity("remotecontrol_active_power")
+            == "number.solax_inverter_remotecontrol_active_power_mode_1"
+        )
+
+    def test_no_match_falls_back_to_default(self, mock_hass):
+        _install_states(mock_hass, {})
+        inv = SolaXInverter(mock_hass, {})
+        assert (
+            inv._resolve_entity("remotecontrol_trigger")
+            == SOLAX_ENTITY_DEFAULTS["remotecontrol_trigger"]
+        )
+
+    async def test_discharge_targets_new_style_entities(self, mock_hass):
+        _install_states(mock_hass, NEW_STYLE_ENTITIES)
+        inv = SolaXInverter(mock_hass, {})
+        _install_noop_store(inv)
+        assert await inv.async_set_discharge(3.0) is True
+        payloads = _calls_by_entity(mock_hass)
+        assert payloads["select.solax_inverter_remotecontrol_power_control_mode_1"]["option"] == "Enabled Battery Control"
+        assert payloads["number.solax_inverter_remotecontrol_active_power_mode_1"]["value"] == -3000
+        assert payloads["number.solax_inverter_remotecontrol_duration_mode_1_8"]["value"] == 300
+        assert payloads["number.solax_inverter_remotecontrol_autorepeat_duration_mode_1_9"]["value"] == 60
+        assert "button.solax_inverter_remotecontrol_trigger_mode_1_7" in payloads
+
+
+class TestFindSolaxPrefix:
+    """_find_solax_prefix (websocket_api) leitet den Prefix aus alter wie neuer Benennung ab."""
+
+    def test_prefix_from_new_style_name(self, mock_hass):
+        from custom_components.eeg_energy_optimizer.websocket_api import _find_solax_prefix
+        _install_states(mock_hass, NEW_STYLE_ENTITIES)
+        assert _find_solax_prefix(mock_hass) == "solax_inverter_"
+
+    def test_prefix_from_old_style_name(self, mock_hass):
+        from custom_components.eeg_energy_optimizer.websocket_api import _find_solax_prefix
+        _install_states(mock_hass, OLD_STYLE_ENTITIES)
+        assert _find_solax_prefix(mock_hass) == "solax_"
+
+    def test_prefix_none_without_entities(self, mock_hass):
+        from custom_components.eeg_energy_optimizer.websocket_api import _find_solax_prefix
+        _install_states(mock_hass, {})
+        assert _find_solax_prefix(mock_hass) is None

@@ -11,6 +11,7 @@ All power values converted from InverterBase kW to SolaX Watts.
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from .base import InverterBase
@@ -36,6 +37,44 @@ SOLAX_ENTITY_DEFAULTS = {
     "remotecontrol_trigger": "button.solax_inverter_remotecontrol_trigger",
     "battery_charge_max_current": "number.solax_inverter_battery_charge_max_current",
 }
+
+# Suffix-Muster je Steuer-Entity. Neuere solax_modbus-Versionen (≥2025.x)
+# hängen Mode-Suffixe an die Entity-Namen an (remotecontrol_power_control_mode_1,
+# remotecontrol_trigger_mode_1_7, …), ältere nutzen die Basisnamen. Die
+# Mode-Bereiche in den Suffixen (z. B. _mode_1_7) können sich zwischen
+# Versionen ändern, daher generisches [0-9_]+. *_direct-Varianten
+# (Direktregister-Schreibmodus) werden bewusst NICHT gematcht — der Treiber
+# nutzt das Zwei-Phasen-Modell (Parameter setzen + Trigger).
+SOLAX_CONTROL_ENTITY_PATTERNS: dict[str, tuple[str, re.Pattern]] = {
+    "remotecontrol_power_control": ("select", re.compile(r"remotecontrol_power_control(_mode_1)?$")),
+    "remotecontrol_active_power": ("number", re.compile(r"remotecontrol_active_power(_mode_1)?$")),
+    "remotecontrol_autorepeat_duration": ("number", re.compile(r"remotecontrol_autorepeat_duration(_mode_[0-9_]+)?$")),
+    "remotecontrol_duration": ("number", re.compile(r"remotecontrol_duration(_mode_[0-9_]+)?$")),
+    "remotecontrol_trigger": ("button", re.compile(r"remotecontrol_trigger(_mode_[0-9_]+)?$")),
+    "battery_charge_max_current": ("number", re.compile(r"battery_charge_max_current$")),
+    "selfuse_discharge_min_soc": ("number", re.compile(r"selfuse_discharge_min_soc$")),
+}
+
+
+def find_solax_control_entity(hass: Any, config_key: str) -> str | None:
+    """Suche die SolaX-Steuer-Entity per Suffix-Scan (versionstolerant).
+
+    Liefert None, wenn keine passende Entity existiert. Bei mehreren Treffern
+    (Übergangsinstallationen mit alter + neuer Benennung) gewinnt der kürzeste
+    Name — das ist der Basisname ohne Mode-Suffix.
+    """
+    domain, pattern = SOLAX_CONTROL_ENTITY_PATTERNS[config_key]
+    try:
+        matches = [
+            state.entity_id
+            for state in hass.states.async_all(domain)
+            if pattern.search(state.entity_id.split(".", 1)[1])
+        ]
+    except TypeError:  # Test-Umgebung ohne echte State-Machine
+        return None
+    if not matches:
+        return None
+    return min(matches, key=len)
 
 
 class SolaXStateStore:
@@ -85,36 +124,42 @@ class SolaXInverter(InverterBase):
         super().__init__(hass, config)
         self._state_store = SolaXStateStore(hass)
 
+    def _resolve_entity(self, config_key: str) -> str:
+        """Löse die Steuer-Entity auf: Config → Suffix-Scan → Default.
+
+        Der konfigurierte Wert gilt nur, solange die Entity auch existiert —
+        nach einem solax_modbus-Update mit umbenannten Entities (Mode-Suffixe)
+        greift sonst automatisch der Suffix-Scan.
+        """
+        configured = self._config.get(f"solax_{config_key}")
+        if configured and self._hass.states.get(configured) is not None:
+            return configured
+        found = find_solax_control_entity(self._hass, config_key)
+        if found:
+            return found
+        return configured or SOLAX_ENTITY_DEFAULTS[config_key]
+
     async def _set_number(self, config_key: str, value: float) -> None:
-        """Set a number entity value. Resolves entity from config or defaults."""
-        entity_id = self._config.get(
-            f"solax_{config_key}", SOLAX_ENTITY_DEFAULTS[config_key]
-        )
+        """Set a number entity value. Resolves entity from config, scan or defaults."""
         await self._hass.services.async_call(
             "number", "set_value",
-            {"entity_id": entity_id, "value": value},
+            {"entity_id": self._resolve_entity(config_key), "value": value},
             blocking=True,
         )
 
     async def _set_select(self, config_key: str, option: str) -> None:
-        """Set a select entity option. Resolves entity from config or defaults."""
-        entity_id = self._config.get(
-            f"solax_{config_key}", SOLAX_ENTITY_DEFAULTS[config_key]
-        )
+        """Set a select entity option. Resolves entity from config, scan or defaults."""
         await self._hass.services.async_call(
             "select", "select_option",
-            {"entity_id": entity_id, "option": option},
+            {"entity_id": self._resolve_entity(config_key), "option": option},
             blocking=True,
         )
 
     async def _press_trigger(self) -> None:
         """Press the remote control trigger button to execute Modbus write."""
-        entity_id = self._config.get(
-            "solax_remotecontrol_trigger", SOLAX_ENTITY_DEFAULTS["remotecontrol_trigger"]
-        )
         await self._hass.services.async_call(
             "button", "press",
-            {"entity_id": entity_id},
+            {"entity_id": self._resolve_entity("remotecontrol_trigger")},
             blocking=True,
         )
 
@@ -162,11 +207,7 @@ class SolaXInverter(InverterBase):
 
     def _read_current_charge_max_current(self) -> float | None:
         """Liest aktuellen State von battery_charge_max_current Entity. Liefert None wenn nicht verfügbar."""
-        entity_id = self._config.get(
-            "solax_battery_charge_max_current",
-            SOLAX_ENTITY_DEFAULTS["battery_charge_max_current"],
-        )
-        state = self._hass.states.get(entity_id)
+        state = self._hass.states.get(self._resolve_entity("battery_charge_max_current"))
         if state is None:
             return None
         try:
@@ -176,11 +217,7 @@ class SolaXInverter(InverterBase):
 
     def _read_max_charge_current_attribute(self) -> float | None:
         """Liest attributes.max des battery_charge_max_current Entities (Hardware-Maximum)."""
-        entity_id = self._config.get(
-            "solax_battery_charge_max_current",
-            SOLAX_ENTITY_DEFAULTS["battery_charge_max_current"],
-        )
-        state = self._hass.states.get(entity_id)
+        state = self._hass.states.get(self._resolve_entity("battery_charge_max_current"))
         if state is None:
             return None
         max_val = state.attributes.get("max")

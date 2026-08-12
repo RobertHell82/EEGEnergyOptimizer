@@ -89,6 +89,7 @@ const WIZARD_DEFAULTS = {
   solax_remotecontrol_power_control: "",
   solax_remotecontrol_active_power: "",
   solax_remotecontrol_autorepeat_duration: "",
+  solax_remotecontrol_duration: "",
   solax_remotecontrol_trigger: "",
   solax_selfuse_discharge_min_soc: "",
   solaredge_storage_control_mode: "",
@@ -646,6 +647,12 @@ class EegOptimizerPanel extends HTMLElement {
         break;
       case "recheck-prerequisites":
         this._checkPrerequisites();
+        // Auf dem Wechselrichter-Schritt auch die Sensor-Erkennung neu
+        // anstoßen — "Erneut prüfen" soll den kompletten Zustand auffrischen,
+        // nicht nur die Integrations-Badges.
+        if (this._wizardStep === 1) {
+          this._detectSensors();
+        }
         break;
       case "redetect-sensors":
         this._detectSensors();
@@ -776,8 +783,8 @@ class EegOptimizerPanel extends HTMLElement {
             "battery_soc_sensor", "battery_capacity_sensor", "huawei_device_id",
             "pv_power_sensor_2", "battery_power_sensor_2",
             "solax_remotecontrol_power_control", "solax_remotecontrol_active_power",
-            "solax_remotecontrol_autorepeat_duration", "solax_remotecontrol_trigger",
-            "solax_selfuse_discharge_min_soc",
+            "solax_remotecontrol_autorepeat_duration", "solax_remotecontrol_duration",
+            "solax_remotecontrol_trigger", "solax_selfuse_discharge_min_soc",
           ];
           for (const k of sensorKeys) this._wizardData[k] = "";
           this._wizardData.huawei_device_ids = [];
@@ -1001,6 +1008,14 @@ class EegOptimizerPanel extends HTMLElement {
 
     // Preload logos and prerequisites in background
     this._checkPrerequisites();
+    // Nach localStorage-Restore auf einem Sensor-Schritt die Auto-Detection
+    // nachholen — sie läuft sonst nur bei Step-Navigation (_refreshStepData).
+    // Ohne diesen Aufruf bliebe ein restaurierter Wizard mit leeren Sensor-
+    // feldern dauerhaft leer: Klick auf die bereits gewählte Wechselrichter-
+    // Karte ist ein No-op und stößt keine neue Erkennung an.
+    if (saved && this._wizardStep >= 1) {
+      this._detectSensors();
+    }
     const logos = [
       "https://brands.home-assistant.io/huawei_solar/logo.png",
       "https://brands.home-assistant.io/forecast_solar/logo.png",
@@ -1825,19 +1840,20 @@ class EegOptimizerPanel extends HTMLElement {
             if (sensors[key]) this._wizardData[key] = sensors[key];
           }
         }
-        // SolaX control entity prefix detection
-        if (this._detectedSensors.solax_prefix) {
-          const solaxKeys = [
-            "solax_remotecontrol_power_control",
-            "solax_remotecontrol_active_power",
-            "solax_remotecontrol_autorepeat_duration",
-            "solax_remotecontrol_trigger",
-            "solax_selfuse_discharge_min_soc",
-          ];
-          for (const key of solaxKeys) {
-            if (this._detectedSensors[key] && !this._wizardData[key]) {
-              this._wizardData[key] = this._detectedSensors[key];
-            }
+        // SolaX-Steuer-Entities: Server löst sie per Suffix-Scan auf (auch bei
+        // neueren solax_modbus-Versionen mit Mode-Suffixen wie _mode_1_7) —
+        // daher direkt übernehmen, ohne solax_prefix vorauszusetzen.
+        const solaxKeys = [
+          "solax_remotecontrol_power_control",
+          "solax_remotecontrol_active_power",
+          "solax_remotecontrol_autorepeat_duration",
+          "solax_remotecontrol_duration",
+          "solax_remotecontrol_trigger",
+          "solax_selfuse_discharge_min_soc",
+        ];
+        for (const key of solaxKeys) {
+          if (this._detectedSensors[key] && !this._wizardData[key]) {
+            this._wizardData[key] = this._detectedSensors[key];
           }
         }
         // SolarEdge control entity detection

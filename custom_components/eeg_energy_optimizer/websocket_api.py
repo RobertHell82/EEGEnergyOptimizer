@@ -43,6 +43,10 @@ from .const import (
     INVERTER_TYPE_FRONIUS,
     TELEMETRY_SETTINGS_KEYS,
 )
+from .inverter.solax import (
+    SOLAX_CONTROL_ENTITY_PATTERNS,
+    find_solax_control_entity,
+)
 # I-4: Der shared Profile-Builder lebt in __init__.py. Da __init__.py uns
 # importiert, würde ein direkter `from . import _build_telemetry_profile`
 # einen Zirkular-Import erzeugen. Stattdessen: lazy lookup über das Modul-
@@ -271,13 +275,21 @@ def _find_solaredge_additional_inverters(
 
 
 def _find_solax_prefix(hass: HomeAssistant) -> str | None:
-    """Auto-detect the SolaX entity prefix by searching for remotecontrol_power_control."""
-    for state in hass.states.async_all("select"):
-        if state.entity_id.endswith("remotecontrol_power_control"):
-            # e.g. "select.solax_remotecontrol_power_control" -> "solax_"
-            prefix = state.entity_id.replace("select.", "").replace("remotecontrol_power_control", "")
-            return prefix
-    return None
+    """Auto-detect the SolaX entity prefix from the remotecontrol power-control select.
+
+    Versionstolerant: neuere solax_modbus-Versionen benennen die Entity
+    remotecontrol_power_control_mode_1 (statt remotecontrol_power_control) —
+    das Matching übernimmt find_solax_control_entity aus dem Treibermodul.
+    """
+    entity_id = find_solax_control_entity(hass, "remotecontrol_power_control")
+    if not entity_id:
+        return None
+    object_id = entity_id.split(".", 1)[1]
+    match = SOLAX_CONTROL_ENTITY_PATTERNS["remotecontrol_power_control"][1].search(object_id)
+    if not match:  # pragma: no cover — find_solax_control_entity matcht identisch
+        return None
+    # e.g. "select.solax_remotecontrol_power_control_mode_1" -> "solax_"
+    return object_id[: match.start()]
 
 
 def _find_huawei_battery_devices(hass: HomeAssistant) -> list[str]:
@@ -764,23 +776,31 @@ async def ws_detect_sensors(
                     sensors[conf_key] = entity_id
                     break
 
-        # Detect SolaX entity prefix for control entities
-        prefix = _find_solax_prefix(hass)
-
         result = {
             CONF_INVERTER_TYPE: INVERTER_TYPE_SOLAX,
             "detected": True,
             "sensors": sensors,
         }
+
+        # Steuer-Entities per Suffix-Scan auflösen statt aus dem Prefix zu
+        # konstruieren — neuere solax_modbus-Versionen hängen Mode-Suffixe an
+        # die Entity-Namen (z. B. remotecontrol_trigger_mode_1_7), die ein
+        # konstruierter Name nie treffen würde.
+        for control_key in (
+            "remotecontrol_power_control",
+            "remotecontrol_active_power",
+            "remotecontrol_autorepeat_duration",
+            "remotecontrol_duration",
+            "remotecontrol_trigger",
+            "selfuse_discharge_min_soc",
+        ):
+            entity_id = find_solax_control_entity(hass, control_key)
+            if entity_id:
+                result[f"solax_{control_key}"] = entity_id
+
+        prefix = _find_solax_prefix(hass)
         if prefix:
             result["solax_prefix"] = prefix
-            # Pre-fill control entity IDs based on detected prefix
-            result["solax_remotecontrol_power_control"] = f"select.{prefix}remotecontrol_power_control"
-            result["solax_remotecontrol_active_power"] = f"number.{prefix}remotecontrol_active_power"
-            result["solax_remotecontrol_autorepeat_duration"] = f"number.{prefix}remotecontrol_autorepeat_duration"
-            result["solax_remotecontrol_duration"] = f"number.{prefix}remotecontrol_duration"
-            result["solax_remotecontrol_trigger"] = f"button.{prefix}remotecontrol_trigger"
-            result["solax_selfuse_discharge_min_soc"] = f"number.{prefix}selfuse_discharge_min_soc"
 
         connection.send_result(msg["id"], result)
         return
