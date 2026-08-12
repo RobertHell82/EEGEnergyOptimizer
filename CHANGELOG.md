@@ -7,6 +7,15 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.6] - 2026-08-12
+
+> Release entspricht der DEV-Iteration 1.3.6-dev (SolaX-Erkennung).
+
+### Behoben
+
+- **Setup-Wizard: Sensor-Erkennung blieb nach einem Seiten-Reload dauerhaft leer.** Nach dem Wiederherstellen des Wizard-Fortschritts läuft die Auto-Erkennung jetzt automatisch nach; „Erneut prüfen" stößt sie ebenfalls neu an.
+- **SolaX: Steuer-Entities neuerer solax_modbus-Versionen (Mode-Suffixe) werden erkannt und angesteuert.** Suffix-toleranter Scan in Erkennung und Treiber; Bestands-Configs laufen nach einem solax_modbus-Update ohne Neukonfiguration weiter.
+
 ## [1.3.6-dev] - 2026-08-12
 
 ### Behoben
