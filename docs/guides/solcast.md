@@ -27,16 +27,24 @@
 
 ## 2. Installation der Integration
 
+> [!NOTE]
+> **Vorbereitetes EEG-Gerät (Home Assistant Green) erhalten?** Dann ist die Solcast-Integration bereits installiert — überspringe diesen Abschnitt und mache direkt bei Punkt 3 weiter.
+
 _**Voraussetzung:** [HACS](https://hacs.xyz/) muss installiert sein (Solcast ist eine Custom Integration, kein HA-Standard)._
 
 1. Gehe zu **HACS → Integrationen → Suche „Solcast PV Forecast"**
 2. Installiere die Integration und starte Home Assistant neu.
-3. Unter **Einstellungen → Geräte & Dienste → Solcast Solar** hinzufügen.
-4. Gib den zuvor kopierten API-Key ein, lasse die restlichen Einstellungen wie vorausgewählt und klicke auf **OK**.
-5. Aktiviere die deaktivierten Prognose-Sensoren für die Tage 3 bis 7: Klicke den Sensor an, dann auf das Zahnrad und stelle ihn auf **Aktiviert**.<br>
+
+## 3. Solcast-Konto verbinden
+
+_Dieser Abschnitt gilt für **alle** — auch bei einem vorbereiteten EEG-Gerät, denn jedes Mitglied nutzt seinen eigenen API-Key._
+
+1. Gehe zu **Einstellungen → Geräte & Dienste → Integration hinzufügen** und wähle **Solcast Solar**.
+2. Gib den zuvor kopierten API-Key ein, lasse die restlichen Einstellungen wie vorausgewählt und klicke auf **OK**.
+3. Aktiviere die deaktivierten Prognose-Sensoren für die Tage 3 bis 7: Klicke den Sensor an, dann auf das Zahnrad und stelle ihn auf **Aktiviert**.<br>
    ![Sensoren aktivieren](../images/solcast/06_Prognosesensoren.png)
 
-## 3. Prüfen
+## 4. Prüfen
 
 1. Warte 1–2 Minuten nach der Einrichtung
 2. Prüfe unter **Entwicklerwerkzeuge → Zustände**: Suche nach `solcast`
