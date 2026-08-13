@@ -7,6 +7,33 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.7] - 2026-08-13
+
+> Release entspricht der DEV-Iteration 1.3.7-dev (Energieflussdiagramm mobil).
+
+### Behoben
+
+- **Energieflussdiagramm auf Smartphones: verschobene Icons und kaum lesbare Zahlen.** Icons als native SVG-Pfade (iOS-Safari-Bug umgangen); eigenes kompaktes Hochformat-Layout auf schmalen Viewports.
+- **Energieflussdiagramm: Der Fluss Batterie → Netz (Nacht-Entladung) fehlte** — wird jetzt inkl. Wert-Label gezeichnet.
+- **Wert-Labels ≥ 10 kW liefen über den Pillen-Rand** — Breite jetzt dynamisch.
+
+### Geändert
+
+- Status-Karte heißt jetzt kurz **„Status"** statt „Aktueller Status".
+
+## [1.3.7-dev] - 2026-08-13
+
+### Behoben
+
+- **Energieflussdiagramm auf Smartphones: verschobene Icons und kaum lesbare Zahlen.** Die Node-Icons (PV, Batterie, Haus, Netz) waren per `<foreignObject>` + `ha-icon` ins SVG eingebettet — iOS Safari positioniert `foreignObject`-Inhalte in per viewBox skalierten SVGs falsch (WebKit-Bug), wodurch die Icons auf dem iPhone neben den Boxen saßen. Sie werden jetzt als native SVG-Pfade (MDI-Pfaddaten) gezeichnet. Zusätzlich bekommt das Diagramm auf schmalen Viewports ein eigenes kompaktes Hochformat-Layout (viewBox 360×390 statt herunterskaliertem 600×320): Die Schriften bleiben damit nahezu in Originalgröße lesbar, statt auf effektiv 6–8 px zu schrumpfen; der Batterie-Subtext nutzt dort platzsparend Vorzeichen (`+2,35 kW`/`−10,50 kW`) statt „· Ladung/Entladung".
+- **Energieflussdiagramm: Der Fluss Batterie → Netz fehlte komplett.** Ausgerechnet während der Nacht-Entladung zeigte das Netz zwar die Einspeiseleistung, aber keine Flusslinie führte von der Batterie dorthin — die Flusszerlegung kannte den Pfad nicht. Der Fluss wird jetzt gezeichnet (grün, mit Wert-Label); damit sich dessen Label nicht mit dem PV→Haus-Label im Kreuzungspunkt überlagert, sitzt letzteres nun versetzt auf der Linie.
+- **Energieflussdiagramm: Wert-Labels ≥ 10 kW liefen über den Pillen-Rand hinaus.** Die Label-Breite passt sich jetzt der Textlänge an.
+
+### Geändert
+
+- Die Status-Karte im Dashboard heißt jetzt kurz **„Status"** statt „Aktueller Status".
+- Der Hover-Zoom auf den Diagramm-Nodes greift nur noch auf Geräten mit echtem Hover (Maus), nicht mehr auf Touch.
+
 ## [1.3.6] - 2026-08-12
 
 > Release entspricht der DEV-Iteration 1.3.6-dev (SolaX-Erkennung).
