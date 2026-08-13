@@ -4455,15 +4455,36 @@ class EegOptimizerPanel extends HTMLElement {
     const hausFromGrid = Math.max(haus - pvToHaus - hausFromBat, 0);
     // Battery filled by something other than PV (rare: from grid)
     const batFromGrid = Math.max(batCharge - pvToBat, 0);
+    // Battery discharge beyond house demand feeds the grid (Nacht-Entladung)
+    const batToGrid = Math.min(Math.max(batDischarge - hausFromBat, 0), Math.max(gridExport - pvToGrid, 0));
 
     // --- Layout ---
-    const W = 600, H = 320;
-    const NW = 150, NH = 64;
-    const positions = {
+    // Narrow (Smartphone): kompaktere viewBox, damit die SVG-Skalierung nahe 1:1
+    // bleibt und Schriften lesbar sind (600er-viewBox auf ~340px = ~55% Schriftgröße).
+    const narrow = !!this._narrow;
+    const W = narrow ? 360 : 600;
+    const H = narrow ? 390 : 320;
+    const NW = narrow ? 140 : 150;
+    const NH = 64;
+    const positions = narrow ? {
+      pv:    { cx: 180, cy: 50 },
+      bat:   { cx: 78,  cy: 195 },
+      house: { cx: 180, cy: 340 },
+      grid:  { cx: 282, cy: 195 },
+    } : {
       pv:    { cx: 300, cy: 50 },
       bat:   { cx: 95,  cy: 160 },
       house: { cx: 300, cy: 270 },
       grid:  { cx: 505, cy: 160 },
+    };
+
+    // MDI-Pfade (24×24) nativ eingebettet — <foreignObject> mit ha-icon wird von
+    // iOS Safari in skalierten SVGs falsch positioniert (WebKit-Bug).
+    const ICON_PATHS = {
+      solar: "M11.45,2V5.55L15,3.77L11.45,2M10.45,8L8,10.46L11.75,11.71L10.45,8M2,11.45L3.77,15L5.55,11.45H2M10,2H2V10C2.57,10.17 3.17,10.25 3.77,10.25C7.35,10.26 10.26,7.35 10.27,3.75C10.26,3.16 10.17,2.57 10,2M17,22V16H14L19,7V13H22L17,22Z",
+      battery: "M16.67,4H15V2H9V4H7.33A1.33,1.33 0 0,0 6,5.33V20.67C6,21.4 6.6,22 7.33,22H16.67A1.33,1.33 0 0,0 18,20.67V5.33C18,4.6 17.4,4 16.67,4Z",
+      home: "M10,20V14H14V20H19V12H22L12,3L2,12H5V20H10Z",
+      grid: "M8.28,5.45L6.5,4.55L7.76,2H16.23L17.5,4.55L15.72,5.44L15,4H9L8.28,5.45M18.62,8H14.09L13.3,5H10.7L9.91,8H5.38L4.1,10.55L5.89,11.44L6.62,10H17.38L18.1,11.45L19.89,10.56L18.62,8M17.77,22H15.7L15.46,21.1L12,15.9L8.53,21.1L8.3,22H6.23L9.12,11H11.19L10.83,12.35L12,14.1L13.16,12.35L12.81,11H14.88L17.77,22M11.4,15L10.5,13.65L9.32,18.13L11.4,15M14.68,18.12L13.5,13.64L12.6,15L14.68,18.12Z",
     };
 
     // Trim line to box edge so arrow doesn't hide under the rect
@@ -4483,11 +4504,16 @@ class EegOptimizerPanel extends HTMLElement {
     };
 
     // --- Flow lines ---
+    // labelT: Label-Position entlang der Linie (0..1). PV→Haus sitzt bei 0.35,
+    // damit das Label nicht mit dem von Batterie↔Netz im Kreuzungspunkt kollidiert.
+    // skipInactive: Batterie→Netz teilt sich das Segment mit Netz→Batterie —
+    // die inaktive gestrichelte Linie nur einmal zeichnen.
     const flows = [
-      { from: positions.pv,    to: positions.house, value: pvToHaus,      color: "#FFC107" },
+      { from: positions.pv,    to: positions.house, value: pvToHaus,      color: "#FFC107", labelT: 0.35 },
       { from: positions.pv,    to: positions.bat,   value: pvToBat,       color: "#FFC107" },
       { from: positions.pv,    to: positions.grid,  value: pvToGrid,      color: "#4CAF50" },
       { from: positions.bat,   to: positions.house, value: hausFromBat,   color: "#FF9800" },
+      { from: positions.bat,   to: positions.grid,  value: batToGrid,     color: "#4CAF50", skipInactive: true },
       { from: positions.grid,  to: positions.house, value: hausFromGrid,  color: "#F44336" },
       { from: positions.grid,  to: positions.bat,   value: batFromGrid,   color: "#F44336" },
     ];
@@ -4500,57 +4526,61 @@ class EegOptimizerPanel extends HTMLElement {
       if (f.value > 0.02) {
         const sw = Math.min(Math.max(2, f.value * 0.7), 5);
         activeLines += `<line class="flow-line" x1="${e.x1}" y1="${e.y1}" x2="${e.x2}" y2="${e.y2}" stroke="${f.color}" stroke-width="${sw}" fill="none"/>`;
-        // Label at midpoint
-        const mx = (e.x1 + e.x2) / 2;
-        const my = (e.y1 + e.y2) / 2;
+        // Label entlang der Linie — Breite dynamisch, damit Werte >= 10 kW nicht überlaufen
+        const t = f.labelT ?? 0.5;
+        const mx = e.x1 + (e.x2 - e.x1) * t;
+        const my = e.y1 + (e.y2 - e.y1) * t;
+        const txt = fmtDe(f.value, 2);
+        const lw = Math.max(44, txt.length * 7 + 16);
         labels += `<g transform="translate(${mx} ${my})">
-          <rect class="ef-flow-label" x="-24" y="-10" width="48" height="20" rx="10"/>
-          <text class="ef-flow-text" x="0" y="4" text-anchor="middle">${fmtDe(f.value, 2)}</text>
+          <rect class="ef-flow-label" x="${-lw / 2}" y="-10" width="${lw}" height="20" rx="10"/>
+          <text class="ef-flow-text" x="0" y="4" text-anchor="middle">${txt}</text>
         </g>`;
-      } else {
+      } else if (!f.skipInactive) {
         inactiveLines += `<line x1="${e.x1}" y1="${e.y1}" x2="${e.x2}" y2="${e.y2}" stroke="var(--divider-color, #e0e0e0)" stroke-width="1.5" stroke-dasharray="2 5" opacity="0.5"/>`;
       }
     });
 
     // --- Node renderer ---
-    const node = (pos, icon, title, mainText, subText, accent, active, entityId) => {
+    const node = (pos, iconPath, title, mainText, subText, accent, active, entityId) => {
       const x = pos.cx - NW / 2;
       const y = pos.cy - NH / 2;
       const opacity = active ? 1 : 0.55;
       const clickable = entityId ? `data-action="show-entity" data-entity="${entityId}" style="cursor:pointer"` : "";
+      const iconSize = narrow ? 26 : 30;
+      const iconX = x + (narrow ? 8 : 12);
+      const iconY = y + (NH - iconSize) / 2;
+      const textX = x + (narrow ? 42 : 54);
       return `<g class="ef-node" opacity="${opacity}" ${clickable}>
         <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="14"
           fill="var(--card-background-color, #fff)"
           stroke="${accent}" stroke-width="${active ? 2.5 : 1.5}"/>
-        <foreignObject x="${x + 10}" y="${y + (NH - 36) / 2}" width="36" height="36">
-          <div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;align-items:center;justify-content:center;width:36px;height:36px">
-            <ha-icon icon="${icon}" style="--mdc-icon-size:30px;color:${accent}"></ha-icon>
-          </div>
-        </foreignObject>
-        <text x="${x + 54}" y="${y + 22}" font-size="11" fill="var(--secondary-text-color)" style="text-transform:uppercase;letter-spacing:0.5px">${title}</text>
-        <text x="${x + 54}" y="${y + 40}" font-size="15" font-weight="600" fill="var(--primary-text-color)">${mainText}</text>
-        ${subText ? `<text x="${x + 54}" y="${y + 55}" font-size="10" fill="var(--secondary-text-color)">${subText}</text>` : ""}
+        <path d="${iconPath}" fill="${accent}"
+          transform="translate(${iconX} ${iconY}) scale(${iconSize / 24})"/>
+        <text class="ef-node-title" x="${textX}" y="${y + 22}" fill="var(--secondary-text-color)">${title.toUpperCase()}</text>
+        <text class="ef-node-main" x="${textX}" y="${y + 40}" fill="var(--primary-text-color)">${mainText}</text>
+        ${subText ? `<text class="ef-node-sub" x="${textX}" y="${y + 55}" fill="var(--secondary-text-color)">${subText}</text>` : ""}
       </g>`;
     };
 
     // PV
-    const pvNode = node(positions.pv, "mdi:solar-power", "Photovoltaik", `${fmtDe(pv, 2)} kW`, "", "#FFC107", pv > 0.02, ids.pvEntity);
+    const pvNode = node(positions.pv, ICON_PATHS.solar, "Photovoltaik", `${fmtDe(pv, 2)} kW`, "", "#FFC107", pv > 0.02, ids.pvEntity);
 
-    // Battery
+    // Battery — im Narrow-Layout nur Vorzeichen statt "· Ladung/Entladung" (Platz)
     let batMain = socVal != null ? `${socVal} %` : "—";
     let batSub = "Idle";
     let batAccent = "#9E9E9E";
     if (batCharge > 0.02) {
-      batSub = `+${fmtDe(batCharge, 2)} kW · Ladung`;
+      batSub = narrow ? `+${fmtDe(batCharge, 2)} kW` : `+${fmtDe(batCharge, 2)} kW · Ladung`;
       batAccent = "#4CAF50";
     } else if (batDischarge > 0.02) {
-      batSub = `${fmtDe(batDischarge, 2)} kW · Entladung`;
+      batSub = narrow ? `−${fmtDe(batDischarge, 2)} kW` : `${fmtDe(batDischarge, 2)} kW · Entladung`;
       batAccent = "#FF9800";
     }
-    const batNode = node(positions.bat, "mdi:battery", "Batterie", batMain, batSub, batAccent, batCharge > 0.02 || batDischarge > 0.02, ids.batEntity);
+    const batNode = node(positions.bat, ICON_PATHS.battery, "Batterie", batMain, batSub, batAccent, batCharge > 0.02 || batDischarge > 0.02, ids.batEntity);
 
     // House
-    const houseNode = node(positions.house, "mdi:home", "Haus", `${fmtDe(haus, 2)} kW`, "", "#2196F3", haus > 0.02, ids.hausEntity);
+    const houseNode = node(positions.house, ICON_PATHS.home, "Haus", `${fmtDe(haus, 2)} kW`, "", "#2196F3", haus > 0.02, ids.hausEntity);
 
     // Grid
     let gridMain = "0 kW";
@@ -4565,9 +4595,9 @@ class EegOptimizerPanel extends HTMLElement {
       gridSub = "Bezug";
       gridAccent = "#F44336";
     }
-    const gridNode = node(positions.grid, "mdi:transmission-tower", "Netz", gridMain, gridSub, gridAccent, gridExport > 0.02 || gridImport > 0.02, ids.gridEntity);
+    const gridNode = node(positions.grid, ICON_PATHS.grid, "Netz", gridMain, gridSub, gridAccent, gridExport > 0.02 || gridImport > 0.02, ids.gridEntity);
 
-    return `<svg class="energy-flow-svg" viewBox="0 0 ${W} ${H}">
+    return `<svg class="energy-flow-svg${narrow ? " narrow" : ""}" viewBox="0 0 ${W} ${H}">
       ${inactiveLines}
       ${activeLines}
       ${labels}
@@ -5320,7 +5350,7 @@ class EegOptimizerPanel extends HTMLElement {
           <div class="header-card-top">
             <h3 class="status-card-title" style="margin:0;display:flex;align-items:center;gap:8px;flex:1;min-width:0">
               <ha-icon icon="mdi:pulse" style="--mdc-icon-size:20px;color:var(--primary-color,#03a9f4);flex-shrink:0"></ha-icon>
-              <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Aktueller Status</span>
+              <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Status</span>
               ${this._config?.inverter_type === "solaredge_storedge" ? `<span style="cursor:pointer;display:inline-flex;align-items:center;flex-shrink:0"
                 title="NVRAM-Schreibvorg\u00e4nge: ${this._readFloat("sensor.eeg_energy_optimizer_register_schreibvorgange") ?? 0} seit Installation">
                 <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:18px;color:var(--secondary-text-color)"></ha-icon>
@@ -6077,16 +6107,22 @@ class EegOptimizerPanel extends HTMLElement {
           .settings-tab { flex: 1 1 0; padding: 10px 8px; }
         }
         .energy-flow-svg { width: 100%; height: auto; max-height: 360px; display: block; }
+        .energy-flow-svg.narrow { max-height: 460px; margin: 0 auto; }
         .energy-flow-svg .flow-line { stroke-linecap: round; stroke-dasharray: 6 6; animation: flow-anim 1.2s linear infinite; }
         .energy-flow-svg .flow-line.reverse { animation-direction: reverse; }
         @keyframes flow-anim { to { stroke-dashoffset: -24; } }
-        .energy-flow-svg .ef-node { cursor: pointer; transition: transform 0.15s; }
-        .energy-flow-svg .ef-node:hover { transform: scale(1.04); transform-origin: center; transform-box: fill-box; }
+        .energy-flow-svg .ef-node { cursor: pointer; }
+        @media (hover: hover) {
+          .energy-flow-svg .ef-node { transition: transform 0.15s; }
+          .energy-flow-svg .ef-node:hover { transform: scale(1.04); transform-origin: center; transform-box: fill-box; }
+        }
         .energy-flow-svg .ef-flow-label { fill: var(--card-background-color, #fff); stroke: var(--divider-color, #e0e0e0); stroke-width: 1; }
         .energy-flow-svg .ef-flow-text { fill: var(--primary-text-color); font-size: 11px; font-weight: 500; pointer-events: none; }
-        @media (max-width: 540px) {
-          .energy-flow-svg .ef-flow-text { font-size: 13px; }
-        }
+        .energy-flow-svg .ef-node-title { font-size: 11px; letter-spacing: 0.5px; }
+        .energy-flow-svg .ef-node-main { font-size: 15px; font-weight: 600; }
+        .energy-flow-svg .ef-node-sub { font-size: 10px; }
+        .energy-flow-svg.narrow .ef-node-title { font-size: 10px; letter-spacing: 0.2px; }
+        .energy-flow-svg.narrow .ef-flow-text { font-size: 12px; }
         .header-timestamps { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--divider-color, #e0e0e0); font-size: 11px; color: var(--secondary-text-color, #999); }
         .status-card-title { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 16px; }
         .info-popup-trigger {
