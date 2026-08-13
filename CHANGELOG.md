@@ -7,6 +7,20 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.7] - 2026-08-13
+
+> Release entspricht der DEV-Iteration 1.3.7-dev (Energieflussdiagramm mobil).
+
+### Behoben
+
+- **Energieflussdiagramm auf Smartphones: verschobene Icons und kaum lesbare Zahlen.** Icons als native SVG-Pfade (iOS-Safari-Bug umgangen); eigenes kompaktes Hochformat-Layout auf schmalen Viewports.
+- **Energieflussdiagramm: Der Fluss Batterie → Netz (Nacht-Entladung) fehlte** — wird jetzt inkl. Wert-Label gezeichnet.
+- **Wert-Labels ≥ 10 kW liefen über den Pillen-Rand** — Breite jetzt dynamisch.
+
+### Geändert
+
+- Status-Karte heißt jetzt kurz **„Status"** statt „Aktueller Status".
+
 ## [1.3.7-dev] - 2026-08-13
 
 ### Behoben
