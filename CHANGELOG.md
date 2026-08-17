@@ -7,6 +7,13 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.8-dev] - 2026-08-17
+
+### Hinzugefügt
+
+- **Kostal Plenticore wird als fünfter Wechselrichter-Typ unterstützt (Beta).** Steuerung über direkte Modbus-TCP-Verbindung (Port 1502) mit den proprietären Kostal-Batterieregistern: Nacht-Entladung über den Entlade-Sollwert (Register 1034), Morgen-Einspeisung über das Ladelimit (Register 1038 = 0). Kostal erwartet zyklische Steuerbefehle — der Treiber schreibt aktive Sollwerte alle 25 s neu (Watchdog); fällt Home Assistant aus, kehrt der Wechselrichter automatisch zur internen Batterie-Automatik zurück. Sensordaten kommen aus der nativen `kostal_plenticore`-Integration (REST) und werden im Wizard automatisch erkannt. Der Verbindungstest prüft zusätzlich, ob die Batteriesteuerung bereits auf „Extern über Protokoll (Modbus TCP)" umgestellt ist (Installateur-Schritt) — falls nicht, kann die Einrichtung trotzdem abgeschlossen werden, ein Hinweis erklärt den offenen Schritt. Die Batteriekapazität wird aus dem Wechselrichter (Register 1068) vorbefüllt, da die REST-Integration keinen Kapazitätssensor liefert. Neue Anleitung: `docs/guides/kostal.md` bzw. „Anleitung" auf der Kostal-Karte im Wizard.
+- Die Einspeisebegrenzung bleibt für Kostal vorerst deaktiviert, bis das Register-Encoding des Ladelimits am realen Gerät verifiziert ist (Beta-Checkliste).
+
 ## [1.3.7] - 2026-08-13
 
 > Release entspricht der DEV-Iteration 1.3.7-dev (Energieflussdiagramm mobil).
