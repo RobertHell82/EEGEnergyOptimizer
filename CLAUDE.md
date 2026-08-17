@@ -58,6 +58,7 @@ optimizer.py: async_run_cycle(mode)
 | `inverter/huawei.py` | Huawei SUN2000 implementation via HA services — Single + Master/Slave (multi-device) |
 | `inverter/_distribution.py` | Shared proportional discharge distribution (SolarEdge + Huawei multi-battery) |
 | `inverter/fronius.py` | Fronius Gen24 implementation via direct Modbus TCP (SunSpec Model 124) |
+| `inverter/kostal.py` | Kostal Plenticore implementation via direct Modbus TCP (proprietary registers 1034/1038, watchdog keepalive task) |
 | `inverter/solax.py` | SolaX Gen4+ implementation via solax_modbus Mode 1 |
 | `inverter/solaredge.py` | SolarEdge StorEdge implementation via solaredge-modbus-multi |
 | `inverter/__init__.py` | Factory function `create_inverter()` |
@@ -141,6 +142,7 @@ InverterBase (ABC)
 Implementations:
   ├── HuaweiInverter — via HA huawei_solar services
   ├── FroniusInverter — via direct Modbus TCP (SunSpec Model 124, pymodbus)
+  ├── KostalInverter — via direct Modbus TCP (proprietary registers, port 1502, unit 71; cyclic keepalive feeds the inverter watchdog, timeout = failsafe fallback to internal automatic)
   ├── SolarEdgeInverter — via HA solaredge_modbus_multi StorEdge
   └── SolaXInverter — via HA solax_modbus Mode 1
 ```
@@ -173,6 +175,7 @@ read **and** control every battery:
 - **http**, **frontend**, **websocket_api** — onboarding panel
 - **huawei_solar** (after_dependency) — Huawei inverter control
 - **fronius** (after_dependency) — Fronius sensor data via Solar API
+- **kostal_plenticore** (after_dependency) — Kostal sensor data via REST
 - **solax_modbus** (after_dependency) — SolaX inverter control
 - **solaredge_modbus_multi** (after_dependency) — SolarEdge inverter control
 - **solcast_solar**, **forecast_solar** (after_dependency) — PV forecasts

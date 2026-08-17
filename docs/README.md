@@ -28,6 +28,7 @@ Anleitung für deinen Wechselrichter-Typ:
 | **Fronius Gen24** | [Fronius Gen24 einrichten](guides/fronius.md) |
 | **SolaX Gen4+** | [SolaX Modbus einrichten](guides/solax.md) |
 | **SolarEdge StorEdge** | [SolarEdge Modbus Multi einrichten](guides/solaredge.md) |
+| **Kostal Plenticore** | [Kostal Plenticore einrichten](guides/kostal.md) |
 
 ## ☀️ PV-Prognose einrichten
 

@@ -48,10 +48,15 @@ Pro Anlage wird einmalig eine zufällige **UUIDv4** + ein **API-Key** erzeugt un
 - **Fronius Gen24** (via native [Fronius](https://www.home-assistant.io/integrations/fronius/) Integration + direkte Modbus TCP Steuerung)
 - **SolarEdge StorEdge** (via [SolarEdge Modbus Multi](https://github.com/WillCodeForCats/solaredge-modbus-multi) Integration) — max. 2 Wechselrichter
 - **SolaX Gen4+** (via [SolaX Modbus](https://github.com/wills106/homeassistant-solax-modbus) Integration)
+- **Kostal Plenticore** (plus/G2/G3, via native [Kostal Plenticore](https://www.home-assistant.io/integrations/kostal_plenticore/) Integration + direkte Modbus TCP Steuerung) — **Beta**
 
 ### Hinweis zu Fronius Gen24
 
 Die Fronius-Steuerung nutzt direkte Modbus TCP Verbindung zum Wechselrichter (SunSpec Model 124). Sensordaten (PV, Batterie, Netz) werden über die native HA Fronius Integration (Solar API) gelesen. Es wird keine zusätzliche HACS-Integration benötigt — nur die Fronius Core Integration und eine Netzwerkverbindung zum Wechselrichter (Standard-Port 502).
+
+### Hinweis zu Kostal Plenticore
+
+Die Kostal-Steuerung nutzt eine direkte Modbus TCP Verbindung zum Wechselrichter (Port 1502, proprietäre Batterie-Steuerregister). Sensordaten (PV, Batterie, Netz) werden über die native HA Kostal Plenticore Integration (REST) gelesen. Die Umstellung der Batteriesteuerung auf „Extern über Protokoll (Modbus TCP)" liegt im Servicemenü und erfordert einen **Installateur-Login** — Details im [Kostal-Guide](docs/guides/kostal.md). Kostal erwartet zyklische Steuerbefehle (Watchdog): Fällt Home Assistant aus, kehrt der Wechselrichter automatisch zur internen Batterie-Automatik zurück. Die Steuerregister sind flüchtig (RAM) — kein NVRAM-Verschleiß.
 
 ### Hinweis zu SolarEdge NVRAM-Schreibvorgängen
 
@@ -149,7 +154,7 @@ So wird sichergestellt, dass die Batterie am nächsten Tag wieder vollständig �
 ## Voraussetzungen
 
 - Home Assistant 2025.1.0 oder neuer
-- Eine unterstützte Wechselrichter-Integration installiert und konfiguriert (Huawei Solar, Fronius, SolaX Modbus oder SolarEdge Modbus Multi)
+- Eine unterstützte Wechselrichter-Integration installiert und konfiguriert (Huawei Solar, Fronius, SolaX Modbus, SolarEdge Modbus Multi oder Kostal Plenticore)
 - Eine PV-Prognose-Integration (Solcast Solar oder Forecast.Solar)
 
 ## Lizenz
