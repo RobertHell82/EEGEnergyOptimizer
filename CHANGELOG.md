@@ -7,7 +7,7 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
-## [1.3.9-dev-02] - 2026-08-18
+## [1.3.10-dev] - 2026-08-18
 
 ### Behoben
 
