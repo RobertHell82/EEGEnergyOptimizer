@@ -258,6 +258,11 @@ KOSTAL_SENSOR_SUFFIXES: dict[str, list[str]] = {
     ],
 }
 
+# Kostal exposes "PV to Battery Power" (sensor.<name>_pv_to_battery_power),
+# which also ends in "battery_power" and would race the real battery-power
+# sensor depending on state-machine iteration order. Never a valid candidate.
+KOSTAL_SENSOR_EXCLUDE_SUFFIXES: tuple[str, ...] = ("pv_to_battery_power",)
+
 
 def _find_solaredge_prefix(hass: HomeAssistant) -> str | None:
     """Auto-detect the SolarEdge entity prefix by searching multiple known suffixes.
@@ -1027,6 +1032,11 @@ async def ws_detect_sensors(
         ]
 
         def _kostal_suffix_matches(entity_id: str, suffix: str) -> bool:
+            if any(
+                entity_id.endswith(excl)
+                for excl in KOSTAL_SENSOR_EXCLUDE_SUFFIXES
+            ):
+                return False
             if not entity_id.endswith(suffix):
                 return False
             head = entity_id[: -len(suffix)]
