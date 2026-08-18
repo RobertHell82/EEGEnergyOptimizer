@@ -7,6 +7,17 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.9-dev-02] - 2026-08-18
+
+### Behoben
+
+- **Kostal Multi-Inverter: Auto-Erkennung konnte Sensoren des falschen Wechselrichters wählen.** Mit zwei `kostal_plenticore`-Einträgen (Master mit Batterie + zweiter Plenticore ohne Batterie) konnte der Scan Netz-/PV-Sensor des batterielosen Geräts erwischen (dessen `grid_power` dauerhaft 0 meldet). Die Erkennung wählt jetzt deterministisch das Gerät **mit Batterie** als Hauptgerät (SOC, Batterie, Netz, PV) und trägt die PV-Leistung des zweiten Geräts automatisch als zweiten PV-Sensor ein — dessen Erzeugung fließt damit in Hausverbrauch, Live-PV und Statistik ein. Der Zweiter-PV-Sensor-Picker ist im Wizard nun auch bei Kostal sichtbar.
+- **Panel zeigte nach der Ersteinrichtung minutenlang „Verbrauchsdaten werden berechnet…".** Nach dem Hausverbrauch-Backfill wurde der Verbrauchsprofil-Sensor erst vom 15-Minuten-Timer aktualisiert; zusätzlich läuft der Statistik-Import asynchron über die Recorder-Queue. Jetzt wird das Profil nach dem Backfill mit kurzem Nachfassen sofort aktualisiert — der Hinweis verschwindet typischerweise in unter einer Minute.
+
+### Verifiziert (SMA-Beta)
+
+- Live-Steuertest am STP10.0-3SE-40 bestanden: GridWSpt +1000 W → exakt 1 kW Netzeinspeisung inkl. Hausverbrauchs-Kompensation, Keepalive über mehrere Zyklen stabil, Stopp kehrt sofort sauber zurück. OpMod-Adresse 40236 bestätigt.
+
 ## [1.3.9-dev] - 2026-08-18
 
 ### Hinzugefügt
