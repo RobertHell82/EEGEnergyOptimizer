@@ -5676,7 +5676,7 @@ class EegOptimizerPanel extends HTMLElement {
           <ha-icon icon="mdi:chart-line" style="--mdc-icon-size:48px;color:var(--secondary-text-color);opacity:0.5"></ha-icon>
           <h3 style="margin:16px 0 8px;color:var(--secondary-text-color)">Verbrauchsdaten werden berechnet...</h3>
           <p style="color:var(--secondary-text-color);font-size:14px;margin:0">
-            Die historischen Verbrauchsdaten werden aus deinen Sensoren berechnet. Das kann beim ersten Start einige Sekunden dauern.
+            Die historischen Verbrauchsdaten werden aus deinen Sensoren berechnet. Das dauert beim ersten Start üblicherweise unter zwei Minuten. Ohne vorhandene Sensor-Historie füllt sich das Profil erst nach und nach — die Anzeige aktualisiert sich automatisch.
           </p>
         </div>
         ` : `
