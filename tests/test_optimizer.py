@@ -2402,3 +2402,24 @@ class TestHouseLoadEntryGuard:
         )
         assert should is True
         assert REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE not in blocked_by
+
+    def test_sma_skips_guard(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """SMA: Entladeleistung ist ein NETZ-Sollwert (GridWSpt) — der
+        Wechselrichter deckt den Hausverbrauch zusätzlich, der Export ist
+        immer voll EEG-wirksam. Der Guard darf nicht blockieren."""
+        now = datetime(2026, 6, 15, 21, 0, tzinfo=timezone.utc)
+        from custom_components.eeg_energy_optimizer.const import (
+            CONF_INVERTER_TYPE,
+            INVERTER_TYPE_SMA,
+        )
+        cfg = _make_config(**{CONF_INVERTER_TYPE: INVERTER_TYPE_SMA})
+        opt = _make_optimizer(
+            mock_hass, mock_inverter, mock_coordinator, mock_provider, cfg
+        )
+        should, _, _, blocked_by, _ = opt._should_discharge(
+            self._snap(now, consumption_now_kw=6.0)
+        )
+        assert should is True
+        assert REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE not in blocked_by

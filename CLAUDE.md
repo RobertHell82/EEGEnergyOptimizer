@@ -59,6 +59,7 @@ optimizer.py: async_run_cycle(mode)
 | `inverter/_distribution.py` | Shared proportional discharge distribution (SolarEdge + Huawei multi-battery) |
 | `inverter/fronius.py` | Fronius Gen24 implementation via direct Modbus TCP (SunSpec Model 124) |
 | `inverter/kostal.py` | Kostal Plenticore implementation via direct Modbus TCP (proprietary registers 1034/1038, watchdog keepalive task) |
+| `inverter/sma.py` | SMA Smart Energy / Sunny Boy Storage implementation via direct Modbus TCP (CmpBMS 6-parameter method, complete-block writes, watchdog keepalive task) |
 | `inverter/solax.py` | SolaX Gen4+ implementation via solax_modbus Mode 1 |
 | `inverter/solaredge.py` | SolarEdge StorEdge implementation via solaredge-modbus-multi |
 | `inverter/__init__.py` | Factory function `create_inverter()` |
@@ -143,6 +144,7 @@ Implementations:
   ├── HuaweiInverter — via HA huawei_solar services
   ├── FroniusInverter — via direct Modbus TCP (SunSpec Model 124, pymodbus)
   ├── KostalInverter — via direct Modbus TCP (proprietary registers, port 1502, unit 71; cyclic keepalive feeds the inverter watchdog, timeout = failsafe fallback to internal automatic)
+  ├── SMAInverter — via direct Modbus TCP (CmpBMS external battery management, port 502, unit 3; every command writes the complete 6-register block, 60s keepalive, 300s watchdog fallback; discharge = grid-exchange setpoint GridWSpt → house load auto-compensated, house-load entry guard skipped)
   ├── SolarEdgeInverter — via HA solaredge_modbus_multi StorEdge
   └── SolaXInverter — via HA solax_modbus Mode 1
 ```
@@ -176,6 +178,7 @@ read **and** control every battery:
 - **huawei_solar** (after_dependency) — Huawei inverter control
 - **fronius** (after_dependency) — Fronius sensor data via Solar API
 - **kostal_plenticore** (after_dependency) — Kostal sensor data via REST
+- **sma** (after_dependency) — SMA sensor data via WebConnect (directional pairs → synthetic combined sensors)
 - **solax_modbus** (after_dependency) — SolaX inverter control
 - **solaredge_modbus_multi** (after_dependency) — SolarEdge inverter control
 - **solcast_solar**, **forecast_solar** (after_dependency) — PV forecasts

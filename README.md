@@ -49,6 +49,7 @@ Pro Anlage wird einmalig eine zufällige **UUIDv4** + ein **API-Key** erzeugt un
 - **SolarEdge StorEdge** (via [SolarEdge Modbus Multi](https://github.com/WillCodeForCats/solaredge-modbus-multi) Integration) — max. 2 Wechselrichter
 - **SolaX Gen4+** (via [SolaX Modbus](https://github.com/wills106/homeassistant-solax-modbus) Integration)
 - **Kostal Plenticore** (plus/G2/G3, via native [Kostal Plenticore](https://www.home-assistant.io/integrations/kostal_plenticore/) Integration + direkte Modbus TCP Steuerung) — **Beta**
+- **SMA Smart Energy** (Sunny Tripower Smart Energy, Sunny Boy Storage, Sunny Boy Smart Energy — via native [SMA Solar](https://www.home-assistant.io/integrations/sma/) Integration + direkte Modbus TCP Steuerung) — **Beta**
 
 ### Hinweis zu Fronius Gen24
 
@@ -57,6 +58,10 @@ Die Fronius-Steuerung nutzt direkte Modbus TCP Verbindung zum Wechselrichter (Su
 ### Hinweis zu Kostal Plenticore
 
 Die Kostal-Steuerung nutzt eine direkte Modbus TCP Verbindung zum Wechselrichter (Port 1502, proprietäre Batterie-Steuerregister). Sensordaten (PV, Batterie, Netz) werden über die native HA Kostal Plenticore Integration (REST) gelesen. Die Umstellung der Batteriesteuerung auf „Extern über Protokoll (Modbus TCP)" liegt im Servicemenü und erfordert einen **Installateur-Login** — Details im [Kostal-Guide](docs/guides/kostal.md). Kostal erwartet zyklische Steuerbefehle (Watchdog): Fällt Home Assistant aus, kehrt der Wechselrichter automatisch zur internen Batterie-Automatik zurück. Die Steuerregister sind flüchtig (RAM) — kein NVRAM-Verschleiß.
+
+### Hinweis zu SMA
+
+Die SMA-Steuerung nutzt eine direkte Modbus TCP Verbindung zum Wechselrichter (Port 502, externes Batteriemanagement / CmpBMS-Register). Sensordaten (PV, Batterie, Netz) werden über die native HA SMA Solar Integration (WebConnect) gelesen. Den Modbus-TCP-Server kann der Anlagenbetreiber selbst im SMA-Webinterface aktivieren — kein Grid-Guard-Code nötig. SMA erwartet zyklische Steuerbefehle (Watchdog): Fällt Home Assistant aus, kehrt der Wechselrichter automatisch zur internen Batterie-Automatik zurück. Die Steuerregister sind flüchtige Sollwerte — kein Flash-Verschleiß. Bei vorhandenem Sunny Home Manager 2.0 muss dessen prognosebasiertes Laden deaktiviert werden — Details im [SMA-Guide](docs/guides/sma.md).
 
 ### Hinweis zu SolarEdge NVRAM-Schreibvorgängen
 
@@ -154,7 +159,7 @@ So wird sichergestellt, dass die Batterie am nächsten Tag wieder vollständig �
 ## Voraussetzungen
 
 - Home Assistant 2025.1.0 oder neuer
-- Eine unterstützte Wechselrichter-Integration installiert und konfiguriert (Huawei Solar, Fronius, SolaX Modbus, SolarEdge Modbus Multi oder Kostal Plenticore)
+- Eine unterstützte Wechselrichter-Integration installiert und konfiguriert (Huawei Solar, Fronius, SolaX Modbus, SolarEdge Modbus Multi, Kostal Plenticore oder SMA Solar)
 - Eine PV-Prognose-Integration (Solcast Solar oder Forecast.Solar)
 
 ## Lizenz

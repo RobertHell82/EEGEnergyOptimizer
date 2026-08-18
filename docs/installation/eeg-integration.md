@@ -41,6 +41,8 @@ Der EEG Energy Optimizer wird als **benutzerdefiniertes Repository** (Custom Rep
   - [Fronius Gen24](../guides/fronius.md)
   - [SolaX Gen4+](../guides/solax.md)
   - [SolarEdge StorEdge](../guides/solaredge.md)
+  - [Kostal Plenticore](../guides/kostal.md) (Beta)
+  - [SMA Smart Energy](../guides/sma.md) (Beta)
 - Eine **PV-Prognose-Integration**:
   - [Solcast Solar](../guides/solcast.md) (empfohlen)
   - [Forecast.Solar](../guides/forecast_solar.md)

@@ -29,6 +29,7 @@ Anleitung für deinen Wechselrichter-Typ:
 | **SolaX Gen4+** | [SolaX Modbus einrichten](guides/solax.md) |
 | **SolarEdge StorEdge** | [SolarEdge Modbus Multi einrichten](guides/solaredge.md) |
 | **Kostal Plenticore** | [Kostal Plenticore einrichten](guides/kostal.md) |
+| **SMA Smart Energy** | [SMA Smart Energy einrichten](guides/sma.md) |
 
 ## ☀️ PV-Prognose einrichten
 
