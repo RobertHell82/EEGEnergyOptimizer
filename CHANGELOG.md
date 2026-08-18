@@ -7,6 +7,17 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.9-dev] - 2026-08-18
+
+### Hinzugefügt
+
+- **SMA wird als sechster Wechselrichter-Typ unterstützt (Beta).** Zielgeräte: Sunny Tripower Smart Energy (STP 5.0–10.0 SE), Sunny Boy Storage und Sunny Boy Smart Energy mit Batteriespeicher. Steuerung über direkte Modbus-TCP-Verbindung (Port 502, Unit-ID 3) mit SMAs externem Batteriemanagement („6-Parameter-Methode", CmpBMS-Register): Morgen-Einspeisung über das Ladelimit (BatChaMaxW = 0), Nacht-Entladung über den Netzaustausch-Sollwert (CmpBMS.GridWSpt) — der Wechselrichter regelt den Netzanschlusspunkt selbst auf den Export-Sollwert und deckt den Hausverbrauch zusätzlich aus der Batterie, die eingespeiste Leistung ist damit direkt die EEG-wirksame Leistung (der Lastvoraus-Check des Optimizers entfällt bei SMA deshalb). Alle 6 Register werden als Block geschrieben (SMA-Vorgabe: innerhalb 10 s) und alle 60 s aufgefrischt (Watchdog); fällt Home Assistant aus, kehrt der Wechselrichter nach spätestens 300 s automatisch zur internen Batterie-Automatik zurück. Sensordaten kommen aus der nativen `sma`-Integration (WebConnect) als direktionale Sensorpaare und werden im Wizard automatisch erkannt und zu signed Kombi-Sensoren zusammengeführt (wie Fronius). Der Verbindungstest prüft read-only Seriennummer, Batterie-SOC und die Verfügbarkeit des Steuerregisters 40236. Neue Anleitung: `docs/guides/sma.md` bzw. „Anleitung" auf der SMA-Karte im Wizard.
+- Die Einspeisebegrenzung bleibt für SMA vorerst deaktiviert, bis das Verhalten des Ladelimits am realen Gerät verifiziert ist (Beta-Checkliste).
+
+### Behoben
+
+- **Kostal: Auto-Erkennung konnte den falschen Batterieleistungs-Sensor wählen.** `sensor.*_pv_to_battery_power` endet ebenfalls auf `battery_power` und konnte je nach Reihenfolge statt `sensor.*_battery_power` erkannt werden — jetzt explizit ausgeschlossen.
+
 ## [1.3.8-dev] - 2026-08-17
 
 ### Hinzugefügt
