@@ -10,7 +10,7 @@ Die native Kostal-Integration wird für das Lesen der Sensoren (PV, Batterie, SO
 4. Service Code: **leer lassen**<br>
    _Das Feld ist optional und nur für den Installer-Modus der Integration gedacht. Der EEG Energy Optimizer benötigt die Integration nur lesend — Anlagenbetreiber-Passwort genügt._
 
-_Bei mehreren Wechselrichtern (z.B. zweiter Plenticore ohne Batterie): die Integration für jedes Gerät separat hinzufügen — ein Config-Eintrag pro Wechselrichter._
+_Bei mehreren Wechselrichtern (z.B. zweiter Plenticore ohne Batterie): die Integration für jedes Gerät separat hinzufügen — ein Config-Eintrag pro Wechselrichter. Die Auto-Erkennung wählt automatisch den Wechselrichter **mit Batterie** als Hauptgerät (SOC, Batterie, Netz) und trägt die PV-Leistung des zweiten Geräts als zweiten PV-Sensor ein, damit der berechnete Hausverbrauch die gesamte Erzeugung berücksichtigt._
 
 ## 2. Modbus TCP am Wechselrichter aktivieren
 

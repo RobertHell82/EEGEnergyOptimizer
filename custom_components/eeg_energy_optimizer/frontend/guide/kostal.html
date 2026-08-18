@@ -11,7 +11,7 @@
 <li>Service Code: <strong>leer lassen</strong><br>
    <em>Das Feld ist optional und nur für den Installer-Modus der Integration gedacht. Der EEG Energy Optimizer benötigt die Integration nur lesend — Anlagenbetreiber-Passwort genügt.</em></li>
 </ol>
-<p><em>Bei mehreren Wechselrichtern (z.B. zweiter Plenticore ohne Batterie): die Integration für jedes Gerät separat hinzufügen — ein Config-Eintrag pro Wechselrichter.</em></p>
+<p><em>Bei mehreren Wechselrichtern (z.B. zweiter Plenticore ohne Batterie): die Integration für jedes Gerät separat hinzufügen — ein Config-Eintrag pro Wechselrichter. Die Auto-Erkennung wählt automatisch den Wechselrichter <strong>mit Batterie</strong> als Hauptgerät (SOC, Batterie, Netz) und trägt die PV-Leistung des zweiten Geräts als zweiten PV-Sensor ein, damit der berechnete Hausverbrauch die gesamte Erzeugung berücksichtigt.</em></p>
 <h3>2. Modbus TCP am Wechselrichter aktivieren</h3>
 <p>Der EEG Energy Optimizer steuert die Batterie über Modbus TCP. Modbus kann der Anlagenbetreiber selbst aktivieren:</p>
 <ol>

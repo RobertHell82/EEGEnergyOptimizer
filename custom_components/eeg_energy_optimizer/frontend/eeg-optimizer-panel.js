@@ -2764,6 +2764,13 @@ class EegOptimizerPanel extends HTMLElement {
           "Für Anlagen mit Generator-Wechselrichter über Meter 2 (sensor.solax_inverter_meter_2_measured_power).",
           "sensor"
         ) : ""}
+        ${kostalSelected ? this._entityPickerHtml(
+          "pv_power_sensor_2",
+          this._wizardData.pv_power_sensor_2,
+          "Zweiter PV-Sensor (optional)",
+          "Für Anlagen mit zweitem Kostal-Wechselrichter ohne Batterie (sensor.<name2>_solar_power) — wird automatisch erkannt und zur PV-Leistung addiert.",
+          "sensor"
+        ) : ""}
       </div>
       ${froniusSelected ? `
       <div class="card" style="padding:16px;margin-bottom:16px">

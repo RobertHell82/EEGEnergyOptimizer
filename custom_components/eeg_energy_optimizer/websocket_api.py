@@ -1069,19 +1069,24 @@ async def ws_detect_sensors(
         # entities created by kostal_plenticore config entries are
         # candidates, so the loose suffixes cannot match foreign sensors
         # (e.g. a standalone BYD BMS exposing its own battery_soc).
+        # Entities are grouped PER config entry: with multiple Plenticores
+        # (e.g. master with battery + second battery-less PV inverter) a
+        # flat first-match scan could pick the grid/PV sensor of the wrong
+        # device (the battery-less one reports grid_power = 0 forever).
         kostal_entry_ids = {e.entry_id for e in kostal_entries}
         ent_reg = er.async_get(hass)
-        kostal_entity_ids = {
-            entry.entity_id
+        entity_to_entry: dict[str, str] = {
+            entry.entity_id: entry.config_entry_id
             for entry in ent_reg.entities.values()
             if entry.config_entry_id in kostal_entry_ids
         }
 
-        candidate_states = [
-            s for s in hass.states.async_all("sensor")
-            if s.entity_id in kostal_entity_ids
-            and s.state not in ("unavailable", "unknown")
-        ]
+        candidates_by_entry: dict[str, list] = {}
+        for s in hass.states.async_all("sensor"):
+            entry_id = entity_to_entry.get(s.entity_id)
+            if entry_id is None or s.state in ("unavailable", "unknown"):
+                continue
+            candidates_by_entry.setdefault(entry_id, []).append(s)
 
         def _kostal_suffix_matches(entity_id: str, suffix: str) -> bool:
             if any(
@@ -1094,14 +1099,48 @@ async def ws_detect_sensors(
             head = entity_id[: -len(suffix)]
             return head == "" or head.endswith("_") or head.endswith(".")
 
-        sensors = {}
-        for conf_key, suffixes in KOSTAL_SENSOR_SUFFIXES.items():
-            for suffix in suffixes:
-                for state in candidate_states:
+        def _find(states: list, conf_key: str) -> str | None:
+            for suffix in KOSTAL_SENSOR_SUFFIXES[conf_key]:
+                for state in sorted(states, key=lambda s: s.entity_id):
                     if _kostal_suffix_matches(state.entity_id, suffix):
-                        sensors[conf_key] = state.entity_id
-                        break
-                if conf_key in sensors:
+                        return state.entity_id
+            return None
+
+        # Primary entry = the inverter WITH battery (has a battery_soc
+        # sensor). SOC, battery, grid (KSEM) and primary PV come from it.
+        # Deterministic order: sorted entry ids, so repeated detections
+        # cannot flip between devices.
+        primary_id = None
+        for entry_id in sorted(candidates_by_entry):
+            if _find(candidates_by_entry[entry_id], CONF_BATTERY_SOC_SENSOR):
+                primary_id = entry_id
+                break
+        if primary_id is None and candidates_by_entry:
+            # No battery anywhere — degrade to the old flat behavior on
+            # the first entry so the wizard still prefills something.
+            primary_id = sorted(candidates_by_entry)[0]
+
+        sensors = {}
+        if primary_id is not None:
+            primary_states = candidates_by_entry[primary_id]
+            for conf_key in KOSTAL_SENSOR_SUFFIXES:
+                match = _find(primary_states, conf_key)
+                if match:
+                    sensors[conf_key] = match
+
+            # Secondary battery-less inverters: their PV production must
+            # flow into the Hausverbrauch calculation (PV1 + PV2 − Batterie
+            # − Netz), otherwise the computed house load is short by the
+            # second inverter's output. First secondary with a solar_power
+            # sensor fills the existing pv_power_sensor_2 slot.
+            for entry_id in sorted(candidates_by_entry):
+                if entry_id == primary_id:
+                    continue
+                pv2 = _find(
+                    candidates_by_entry[entry_id], CONF_PV_POWER_SENSOR
+                )
+                if pv2:
+                    sensors[CONF_PV_POWER_SENSOR_2] = pv2
                     break
 
         result = {
