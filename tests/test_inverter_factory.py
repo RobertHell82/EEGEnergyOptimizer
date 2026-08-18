@@ -10,6 +10,7 @@ from custom_components.eeg_energy_optimizer.inverter.base import InverterBase
 from custom_components.eeg_energy_optimizer.inverter.fronius import FroniusInverter
 from custom_components.eeg_energy_optimizer.inverter.huawei import HuaweiInverter
 from custom_components.eeg_energy_optimizer.inverter.kostal import KostalInverter
+from custom_components.eeg_energy_optimizer.inverter.sma import SMAInverter
 from custom_components.eeg_energy_optimizer.inverter.solaredge import SolarEdgeInverter
 from custom_components.eeg_energy_optimizer.inverter.solax import SolaXInverter
 
@@ -54,7 +55,7 @@ class TestInverterFactory:
 
 
 class TestRegisteredInverterTypes:
-    """All five production inverter drivers are registered with the factory."""
+    """All six production inverter drivers are registered with the factory."""
 
     def test_huawei_registered(self):
         assert INVERTER_TYPES.get("huawei_sun2000") is HuaweiInverter
@@ -70,6 +71,21 @@ class TestRegisteredInverterTypes:
 
     def test_kostal_registered(self):
         assert INVERTER_TYPES.get("kostal_plenticore") is KostalInverter
+
+    def test_sma_registered(self):
+        assert INVERTER_TYPES.get("sma_smart_energy") is SMAInverter
+
+    def test_create_sma_returns_instance(self, mock_hass):
+        """Factory builds an SMAInverter from the canonical type id."""
+        inv = create_inverter(
+            "sma_smart_energy",
+            mock_hass,
+            {"sma_modbus_host": "192.168.1.60", "sma_modbus_port": 502},
+        )
+        assert isinstance(inv, SMAInverter)
+        assert isinstance(inv, InverterBase)
+        assert inv._host == "192.168.1.60"
+        assert inv._port == 502
 
     def test_create_kostal_returns_instance(self, mock_hass):
         """Factory builds a KostalInverter from the canonical type id."""

@@ -1,6 +1,6 @@
 # Konzept: SMA-Wechselrichter-Support (Machbarkeitsstudie + Umsetzungsplan)
 
-**Stand:** 17.08.2026 · **Status:** Machbarkeit bestätigt, Umsetzung wartet auf Beta-Gerät
+**Stand:** 18.08.2026 · **Status:** UMGESETZT (Treiber `inverter/sma.py`, unreleased) — Beta-Gerät STP10.0-3SE-40 vorhanden, Checkliste §8 offen (Steuertests ausstehend)
 **Vorbild:** Kostal-Treiber (1.3.8-dev) — gleiche Architektur (direktes Modbus TCP + Watchdog-Keepalive)
 
 ## 1. Ergebnis in einem Satz

@@ -40,6 +40,7 @@ INVERTER_TYPE_SOLAX = "solax_gen4"
 INVERTER_TYPE_SOLAREDGE = "solaredge_storedge"
 INVERTER_TYPE_FRONIUS = "fronius_gen24"
 INVERTER_TYPE_KOSTAL = "kostal_plenticore"
+INVERTER_TYPE_SMA = "sma_smart_energy"
 
 INVERTER_PREREQUISITES = {
     "huawei_sun2000": "huawei_solar",
@@ -49,6 +50,9 @@ INVERTER_PREREQUISITES = {
     # Control uses pymodbus directly (port 1502), but the native REST
     # integration is required for the sensors (SOC, PV, Netz, Batterie).
     "kostal_plenticore": "kostal_plenticore",
+    # Control uses pymodbus directly (port 502, Unit 3, CmpBMS-Register),
+    # sensors come from the native `sma` WebConnect integration.
+    "sma_smart_energy": "sma",
 }
 
 # Sign conventions per inverter type for battery and grid power sensors.
@@ -70,6 +74,11 @@ INVERTER_SIGN_CONVENTIONS = {
     # Bezug/import (matches Modbus register 252) → both inverted to our
     # canonical convention. AM GERÄT VERIFIZIEREN (Beta-Checkliste Punkt 4).
     "kostal_plenticore": {"battery_sign": -1, "grid_sign": -1},
+    # SMA (`sma` WebConnect integration) exposes only directional pairs
+    # (battery_power_charge_total/…_discharge_total, metering_power_supplied/
+    # …_absorbed) — same situation as Fronius: the setup creates synthetic
+    # combined sensors that are already canonical. Sign convention = identity.
+    "sma_smart_energy": {"battery_sign": 1, "grid_sign": 1},
 }
 
 # Huawei EMMA-Energiemanagement: Die Einspeiseleistung des EMMA-Geräts
@@ -99,6 +108,10 @@ DEFAULT_FRONIUS_MODBUS_PORT = 502
 CONF_KOSTAL_MODBUS_HOST = "kostal_modbus_host"
 CONF_KOSTAL_MODBUS_PORT = "kostal_modbus_port"
 DEFAULT_KOSTAL_MODBUS_PORT = 1502
+
+CONF_SMA_MODBUS_HOST = "sma_modbus_host"
+CONF_SMA_MODBUS_PORT = "sma_modbus_port"
+DEFAULT_SMA_MODBUS_PORT = 502
 
 CONF_PV_POWER_SENSOR_2 = "pv_power_sensor_2"
 # Optionaler zweiter Batterieleistungs-Sensor (Multi-Inverter, z. B. Huawei

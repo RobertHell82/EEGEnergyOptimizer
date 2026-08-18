@@ -60,6 +60,7 @@ from .const import (
     GRID_IMPORT_PAUSE_MINUTES,
     INVERTER_TYPE_FRONIUS,
     INVERTER_TYPE_HUAWEI,
+    INVERTER_TYPE_SMA,
     MANUAL_OVERRIDE_MAX_HOURS,
     MODE_EIN,
     MODE_TEST,
@@ -1500,9 +1501,20 @@ class EEGOptimizer:
         #
         # Fail-open bei fehlendem Hausverbrauchs-Sensor: ohne Messwert wird
         # nicht blockiert — der Watchdog bleibt als Auffangnetz.
+        #
+        # Ausnahme SMA: Dort ist die Entladeleistung ein NETZ-Sollwert
+        # (CmpBMS.GridWSpt) — der Wechselrichter regelt den Netzanschluss-
+        # punkt selbst auf +P Export und deckt den Hausverbrauch zusätzlich
+        # aus der Batterie (bis BatDschMaxW). Der Export ist damit immer
+        # voll EEG-wirksam, die Rechnung „Nutzen = P − Hausverbrauch" gilt
+        # nicht; der Guard würde Entladungen fälschlich blockieren.
+        is_sma = (
+            self._config.get(CONF_INVERTER_TYPE, "") == INVERTER_TYPE_SMA
+        )
         is_running = self._last_eval_zustand == STATE_ABEND_ENTLADUNG
         if (
             not is_running
+            and not is_sma
             and snap.consumption_now_kw is not None
             and snap.consumption_now_kw > self._discharge_power_kw
         ):
