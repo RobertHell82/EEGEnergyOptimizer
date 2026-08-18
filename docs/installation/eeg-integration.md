@@ -37,12 +37,12 @@ Der EEG Energy Optimizer wird als **benutzerdefiniertes Repository** (Custom Rep
 
 - Home Assistant **2025.1.0** oder neuer
 - Eine unterstützte **Wechselrichter-Integration**, eingerichtet und funktionsfähig:
-  - [Huawei SUN2000](../guides/huawei.md)
   - [Fronius Gen24](../guides/fronius.md)
-  - [SolaX Gen4+](../guides/solax.md)
-  - [SolarEdge StorEdge](../guides/solaredge.md)
+  - [Huawei SUN2000](../guides/huawei.md)
   - [Kostal Plenticore](../guides/kostal.md) (Beta)
   - [SMA Smart Energy](../guides/sma.md) (Beta)
+  - [SolarEdge StorEdge](../guides/solaredge.md)
+  - [SolaX Gen4+](../guides/solax.md)
 - Eine **PV-Prognose-Integration**:
   - [Solcast Solar](../guides/solcast.md) (empfohlen)
   - [Forecast.Solar](../guides/forecast_solar.md)

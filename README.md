@@ -44,12 +44,12 @@ Pro Anlage wird einmalig eine zufällige **UUIDv4** + ein **API-Key** erzeugt un
 
 ## Unterstützte Wechselrichter
 
-- **Huawei SUN2000** (via [Huawei Solar](https://github.com/wlcrs/huawei_solar) Integration) — Single oder Master/Slave (mehrere Wechselrichter + Batterien). Direkte Anbindung an den Wechselrichter/Dongle oder über das EMMA-Energiemanagement (`sensor.emma_*`-Sensoren, Netz-Vorzeichen wird automatisch korrigiert — siehe [Huawei-Guide](docs/guides/huawei.md)).
 - **Fronius Gen24** (via native [Fronius](https://www.home-assistant.io/integrations/fronius/) Integration + direkte Modbus TCP Steuerung)
-- **SolarEdge StorEdge** (via [SolarEdge Modbus Multi](https://github.com/WillCodeForCats/solaredge-modbus-multi) Integration) — max. 2 Wechselrichter
-- **SolaX Gen4+** (via [SolaX Modbus](https://github.com/wills106/homeassistant-solax-modbus) Integration)
+- **Huawei SUN2000** (via [Huawei Solar](https://github.com/wlcrs/huawei_solar) Integration) — Single oder Master/Slave (mehrere Wechselrichter + Batterien). Direkte Anbindung an den Wechselrichter/Dongle oder über das EMMA-Energiemanagement (`sensor.emma_*`-Sensoren, Netz-Vorzeichen wird automatisch korrigiert — siehe [Huawei-Guide](docs/guides/huawei.md)).
 - **Kostal Plenticore** (plus/G2/G3, via native [Kostal Plenticore](https://www.home-assistant.io/integrations/kostal_plenticore/) Integration + direkte Modbus TCP Steuerung) — **Beta**
 - **SMA Smart Energy** (Sunny Tripower Smart Energy, Sunny Boy Storage, Sunny Boy Smart Energy — via native [SMA Solar](https://www.home-assistant.io/integrations/sma/) Integration + direkte Modbus TCP Steuerung) — **Beta**
+- **SolarEdge StorEdge** (via [SolarEdge Modbus Multi](https://github.com/WillCodeForCats/solaredge-modbus-multi) Integration) — max. 2 Wechselrichter
+- **SolaX Gen4+** (via [SolaX Modbus](https://github.com/wills106/homeassistant-solax-modbus) Integration)
 
 ### Hinweis zu Fronius Gen24
 
@@ -159,7 +159,7 @@ So wird sichergestellt, dass die Batterie am nächsten Tag wieder vollständig �
 ## Voraussetzungen
 
 - Home Assistant 2025.1.0 oder neuer
-- Eine unterstützte Wechselrichter-Integration installiert und konfiguriert (Huawei Solar, Fronius, SolaX Modbus, SolarEdge Modbus Multi, Kostal Plenticore oder SMA Solar)
+- Eine unterstützte Wechselrichter-Integration installiert und konfiguriert (Fronius, Huawei Solar, Kostal Plenticore, SMA Solar, SolarEdge Modbus Multi oder SolaX Modbus)
 - Eine PV-Prognose-Integration (Solcast Solar oder Forecast.Solar)
 
 ## Lizenz

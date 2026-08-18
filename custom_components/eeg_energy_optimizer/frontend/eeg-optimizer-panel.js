@@ -2530,12 +2530,12 @@ class EegOptimizerPanel extends HTMLElement {
       </ul>
       <h3 style="margin-bottom:8px">Getestete Setups</h3>
       <ul style="line-height:1.8;padding-left:20px">
-        <li>Huawei SUN2000 mit LUNA2000 Batteriespeicher</li>
-        <li>SolaX Gen4+ mit Triple Power Batteriespeicher</li>
-        <li>SolarEdge mit StorEdge Batteriespeicher (LG RESU, BYD, Energy Bank)</li>
         <li>Fronius Gen24 mit BYD Batteriespeicher</li>
+        <li>Huawei SUN2000 mit LUNA2000 Batteriespeicher</li>
         <li>Kostal Plenticore (plus/G2/G3) mit BYD Batteriespeicher</li>
         <li>SMA Sunny Tripower Smart Energy / Sunny Boy Storage mit BYD Batteriespeicher (Beta)</li>
+        <li>SolarEdge mit StorEdge Batteriespeicher (LG RESU, BYD, Energy Bank)</li>
+        <li>SolaX Gen4+ mit Triple Power Batteriespeicher</li>
       </ul>`;
   }
 

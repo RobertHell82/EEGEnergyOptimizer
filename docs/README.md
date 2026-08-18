@@ -23,13 +23,13 @@ Anleitung für deinen Wechselrichter-Typ:
 
 | Wechselrichter | Anleitung |
 |---|---|
+| **Fronius Gen24** | [Fronius Gen24 einrichten](guides/fronius.md) |
 | **Huawei SUN2000** | [Huawei Solar Integration einrichten](guides/huawei.md) |
 | | [Huawei Akkukapazität-Sensor aktivieren](guides/capacity_sensor.md) |
-| **Fronius Gen24** | [Fronius Gen24 einrichten](guides/fronius.md) |
-| **SolaX Gen4+** | [SolaX Modbus einrichten](guides/solax.md) |
-| **SolarEdge StorEdge** | [SolarEdge Modbus Multi einrichten](guides/solaredge.md) |
 | **Kostal Plenticore** | [Kostal Plenticore einrichten](guides/kostal.md) |
 | **SMA Smart Energy** | [SMA Smart Energy einrichten](guides/sma.md) |
+| **SolarEdge StorEdge** | [SolarEdge Modbus Multi einrichten](guides/solaredge.md) |
+| **SolaX Gen4+** | [SolaX Modbus einrichten](guides/solax.md) |
 
 ## ☀️ PV-Prognose einrichten
 
