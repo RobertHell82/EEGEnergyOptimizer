@@ -59,6 +59,23 @@ const WIZARD_STEPS = [
 // Einspeisebegrenzung verfügbar (Watt- bzw. %-genaues Ladelimit).
 const FEEDIN_LIMIT_INVERTERS = ["huawei_sun2000", "fronius_gen24"];
 
+// Kostal ist im Wizard nur in DEV-Builds (Version "-dev") auswählbar, bis der
+// Entlade-Test (Register 1034) am Beta-Gerät verifiziert ist. Die Version kommt
+// aus dem Cache-Buster der Script-URL (js_url ...?v=<manifest-version>); ist sie
+// nicht ermittelbar, bleibt Kostal ausgeblendet (Prod-Verhalten). Bestehende
+// Kostal-Konfigurationen laufen überall weiter und zeigen die Karte weiterhin
+// an (kostalSelected-Ausnahme in _renderStep1).
+const KOSTAL_UI_ENABLED = (() => {
+  try {
+    const src = (document.currentScript && document.currentScript.src)
+      || Array.from(document.scripts, s => s.src).find(u => u.includes("eeg-optimizer-panel.js"))
+      || "";
+    return (new URL(src).searchParams.get("v") || "").includes("-dev");
+  } catch (e) {
+    return false;
+  }
+})();
+
 
 const WIZARD_DEFAULTS = {
   inverter_type: "huawei_sun2000",
@@ -1898,7 +1915,7 @@ class EegOptimizerPanel extends HTMLElement {
         p.solax_modbus && { key: "solax_gen4", label: "SolaX" },
         p.solaredge_modbus_multi && { key: "solaredge_storedge", label: "SolarEdge" },
         p.fronius && { key: "fronius_gen24", label: "Fronius" },
-        p.kostal_plenticore && { key: "kostal_plenticore", label: "Kostal" },
+        KOSTAL_UI_ENABLED && p.kostal_plenticore && { key: "kostal_plenticore", label: "Kostal" },
         p.sma && { key: "sma_smart_energy", label: "SMA" },
       ].filter(Boolean).sort((a, b) => a.label.localeCompare(b.label));
       if (detected.length > 0) {
@@ -2532,8 +2549,8 @@ class EegOptimizerPanel extends HTMLElement {
       <ul style="line-height:1.8;padding-left:20px">
         <li>Fronius Gen24 mit BYD Batteriespeicher</li>
         <li>Huawei SUN2000 mit LUNA2000 Batteriespeicher</li>
-        <li>Kostal Plenticore (plus/G2/G3) mit BYD Batteriespeicher</li>
-        <li>SMA Sunny Tripower Smart Energy / Sunny Boy Storage mit BYD Batteriespeicher (Beta)</li>
+        ${KOSTAL_UI_ENABLED ? "<li>Kostal Plenticore (plus/G2/G3) mit BYD Batteriespeicher</li>" : ""}
+        <li>SMA Sunny Tripower Smart Energy / Sunny Boy Storage mit BYD Batteriespeicher</li>
         <li>SolarEdge mit StorEdge Batteriespeicher (LG RESU, BYD, Energy Bank)</li>
         <li>SolaX Gen4+ mit Triple Power Batteriespeicher</li>
       </ul>`;
@@ -2627,7 +2644,9 @@ class EegOptimizerPanel extends HTMLElement {
         logo: `<img src="https://brands.home-assistant.io/kostal_plenticore/logo.png" alt="Kostal" style="max-width:120px;max-height:60px;height:auto" onerror="this.outerHTML='<span style=font-size:32px>Kostal</span>'">` },
       { key: "sma_smart_energy", label: "SMA Smart Energy", subtitle: "Tripower/Sunny Boy mit Batteriespeicher", detected: smaOk, badge: smaBadge, dialog: "sma",
         logo: `<img src="https://brands.home-assistant.io/sma/logo.png" alt="SMA" style="max-width:120px;max-height:60px;height:auto" onerror="this.outerHTML='<span style=font-size:32px>SMA</span>'">` },
-    ];
+    ].filter(inv =>
+      inv.key !== "kostal_plenticore" || KOSTAL_UI_ENABLED || kostalSelected
+    );
     inverterDefs.sort((a, b) => {
       if (a.detected !== b.detected) return a.detected ? -1 : 1;
       return a.label.localeCompare(b.label);
@@ -2852,7 +2871,7 @@ class EegOptimizerPanel extends HTMLElement {
         </div>` : `
         <div style="padding:8px 12px;border-radius:4px;background:rgba(255,152,0,.15);color:var(--primary-text-color);font-size:13px">
           &#9888; SMA-Ger&auml;t erkannt (Seriennr. ${this._smaProbeResult.serial}), aber das Steuerregister 40236 (CmpBMS.OpMod) ist nicht lesbar.
-          Manche Firmwares nutzen eine abweichende Adresse &mdash; bitte melde dich beim Beta-Support, bevor du die Steuerung aktivierst.
+          Manche Firmwares nutzen eine abweichende Adresse &mdash; bitte melde dich beim Support, bevor du die Steuerung aktivierst.
         </div>`) : ""}
       </div>` : ""}
       ` : ""}

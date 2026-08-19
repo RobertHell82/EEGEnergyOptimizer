@@ -39,8 +39,7 @@ Der EEG Energy Optimizer wird als **benutzerdefiniertes Repository** (Custom Rep
 - Eine unterstützte **Wechselrichter-Integration**, eingerichtet und funktionsfähig:
   - [Fronius Gen24](../guides/fronius.md)
   - [Huawei SUN2000](../guides/huawei.md)
-  - [Kostal Plenticore](../guides/kostal.md) (Beta)
-  - [SMA Smart Energy](../guides/sma.md) (Beta)
+  - [SMA Smart Energy](../guides/sma.md)
   - [SolarEdge StorEdge](../guides/solaredge.md)
   - [SolaX Gen4+](../guides/solax.md)
 - Eine **PV-Prognose-Integration**:

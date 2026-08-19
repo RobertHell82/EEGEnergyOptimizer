@@ -1,7 +1,7 @@
 # SMA Smart Energy einrichten
 
 > [!NOTE]
-> **Beta:** Die SMA-Unterstützung ist neu und wird aktuell mit Beta-Geräten verifiziert. Unterstützt werden **Sunny Tripower Smart Energy** (STP 5.0–10.0 SE), **Sunny Boy Storage** (SBS 3.7/5.0/6.0) und **Sunny Boy Smart Energy** — jeweils mit Batteriespeicher (z.B. BYD Battery-Box). Sunny Island wird nicht unterstützt.
+> Unterstützt werden **Sunny Tripower Smart Energy** (STP 5.0–10.0 SE), **Sunny Boy Storage** (SBS 3.7/5.0/6.0) und **Sunny Boy Smart Energy** — jeweils mit Batteriespeicher (z.B. BYD Battery-Box). Sunny Island wird nicht unterstützt.
 
 ## 1. SMA Solar Integration in Home Assistant
 
@@ -46,7 +46,7 @@ _Hinweis: Der Sensor `sensor.*_grid_power` ist bei SMA die AC-Ausgangsleistung d
 | Problem | Lösung |
 |---|---|
 | **Modbus Connection refused** | Modbus-TCP-Server nicht aktiviert → Schritt 2 wiederholen (Port 502) |
-| **Verbindungstest meldet „Steuerregister 40236 nicht lesbar"** | Manche Firmwares nutzen eine abweichende Registeradresse — bitte beim Beta-Support melden, bevor die Steuerung aktiviert wird |
+| **Verbindungstest meldet „Steuerregister 40236 nicht lesbar"** | Manche Firmwares nutzen eine abweichende Registeradresse — bitte beim Support melden, bevor die Steuerung aktiviert wird |
 | **Keine SMA-Sensoren in HA** | Falsche Gruppe/Passwort bei der SMA-Integration — Benutzer-Zugang des Webinterface verwenden |
 | **Batterie lädt trotz Blockierung** | Sunny Home Manager 2.0 steuert noch mit → Schritt 3: prognosebasiertes Laden deaktivieren |
 | **Keine Batteriekapazität erkannt** | SMA liefert keinen Kapazitätssensor — die nutzbare Kapazität (z.B. vom BYD-Typenschild) im Wizard manuell eintragen |
