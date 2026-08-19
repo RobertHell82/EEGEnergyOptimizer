@@ -31,6 +31,8 @@ optimizer.py: async_run_cycle(mode)
      2. _should_block_charging() — Morgen-Einspeisung check:
         - Feature enabled + sunrise known
         - Within window (sunrise - 1h to morning_end_time)
+        - SOC >= configured min_soc (battery charges to its emergency
+          reserve first; exit hysteresis −2% while active)
         - PV forecast > demand * (1 + safety_buffer%)
      3. _should_discharge() — evening discharge check:
         - Feature enabled
@@ -58,6 +60,8 @@ optimizer.py: async_run_cycle(mode)
 | `inverter/huawei.py` | Huawei SUN2000 implementation via HA services — Single + Master/Slave (multi-device) |
 | `inverter/_distribution.py` | Shared proportional discharge distribution (SolarEdge + Huawei multi-battery) |
 | `inverter/fronius.py` | Fronius Gen24 implementation via direct Modbus TCP (SunSpec Model 124) |
+| `inverter/kostal.py` | Kostal Plenticore implementation via direct Modbus TCP (proprietary registers 1034/1038, watchdog keepalive task) |
+| `inverter/sma.py` | SMA Smart Energy / Sunny Boy Storage implementation via direct Modbus TCP (CmpBMS 6-parameter method, complete-block writes, watchdog keepalive task) |
 | `inverter/solax.py` | SolaX Gen4+ implementation via solax_modbus Mode 1 |
 | `inverter/solaredge.py` | SolarEdge StorEdge implementation via solaredge-modbus-multi |
 | `inverter/__init__.py` | Factory function `create_inverter()` |
@@ -141,6 +145,8 @@ InverterBase (ABC)
 Implementations:
   ├── HuaweiInverter — via HA huawei_solar services
   ├── FroniusInverter — via direct Modbus TCP (SunSpec Model 124, pymodbus)
+  ├── KostalInverter — via direct Modbus TCP (proprietary registers, port 1502, unit 71; cyclic keepalive feeds the inverter watchdog, timeout = failsafe fallback to internal automatic)
+  ├── SMAInverter — via direct Modbus TCP (CmpBMS external battery management, port 502, unit 3; every command writes the complete 6-register block, 60s keepalive, 300s watchdog fallback; discharge = grid-exchange setpoint GridWSpt → house load auto-compensated, house-load entry guard skipped)
   ├── SolarEdgeInverter — via HA solaredge_modbus_multi StorEdge
   └── SolaXInverter — via HA solax_modbus Mode 1
 ```
@@ -173,13 +179,15 @@ read **and** control every battery:
 - **http**, **frontend**, **websocket_api** — onboarding panel
 - **huawei_solar** (after_dependency) — Huawei inverter control
 - **fronius** (after_dependency) — Fronius sensor data via Solar API
+- **kostal_plenticore** (after_dependency) — Kostal sensor data via REST
+- **sma** (after_dependency) — SMA sensor data via WebConnect (directional pairs → synthetic combined sensors)
 - **solax_modbus** (after_dependency) — SolaX inverter control
 - **solaredge_modbus_multi** (after_dependency) — SolarEdge inverter control
 - **solcast_solar**, **forecast_solar** (after_dependency) — PV forecasts
 
 ## Key Domain Concepts
 
-- **Morgen-Einspeisung** (Morning Feed-in): Prevents battery from charging during morning hours so PV surplus feeds into the grid when the EEG community needs it most. Active when PV forecast exceeds demand + safety buffer.
+- **Morgen-Einspeisung** (Morning Feed-in): Prevents battery from charging during morning hours so PV surplus feeds into the grid when the EEG community needs it most. Active when PV forecast exceeds demand + safety buffer. Requires SOC >= configured min_soc: below the emergency reserve the battery charges first, then blocking starts (`MIN_SOC_BLOCK_EXIT_HYSTERESIS_PCT` = 2% exit hysteresis while active; same guard applies to Einspeisebegrenzung).
 - **Night Discharge (Nacht-Entladung)**: Discharges battery into grid during evening and night hours when community demand is high. With PeakShare enabled, the discharge window is automatically optimized based on community grid import forecasts (sliding window algorithm finds the contiguous block with highest demand) — frequently runs through the night up to the 04:00 hard cutoff, which is why the UI label is "Nacht-Entladung". Without PeakShare, a fixed start time is used. Requires: sufficient SOC above dynamic min-SOC, and tomorrow's PV forecast covers tomorrow's demand. Hard cutoff at 04:00 — discharge stops regardless of other conditions.
 - **Dynamic Min-SOC**: base_min_soc + ceil((overnight_consumption * (1 + buffer%) / capacity) * 100) — ensures enough energy for overnight household consumption.
 - **Safety Buffer** (`safety_buffer_pct`, default 25%): Applied to both morning blocking threshold and overnight consumption reserve.

@@ -7,6 +7,58 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.11] - 2026-08-19
+
+> Release bündelt die DEV-Iterationen 1.3.8-dev bis 1.3.11-dev.
+
+### Hinzugefügt
+
+- **SMA Smart Energy wird als sechster Wechselrichter-Typ unterstützt.** Sunny Tripower Smart Energy (STP 5.0–10.0 SE), Sunny Boy Storage und Sunny Boy Smart Energy mit Batteriespeicher. Steuerung über direkte Modbus-TCP-Verbindung (externes Batteriemanagement/CmpBMS) mit Watchdog-Failsafe: Fällt Home Assistant aus, kehrt der Wechselrichter automatisch zur internen Batterie-Automatik zurück. Steuertests und Produktivbetrieb an der ersten Anlage bestätigt.
+
+### Geändert
+
+- **Morgen-Einspeisung startet erst ab dem konfigurierten Min-SOC:** Unter der Notreserve lädt die Batterie zuerst, dann beginnt die Ladeblockierung (2% Exit-Hysterese gegen Pendeln). Dieselbe Regel gilt für die Einspeisebegrenzung.
+- **Kostal Plenticore ist in Vorbereitung:** Der Treiber wird derzeit an einer Beta-Anlage verifiziert und ist im Einrichtungsassistenten von Release-Builds noch nicht auswählbar (nur in DEV-Builds sichtbar). Bestehende Kostal-Konfigurationen laufen unverändert weiter.
+
+### Behoben
+
+- Panel zeigte nach der Ersteinrichtung minutenlang „Verbrauchsdaten werden berechnet…" — das Verbrauchsprofil wird jetzt direkt nach dem Hausverbrauch-Backfill aktualisiert.
+
+## [1.3.11-dev] - 2026-08-19
+
+### Geändert
+
+- **Morgen-Einspeisung startet erst ab dem konfigurierten Min-SOC** (Nutzer-Feedback): Liegt der Batterie-SOC unter der Notreserve (z.B. 7% bei Min-SOC 10%), lädt die Batterie zuerst auf den Min-SOC, dann beginnt die Ladeblockierung. Eine laufende Blockierung bricht erst ab, wenn der SOC mehr als 2% unter den Min-SOC fällt (Anti-Pendeln, da der Hausverbrauch den SOC während der Blockierung wieder senken kann). Dieselbe Regel gilt für die Einspeisebegrenzung — das Laden wird nie gedrosselt, solange die Notreserve nicht erreicht ist.
+
+## [1.3.10-dev] - 2026-08-18
+
+### Behoben
+
+- **Kostal Multi-Inverter: Auto-Erkennung konnte Sensoren des falschen Wechselrichters wählen.** Mit zwei `kostal_plenticore`-Einträgen (Master mit Batterie + zweiter Plenticore ohne Batterie) konnte der Scan Netz-/PV-Sensor des batterielosen Geräts erwischen (dessen `grid_power` dauerhaft 0 meldet). Die Erkennung wählt jetzt deterministisch das Gerät **mit Batterie** als Hauptgerät (SOC, Batterie, Netz, PV) und trägt die PV-Leistung des zweiten Geräts automatisch als zweiten PV-Sensor ein — dessen Erzeugung fließt damit in Hausverbrauch, Live-PV und Statistik ein. Der Zweiter-PV-Sensor-Picker ist im Wizard nun auch bei Kostal sichtbar.
+- **Panel zeigte nach der Ersteinrichtung minutenlang „Verbrauchsdaten werden berechnet…".** Nach dem Hausverbrauch-Backfill wurde der Verbrauchsprofil-Sensor erst vom 15-Minuten-Timer aktualisiert; zusätzlich läuft der Statistik-Import asynchron über die Recorder-Queue. Jetzt wird das Profil nach dem Backfill mit kurzem Nachfassen sofort aktualisiert — der Hinweis verschwindet typischerweise in unter einer Minute.
+
+### Verifiziert (SMA-Beta)
+
+- Live-Steuertest am STP10.0-3SE-40 bestanden: GridWSpt +1000 W → exakt 1 kW Netzeinspeisung inkl. Hausverbrauchs-Kompensation, Keepalive über mehrere Zyklen stabil, Stopp kehrt sofort sauber zurück. OpMod-Adresse 40236 bestätigt.
+
+## [1.3.9-dev] - 2026-08-18
+
+### Hinzugefügt
+
+- **SMA wird als sechster Wechselrichter-Typ unterstützt (Beta).** Zielgeräte: Sunny Tripower Smart Energy (STP 5.0–10.0 SE), Sunny Boy Storage und Sunny Boy Smart Energy mit Batteriespeicher. Steuerung über direkte Modbus-TCP-Verbindung (Port 502, Unit-ID 3) mit SMAs externem Batteriemanagement („6-Parameter-Methode", CmpBMS-Register): Morgen-Einspeisung über das Ladelimit (BatChaMaxW = 0), Nacht-Entladung über den Netzaustausch-Sollwert (CmpBMS.GridWSpt) — der Wechselrichter regelt den Netzanschlusspunkt selbst auf den Export-Sollwert und deckt den Hausverbrauch zusätzlich aus der Batterie, die eingespeiste Leistung ist damit direkt die EEG-wirksame Leistung (der Lastvoraus-Check des Optimizers entfällt bei SMA deshalb). Alle 6 Register werden als Block geschrieben (SMA-Vorgabe: innerhalb 10 s) und alle 60 s aufgefrischt (Watchdog); fällt Home Assistant aus, kehrt der Wechselrichter nach spätestens 300 s automatisch zur internen Batterie-Automatik zurück. Sensordaten kommen aus der nativen `sma`-Integration (WebConnect) als direktionale Sensorpaare und werden im Wizard automatisch erkannt und zu signed Kombi-Sensoren zusammengeführt (wie Fronius). Der Verbindungstest prüft read-only Seriennummer, Batterie-SOC und die Verfügbarkeit des Steuerregisters 40236. Neue Anleitung: `docs/guides/sma.md` bzw. „Anleitung" auf der SMA-Karte im Wizard.
+- Die Einspeisebegrenzung bleibt für SMA vorerst deaktiviert, bis das Verhalten des Ladelimits am realen Gerät verifiziert ist (Beta-Checkliste).
+
+### Behoben
+
+- **Kostal: Auto-Erkennung konnte den falschen Batterieleistungs-Sensor wählen.** `sensor.*_pv_to_battery_power` endet ebenfalls auf `battery_power` und konnte je nach Reihenfolge statt `sensor.*_battery_power` erkannt werden — jetzt explizit ausgeschlossen.
+
+## [1.3.8-dev] - 2026-08-17
+
+### Hinzugefügt
+
+- **Kostal Plenticore wird als fünfter Wechselrichter-Typ unterstützt (Beta).** Steuerung über direkte Modbus-TCP-Verbindung (Port 1502) mit den proprietären Kostal-Batterieregistern: Nacht-Entladung über den Entlade-Sollwert (Register 1034), Morgen-Einspeisung über das Ladelimit (Register 1038 = 0). Kostal erwartet zyklische Steuerbefehle — der Treiber schreibt aktive Sollwerte alle 25 s neu (Watchdog); fällt Home Assistant aus, kehrt der Wechselrichter automatisch zur internen Batterie-Automatik zurück. Sensordaten kommen aus der nativen `kostal_plenticore`-Integration (REST) und werden im Wizard automatisch erkannt. Der Verbindungstest prüft zusätzlich, ob die Batteriesteuerung bereits auf „Extern über Protokoll (Modbus TCP)" umgestellt ist (Installateur-Schritt) — falls nicht, kann die Einrichtung trotzdem abgeschlossen werden, ein Hinweis erklärt den offenen Schritt. Die Batteriekapazität wird aus dem Wechselrichter (Register 1068) vorbefüllt, da die REST-Integration keinen Kapazitätssensor liefert. Neue Anleitung: `docs/guides/kostal.md` bzw. „Anleitung" auf der Kostal-Karte im Wizard.
+- Die Einspeisebegrenzung bleibt für Kostal vorerst deaktiviert, bis das Register-Encoding des Ladelimits am realen Gerät verifiziert ist (Beta-Checkliste).
+
 ## [1.3.7] - 2026-08-13
 
 > Release entspricht der DEV-Iteration 1.3.7-dev (Energieflussdiagramm mobil).

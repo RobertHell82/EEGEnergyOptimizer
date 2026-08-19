@@ -1168,7 +1168,31 @@ async def async_setup_entry(
 
     async def _backfill_then_refresh():
         await async_backfill_hausverbrauch_stats(hass, config)
-        await coordinator.async_update()
+        # Zwei Latenzquellen haben das Panel bisher minutenlang
+        # "Verbrauchsdaten werden berechnet..." anzeigen lassen:
+        # (1) async_import_statistics läuft asynchron über die Recorder-
+        #     Queue — direkt nach dem Backfill ist der Import oft noch
+        #     nicht lesbar (auf großen Instanzen bis ~1 min).
+        # (2) Der Profil-SENSOR (dessen stats_count das Panel prüft) wurde
+        #     nur vom Slow-Timer aktualisiert — Default alle 15 Minuten.
+        # Daher: kurz nachfassen, bis der Coordinator Daten sieht, und
+        # dabei die Profil-Sensoren direkt aktualisieren. Gibt es gar
+        # keine Sensor-Historie (fabrikneue Instanz), läuft die Schleife
+        # nach ~2 min leer aus — das Profil füllt sich dann mit der Zeit.
+        for delay in (0, 5, 10, 20, 30, 60):
+            if delay:
+                await asyncio.sleep(delay)
+            refresh = data.get("refresh_consumption_profile")
+            if refresh is not None:
+                # Aktualisiert Coordinator + Profil-/Prognose-Sensoren
+                # inkl. State-Write (Panel-Hinweis verschwindet sofort).
+                await refresh()
+            else:
+                # Sensoren noch nicht registriert (Setup läuft noch) —
+                # nur den Coordinator laden.
+                await coordinator.async_update()
+            if coordinator.stats_count > 0:
+                break
 
     hass.async_create_task(_backfill_then_refresh())
 

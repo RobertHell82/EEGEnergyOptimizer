@@ -1,0 +1,78 @@
+<!-- GENERATED FILE - DO NOT EDIT.
+     Quelle: docs/guides/kostal.md
+     Neu generieren mit: python scripts/build_guides.py -->
+<h2 class="guide-title">Kostal Plenticore einrichten</h2>
+<h3>1. Kostal Plenticore Integration in Home Assistant</h3>
+<p>Die native Kostal-Integration wird für das Lesen der Sensoren (PV, Batterie, SOC, Netz, Hausverbrauch) benötigt:</p>
+<ol>
+<li><strong>Einstellungen → Geräte &amp; Dienste → Integration hinzufügen → „Kostal Plenticore Solar Inverter"</strong></li>
+<li>IP-Adresse des Wechselrichters angeben</li>
+<li>Passwort: das <strong>Anlagenbetreiber-Passwort</strong> des Kostal-Webservers (dasselbe wie beim Login auf <code>http://&lt;IP des Wechselrichters&gt;</code>)</li>
+<li>Service Code: <strong>leer lassen</strong><br>
+   <em>Das Feld ist optional und nur für den Installer-Modus der Integration gedacht. Der EEG Energy Optimizer benötigt die Integration nur lesend — Anlagenbetreiber-Passwort genügt.</em></li>
+</ol>
+<p><em>Bei mehreren Wechselrichtern (z.B. zweiter Plenticore ohne Batterie): die Integration für jedes Gerät separat hinzufügen — ein Config-Eintrag pro Wechselrichter. Die Auto-Erkennung wählt automatisch den Wechselrichter <strong>mit Batterie</strong> als Hauptgerät (SOC, Batterie, Netz) und trägt die PV-Leistung des zweiten Geräts als zweiten PV-Sensor ein, damit der berechnete Hausverbrauch die gesamte Erzeugung berücksichtigt.</em></p>
+<h3>2. Modbus TCP am Wechselrichter aktivieren</h3>
+<p>Der EEG Energy Optimizer steuert die Batterie über Modbus TCP. Modbus kann der Anlagenbetreiber selbst aktivieren:</p>
+<ol>
+<li>Kostal-Webserver öffnen: <code>http://&lt;IP des Wechselrichters&gt;</code>, als <strong>Anlagenbetreiber</strong> anmelden</li>
+<li><strong>Einstellungen → Modbus / SunSpec (TCP)</strong> → <strong>Modbus aktivieren</strong></li>
+<li>Port: <strong>1502</strong> (Standard)</li>
+<li>Byte-Reihenfolge: <strong>Little-endian (CDAB)</strong> — Werksdefault, nicht ändern!</li>
+</ol>
+<h3>3. Batteriesteuerung auf „Extern über Protokoll" umstellen</h3>
+<p>Damit der Optimizer die Batterie steuern darf, muss die Batteriesteuerung im Wechselrichter umgestellt werden:</p>
+<ol>
+<li><strong>Servicemenü → Batterieeinstellungen</strong></li>
+<li>Batteriesteuerung: <strong>„Extern über Protokoll (Modbus TCP)"</strong></li>
+<li>Watchdog-Timeout: <strong>60 Sekunden</strong> (falls einstellbar)</li>
+</ol>
+<div class="guide-alert caution"><p><strong>Installateur-Zugang erforderlich:</strong> Das Servicemenü ist nur mit Installateur-Login zugänglich (Master Key vom Typenschild + PARAKO-Servicecode, nur für Fachbetriebe). Bitte den Installateur / Solarteur kontaktieren — die Umstellung ist oft per Fernwartung möglich und dauert nur wenige Minuten.</p></div>
+
+<div class="guide-alert note"><p><strong>Eingebauter Failsafe:</strong> Kostal erwartet zyklische Steuerbefehle (Watchdog). Fällt der Optimizer oder Home Assistant aus, kehrt der Wechselrichter nach dem Timeout automatisch zur internen Batterie-Automatik zurück — die Anlage läuft also nie unkontrolliert weiter.</p></div>
+
+<div class="guide-alert warning"><p><strong>Nur ein steuerndes System:</strong> Es darf immer nur ein System die Batterie über Modbus steuern. Parallelbetrieb mit evcc-Batteriesteuerung oder anderen Modbus-Steuerungen ist nicht möglich. Lesende Zugriffe (z.B. die Kostal-Integration aus Schritt 1) sind unproblematisch.</p></div>
+
+<h3>4. Firmware</h3>
+<ul>
+<li><strong>Plenticore G1:</strong> mindestens UI 01.16.05025 / MC 01.44</li>
+<li><strong>Plenticore G2 / G3:</strong> aktuelle Firmware empfohlen</li>
+</ul>
+<p><em>Die Firmware-Version ist im Kostal-Webserver unter „Info" sichtbar. Updates macht der Wechselrichter über das Webinterface.</em></p>
+<h3>5. Prüfen</h3>
+<ol>
+<li>Unter <strong>Einstellungen → Geräte &amp; Dienste</strong>: Kostal Plenticore zeigt <strong>„geladen"</strong> und listet Sensoren</li>
+<li><strong>Entwicklerwerkzeuge → Zustände</strong>: Suche nach <code>battery_soc</code> / <code>ladezustand</code> und <code>home_power</code> — die Werte müssen plausibel sein</li>
+<li>Kehre hierher zurück — die Sensoren werden automatisch erkannt</li>
+</ol>
+<h3>Häufige Probleme</h3>
+<table>
+<thead>
+<tr>
+<th>Problem</th>
+<th>Lösung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Modbus Connection refused</strong></td>
+<td>Modbus TCP nicht aktiviert oder falscher Port → Schritt 2 wiederholen (Port 1502, nicht 502)</td>
+</tr>
+<tr>
+<td><strong>Steuerbefehle ohne Wirkung</strong></td>
+<td>Batteriesteuerung steht noch auf „Intern" → Schritt 3 (Installateur) durchführen</td>
+</tr>
+<tr>
+<td><strong>Keine Kostal-Sensoren in HA</strong></td>
+<td>Falsches Passwort — es wird das Anlagenbetreiber-Passwort des Webservers benötigt, nicht der Master Key</td>
+</tr>
+<tr>
+<td><strong>Alle Werte 0 oder unsinnig</strong></td>
+<td>Byte-Reihenfolge im Webserver verstellt → auf Little-endian (Werksdefault) zurücksetzen</td>
+</tr>
+<tr>
+<td><strong>Steuerung reagiert kurz nach Netzstörung nicht</strong></td>
+<td>Nach Netz-Zuschaltung fährt der Wechselrichter ~10 Minuten eine Leistungsrampe (länderabhängig, z.B. Österreich) — in dieser Zeit sind Steuerbefehle gesperrt, der Optimizer wiederholt sie automatisch</td>
+</tr>
+</tbody>
+</table>

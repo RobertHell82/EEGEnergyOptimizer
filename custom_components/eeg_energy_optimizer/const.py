@@ -39,12 +39,20 @@ INVERTER_TYPE_HUAWEI = "huawei_sun2000"
 INVERTER_TYPE_SOLAX = "solax_gen4"
 INVERTER_TYPE_SOLAREDGE = "solaredge_storedge"
 INVERTER_TYPE_FRONIUS = "fronius_gen24"
+INVERTER_TYPE_KOSTAL = "kostal_plenticore"
+INVERTER_TYPE_SMA = "sma_smart_energy"
 
 INVERTER_PREREQUISITES = {
     "huawei_sun2000": "huawei_solar",
     "solax_gen4": "solax_modbus",
     "solaredge_storedge": "solaredge_modbus_multi",
     "fronius_gen24": None,  # No HA integration needed for control — uses pymodbus directly
+    # Control uses pymodbus directly (port 1502), but the native REST
+    # integration is required for the sensors (SOC, PV, Netz, Batterie).
+    "kostal_plenticore": "kostal_plenticore",
+    # Control uses pymodbus directly (port 502, Unit 3, CmpBMS-Register),
+    # sensors come from the native `sma` WebConnect integration.
+    "sma_smart_energy": "sma",
 }
 
 # Sign conventions per inverter type for battery and grid power sensors.
@@ -61,6 +69,16 @@ INVERTER_SIGN_CONVENTIONS = {
     # therefore creates synthetic combined sensors that are *already canonical*
     # (positive = charging / positive = export). Sign convention = identity.
     "fronius_gen24": {"battery_sign": 1, "grid_sign": 1},
+    # Kostal REST sensors (kostal_plenticore): "Battery Power" positive =
+    # discharging (matches Modbus register 582), "Grid Power" positive =
+    # Bezug/import (matches Modbus register 252) → both inverted to our
+    # canonical convention. AM GERÄT VERIFIZIEREN (Beta-Checkliste Punkt 4).
+    "kostal_plenticore": {"battery_sign": -1, "grid_sign": -1},
+    # SMA (`sma` WebConnect integration) exposes only directional pairs
+    # (battery_power_charge_total/…_discharge_total, metering_power_supplied/
+    # …_absorbed) — same situation as Fronius: the setup creates synthetic
+    # combined sensors that are already canonical. Sign convention = identity.
+    "sma_smart_energy": {"battery_sign": 1, "grid_sign": 1},
 }
 
 # Huawei EMMA-Energiemanagement: Die Einspeiseleistung des EMMA-Geräts
@@ -86,6 +104,14 @@ COMBINED_BATTERY_CAPACITY_SENSOR_ID = "sensor.eeg_energy_optimizer_combined_capa
 CONF_FRONIUS_MODBUS_HOST = "fronius_modbus_host"
 CONF_FRONIUS_MODBUS_PORT = "fronius_modbus_port"
 DEFAULT_FRONIUS_MODBUS_PORT = 502
+
+CONF_KOSTAL_MODBUS_HOST = "kostal_modbus_host"
+CONF_KOSTAL_MODBUS_PORT = "kostal_modbus_port"
+DEFAULT_KOSTAL_MODBUS_PORT = 1502
+
+CONF_SMA_MODBUS_HOST = "sma_modbus_host"
+CONF_SMA_MODBUS_PORT = "sma_modbus_port"
+DEFAULT_SMA_MODBUS_PORT = 502
 
 CONF_PV_POWER_SENSOR_2 = "pv_power_sensor_2"
 # Optionaler zweiter Batterieleistungs-Sensor (Multi-Inverter, z. B. Huawei
@@ -148,6 +174,14 @@ FEEDIN_STEP_UP_KW = 0.5               # feste Schrittweite beim Hochtasten
 FEEDIN_DEADBAND_KW = 0.15             # Toleranzband am unteren Limit-Rand (Anti-Oszillation)
 FEEDIN_ENTER_MARGIN_KW = 0.2          # Feedforward-Start, wenn Einspeisung beim Eintritt ≥ Limit − Marge
 FEEDIN_SOC_HEADROOM_PCT = 98          # ab diesem SOC keine Aufnahme mehr → inaktiv
+
+# Morgen-Einspeisung / Einspeisebegrenzung: Unter dem konfigurierten Min-SOC
+# wird das Laden nie blockiert bzw. gedrosselt — die Batterie lädt zuerst auf
+# die Notreserve (Nutzer-Feedback Aug 2026). Die Exit-Hysterese verhindert,
+# dass ein vom Hausverbrauch angeknabberter SOC direkt an der Schwelle die
+# Ladeblockierung im 30-Sekunden-Takt ein- und ausschaltet: Eintritt erst ab
+# Min-SOC, Abbruch einer laufenden Blockierung erst unter Min-SOC − Hysterese.
+MIN_SOC_BLOCK_EXIT_HYSTERESIS_PCT = 2.0
 FEEDIN_INITIAL_ESTIMATE_FACTOR = 0.8  # konservativer Feedforward-Startwert beim Eintritt
 
 DEFAULT_UEBERSCHUSS_SCHWELLE = 1.25

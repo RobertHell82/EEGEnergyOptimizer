@@ -41,6 +41,8 @@ from .const import (
     INVERTER_TYPE_SOLAX,
     INVERTER_TYPE_SOLAREDGE,
     INVERTER_TYPE_FRONIUS,
+    INVERTER_TYPE_KOSTAL,
+    INVERTER_TYPE_SMA,
     TELEMETRY_SETTINGS_KEYS,
 )
 from .inverter.solax import (
@@ -225,6 +227,65 @@ FRONIUS_PAIR_SUFFIXES: dict[tuple[str, str], list[tuple[str, str]]] = {
     (CONF_GRID_POWER_EXPORT_SENSOR, CONF_GRID_POWER_IMPORT_SENSOR): [
         ("leistung_netzeinspeisung", "leistung_netzbezug"),
         ("grid_power_export", "grid_power_import"),
+    ],
+}
+
+# Kostal Plenticore (kostal_plenticore Core-Integration, REST) sensor
+# suffixes. Entity-IDs derive from the English sensor names ("Battery SoC",
+# "Battery Power", "Grid Power", "Solar Power" = Dc_P, sum of all PV inputs
+# WITHOUT battery). German variants included defensively in case a
+# localized install generated translated entity ids. Detection is
+# restricted to entities owned by kostal_plenticore config entries, so
+# loose suffixes cannot leak in foreign sensors. First match wins.
+KOSTAL_SENSOR_SUFFIXES: dict[str, list[str]] = {
+    CONF_BATTERY_SOC_SENSOR: [
+        "battery_soc",
+        "batterie_soc",
+        "batterie_ladezustand",
+    ],
+    CONF_BATTERY_POWER_SENSOR: [
+        "battery_power",
+        "batterie_leistung",
+        "batterieleistung",
+    ],
+    CONF_GRID_POWER_SENSOR: [
+        "grid_power",
+        "netzleistung",
+    ],
+    CONF_PV_POWER_SENSOR: [
+        "solar_power",
+        "solarleistung",
+        "pv_leistung",
+    ],
+}
+
+# Kostal exposes "PV to Battery Power" (sensor.<name>_pv_to_battery_power),
+# which also ends in "battery_power" and would race the real battery-power
+# sensor depending on state-machine iteration order. Never a valid candidate.
+KOSTAL_SENSOR_EXCLUDE_SUFFIXES: tuple[str, ...] = ("pv_to_battery_power",)
+
+
+# SMA (`sma` WebConnect Core-Integration) sensor suffixes, verified against
+# a live STP10.0-3SE-40 (entity prefix from device name, e.g.
+# sensor.stp10_0_3se_40_battery_soc_total). SMA exposes only directional
+# pairs for battery and grid — same as Fronius, so detection fills the
+# pair keys and points the canonical keys at the synthetic combined
+# sensors. IMPORTANT: sma's "grid_power" sensor is the inverter AC OUTPUT
+# power (not grid exchange!) — it must never be matched as grid sensor,
+# which is why there is no single-sensor grid suffix here.
+SMA_SENSOR_SUFFIXES: dict[str, list[str]] = {
+    CONF_BATTERY_SOC_SENSOR: ["battery_soc_total"],
+    CONF_PV_POWER_SENSOR: ["pv_power"],
+}
+
+SMA_PAIR_SUFFIXES: dict[tuple[str, str], list[tuple[str, str]]] = {
+    # battery: (charge_key, discharge_key)
+    (CONF_BATTERY_POWER_CHARGE_SENSOR, CONF_BATTERY_POWER_DISCHARGE_SENSOR): [
+        ("battery_power_charge_total", "battery_power_discharge_total"),
+    ],
+    # grid: (export_key, import_key) — supplied = Einspeisung, absorbed = Bezug
+    (CONF_GRID_POWER_EXPORT_SENSOR, CONF_GRID_POWER_IMPORT_SENSOR): [
+        ("metering_power_supplied", "metering_power_absorbed"),
     ],
 }
 
@@ -446,6 +507,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_detect_sensors)
     websocket_api.async_register_command(hass, ws_test_inverter)
     websocket_api.async_register_command(hass, ws_probe_fronius)
+    websocket_api.async_register_command(hass, ws_probe_kostal)
+    websocket_api.async_register_command(hass, ws_probe_sma)
     websocket_api.async_register_command(hass, ws_manual_stop)
     websocket_api.async_register_command(hass, ws_manual_discharge)
     websocket_api.async_register_command(hass, ws_manual_block_charge)
@@ -566,6 +629,56 @@ async def ws_save_config(
             return
         new_data["fronius_modbus_port"] = port
 
+    # Kostal: server-side validation of the Modbus endpoint — same rationale
+    # as the Fronius block above (frontend input cannot be trusted).
+    if new_data.get("inverter_type") == INVERTER_TYPE_KOSTAL:
+        host = new_data.get("kostal_modbus_host", "")
+        if not isinstance(host, str) or not host.strip() or len(host) > 255:
+            connection.send_error(
+                msg["id"], "invalid_config", "Invalid Kostal Modbus host"
+            )
+            return
+        new_data["kostal_modbus_host"] = host.strip()
+        port_raw = new_data.get("kostal_modbus_port", 1502)
+        try:
+            port = int(port_raw)
+        except (TypeError, ValueError):
+            connection.send_error(
+                msg["id"], "invalid_config", "Invalid Kostal Modbus port"
+            )
+            return
+        if not 1 <= port <= 65535:
+            connection.send_error(
+                msg["id"], "invalid_config", "Kostal Modbus port out of range"
+            )
+            return
+        new_data["kostal_modbus_port"] = port
+
+    # SMA: server-side validation of the Modbus endpoint — same rationale
+    # as the Fronius/Kostal blocks above.
+    if new_data.get("inverter_type") == INVERTER_TYPE_SMA:
+        host = new_data.get("sma_modbus_host", "")
+        if not isinstance(host, str) or not host.strip() or len(host) > 255:
+            connection.send_error(
+                msg["id"], "invalid_config", "Invalid SMA Modbus host"
+            )
+            return
+        new_data["sma_modbus_host"] = host.strip()
+        port_raw = new_data.get("sma_modbus_port", 502)
+        try:
+            port = int(port_raw)
+        except (TypeError, ValueError):
+            connection.send_error(
+                msg["id"], "invalid_config", "Invalid SMA Modbus port"
+            )
+            return
+        if not 1 <= port <= 65535:
+            connection.send_error(
+                msg["id"], "invalid_config", "SMA Modbus port out of range"
+            )
+            return
+        new_data["sma_modbus_port"] = port
+
     # Einspeisebegrenzung optimieren: nur Huawei/Fronius unterstützen ein
     # variables Ladelimit. Bei aktivem Feature muss ein positives Limit gesetzt
     # sein — ohne Grenzwert kann der Regler nichts ausrichten.
@@ -668,7 +781,7 @@ async def ws_check_prerequisites(
     msg: dict,
 ) -> None:
     """Check which prerequisite integrations are installed and loaded."""
-    check_domains = ["huawei_solar", "solax_modbus", "solaredge_modbus_multi", "fronius", "solcast_solar", "forecast_solar"]
+    check_domains = ["huawei_solar", "solax_modbus", "solaredge_modbus_multi", "fronius", "kostal_plenticore", "sma", "solcast_solar", "forecast_solar"]
     result = {}
 
     for domain in check_domains:
@@ -947,7 +1060,167 @@ async def ws_detect_sensors(
         connection.send_result(msg["id"], result)
         return
 
-    # Neither Huawei, SolaX, SolarEdge, nor Fronius detected
+    # Check if Kostal Plenticore native integration is loaded
+    kostal_entries = hass.config_entries.async_entries("kostal_plenticore")
+    kostal_loaded = any(e.state.value == "loaded" for e in kostal_entries)
+
+    if kostal_loaded:
+        # Same ownership-based restriction as the Fronius block: only
+        # entities created by kostal_plenticore config entries are
+        # candidates, so the loose suffixes cannot match foreign sensors
+        # (e.g. a standalone BYD BMS exposing its own battery_soc).
+        # Entities are grouped PER config entry: with multiple Plenticores
+        # (e.g. master with battery + second battery-less PV inverter) a
+        # flat first-match scan could pick the grid/PV sensor of the wrong
+        # device (the battery-less one reports grid_power = 0 forever).
+        kostal_entry_ids = {e.entry_id for e in kostal_entries}
+        ent_reg = er.async_get(hass)
+        entity_to_entry: dict[str, str] = {
+            entry.entity_id: entry.config_entry_id
+            for entry in ent_reg.entities.values()
+            if entry.config_entry_id in kostal_entry_ids
+        }
+
+        candidates_by_entry: dict[str, list] = {}
+        for s in hass.states.async_all("sensor"):
+            entry_id = entity_to_entry.get(s.entity_id)
+            if entry_id is None or s.state in ("unavailable", "unknown"):
+                continue
+            candidates_by_entry.setdefault(entry_id, []).append(s)
+
+        def _kostal_suffix_matches(entity_id: str, suffix: str) -> bool:
+            if any(
+                entity_id.endswith(excl)
+                for excl in KOSTAL_SENSOR_EXCLUDE_SUFFIXES
+            ):
+                return False
+            if not entity_id.endswith(suffix):
+                return False
+            head = entity_id[: -len(suffix)]
+            return head == "" or head.endswith("_") or head.endswith(".")
+
+        def _find(states: list, conf_key: str) -> str | None:
+            for suffix in KOSTAL_SENSOR_SUFFIXES[conf_key]:
+                for state in sorted(states, key=lambda s: s.entity_id):
+                    if _kostal_suffix_matches(state.entity_id, suffix):
+                        return state.entity_id
+            return None
+
+        # Primary entry = the inverter WITH battery (has a battery_soc
+        # sensor). SOC, battery, grid (KSEM) and primary PV come from it.
+        # Deterministic order: sorted entry ids, so repeated detections
+        # cannot flip between devices.
+        primary_id = None
+        for entry_id in sorted(candidates_by_entry):
+            if _find(candidates_by_entry[entry_id], CONF_BATTERY_SOC_SENSOR):
+                primary_id = entry_id
+                break
+        if primary_id is None and candidates_by_entry:
+            # No battery anywhere — degrade to the old flat behavior on
+            # the first entry so the wizard still prefills something.
+            primary_id = sorted(candidates_by_entry)[0]
+
+        sensors = {}
+        if primary_id is not None:
+            primary_states = candidates_by_entry[primary_id]
+            for conf_key in KOSTAL_SENSOR_SUFFIXES:
+                match = _find(primary_states, conf_key)
+                if match:
+                    sensors[conf_key] = match
+
+            # Secondary battery-less inverters: their PV production must
+            # flow into the Hausverbrauch calculation (PV1 + PV2 − Batterie
+            # − Netz), otherwise the computed house load is short by the
+            # second inverter's output. First secondary with a solar_power
+            # sensor fills the existing pv_power_sensor_2 slot.
+            for entry_id in sorted(candidates_by_entry):
+                if entry_id == primary_id:
+                    continue
+                pv2 = _find(
+                    candidates_by_entry[entry_id], CONF_PV_POWER_SENSOR
+                )
+                if pv2:
+                    sensors[CONF_PV_POWER_SENSOR_2] = pv2
+                    break
+
+        result = {
+            CONF_INVERTER_TYPE: INVERTER_TYPE_KOSTAL,
+            "detected": True,
+            "sensors": sensors,
+        }
+        connection.send_result(msg["id"], result)
+        return
+
+    # Check if SMA (WebConnect) native integration is loaded
+    sma_entries = hass.config_entries.async_entries("sma")
+    sma_loaded = any(e.state.value == "loaded" for e in sma_entries)
+
+    if sma_loaded:
+        # Same ownership-based restriction as the Fronius/Kostal blocks:
+        # only entities created by `sma` config entries are candidates.
+        sma_entry_ids = {e.entry_id for e in sma_entries}
+        ent_reg = er.async_get(hass)
+        sma_entity_ids = {
+            entry.entity_id
+            for entry in ent_reg.entities.values()
+            if entry.config_entry_id in sma_entry_ids
+        }
+
+        candidate_states = [
+            s for s in hass.states.async_all("sensor")
+            if s.entity_id in sma_entity_ids
+            and s.state not in ("unavailable", "unknown")
+        ]
+
+        def _sma_suffix_matches(entity_id: str, suffix: str) -> bool:
+            if not entity_id.endswith(suffix):
+                return False
+            head = entity_id[: -len(suffix)]
+            return head == "" or head.endswith("_") or head.endswith(".")
+
+        sensors = {}
+        for conf_key, suffixes in SMA_SENSOR_SUFFIXES.items():
+            for suffix in suffixes:
+                for state in candidate_states:
+                    if _sma_suffix_matches(state.entity_id, suffix):
+                        sensors[conf_key] = state.entity_id
+                        break
+                if conf_key in sensors:
+                    break
+
+        # Directional pairs (charge/discharge, supplied/absorbed) → fill the
+        # pair keys and point the canonical keys at the synthetic combined
+        # sensors (same mechanism as Fronius).
+        for (pos_key, neg_key), pairs in SMA_PAIR_SUFFIXES.items():
+            for pos_suf, neg_suf in pairs:
+                pos_match = next(
+                    (s.entity_id for s in candidate_states
+                     if _sma_suffix_matches(s.entity_id, pos_suf)),
+                    None,
+                )
+                neg_match = next(
+                    (s.entity_id for s in candidate_states
+                     if _sma_suffix_matches(s.entity_id, neg_suf)),
+                    None,
+                )
+                if pos_match and neg_match:
+                    sensors[pos_key] = pos_match
+                    sensors[neg_key] = neg_match
+                    break
+            if pos_key == CONF_BATTERY_POWER_CHARGE_SENSOR and pos_key in sensors:
+                sensors[CONF_BATTERY_POWER_SENSOR] = COMBINED_BATTERY_POWER_SENSOR_ID
+            if pos_key == CONF_GRID_POWER_EXPORT_SENSOR and pos_key in sensors:
+                sensors[CONF_GRID_POWER_SENSOR] = COMBINED_GRID_POWER_SENSOR_ID
+
+        result = {
+            CONF_INVERTER_TYPE: INVERTER_TYPE_SMA,
+            "detected": True,
+            "sensors": sensors,
+        }
+        connection.send_result(msg["id"], result)
+        return
+
+    # Neither Huawei, SolaX, SolarEdge, Fronius, Kostal, nor SMA detected
     connection.send_result(msg["id"], {"detected": False, "sensors": {}})
 
 
@@ -1109,6 +1382,293 @@ async def ws_probe_fronius(
         })
         return
     result = await _probe_fronius_modbus(host, port)
+    connection.send_result(msg["id"], result)
+
+
+async def _probe_kostal_modbus(host: str, port: int) -> dict:
+    """Read-only probe of a Kostal Plenticore over Modbus TCP (unit 71).
+
+    Reads Productname (768) / Power class (800) to identify the device and
+    the battery management mode (1080: 0=internal, 1=ext. digital I/O,
+    2=external via Modbus) as onboarding check — external control is the
+    installer-only setting the driver needs. Optionally reads SOC (210) and
+    battery work capacity (1068); both may fail on inverters without a
+    battery and are reported as null then. No writes ever happen here.
+    """
+    import asyncio
+    from .inverter.kostal import (
+        BATTERY_MGMT_EXTERNAL_MODBUS,
+        KOSTAL_UNIT_ID,
+        REG_BATTERY_CAPACITY,
+        REG_BATTERY_MGMT_MODE,
+        REG_POWER_CLASS,
+        REG_PRODUCTNAME,
+        REG_SOC,
+        registers_to_float,
+        registers_to_string,
+    )
+
+    result: dict = {"success": False}
+    try:
+        from pymodbus.client import AsyncModbusTcpClient
+    except ImportError:
+        result["error"] = "pymodbus nicht installiert."
+        return result
+
+    client = AsyncModbusTcpClient(host, port=port)
+    try:
+        try:
+            await asyncio.wait_for(client.connect(), timeout=5)
+        except asyncio.TimeoutError:
+            result["error"] = f"Timeout beim Verbindungsaufbau zu {host}:{port}."
+            return result
+        if not client.connected:
+            result["error"] = f"Keine Modbus-TCP-Verbindung zu {host}:{port}."
+            return result
+
+        import inspect
+        try:
+            sig = inspect.signature(client.read_holding_registers)
+            slave_kw = (
+                {"device_id": KOSTAL_UNIT_ID}
+                if "device_id" in sig.parameters
+                else {"slave": KOSTAL_UNIT_ID}
+            )
+        except (TypeError, ValueError):
+            slave_kw = {"slave": KOSTAL_UNIT_ID}
+
+        async def _read(address: int, count: int):
+            r = await asyncio.wait_for(
+                client.read_holding_registers(
+                    address=address, count=count, **slave_kw
+                ),
+                timeout=5,
+            )
+            return None if r.isError() else r.registers
+
+        regs = await _read(REG_PRODUCTNAME, 32)
+        if regs is None:
+            result["error"] = (
+                "Modbus-Fehler beim Lesen des Produktnamens — ist Modbus TCP "
+                "im Kostal-Webserver aktiviert (Port 1502)?"
+            )
+            return result
+        product = registers_to_string(regs)
+
+        power_class_regs = await _read(REG_POWER_CLASS, 32)
+        power_class = (
+            registers_to_string(power_class_regs)
+            if power_class_regs is not None
+            else ""
+        )
+
+        mgmt_regs = await _read(REG_BATTERY_MGMT_MODE, 1)
+        mgmt_mode = mgmt_regs[0] if mgmt_regs else None
+
+        soc_regs = await _read(REG_SOC, 2)
+        soc = round(registers_to_float(soc_regs), 1) if soc_regs else None
+
+        cap_regs = await _read(REG_BATTERY_CAPACITY, 2)
+        capacity_kwh = None
+        if cap_regs:
+            cap_raw = registers_to_float(cap_regs)
+            # Spec documents Wh; guard against firmwares reporting kWh.
+            capacity_kwh = round(
+                cap_raw / 1000.0 if cap_raw > 1000 else cap_raw, 2
+            )
+
+        product_upper = product.upper()
+        result["success"] = True
+        result["product"] = product
+        result["power_class"] = power_class
+        result["is_kostal"] = (
+            "PLENTICORE" in product_upper or "KOSTAL" in product_upper
+        )
+        result["battery_mgmt_mode"] = mgmt_mode
+        result["battery_control_external"] = (
+            mgmt_mode == BATTERY_MGMT_EXTERNAL_MODBUS
+        )
+        result["soc"] = soc
+        result["battery_capacity_kwh"] = capacity_kwh
+        return result
+    except Exception as exc:
+        result["error"] = f"Verbindungsfehler: {exc}"
+        return result
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/probe_kostal",
+        vol.Required("host"): str,
+        vol.Optional("port", default=1502): int,
+    }
+)
+@websocket_api.async_response
+async def ws_probe_kostal(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Read-only probe of a Kostal Plenticore over Modbus TCP.
+
+    Used by the wizard's "Weiter" step to verify the entered IP points at a
+    Kostal inverter and to report whether external battery control (the
+    installer-only service-menu setting) is already active.
+    """
+    host = (msg.get("host") or "").strip()
+    port = int(msg.get("port") or 1502)
+    if not host:
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": "Keine IP-Adresse angegeben.",
+        })
+        return
+    result = await _probe_kostal_modbus(host, port)
+    connection.send_result(msg["id"], result)
+
+
+async def _probe_sma_modbus(host: str, port: int) -> dict:
+    """Read-only probe of an SMA inverter over Modbus TCP (unit 3).
+
+    Reads device class/type + serial (30051/30053/30057), battery SOC
+    (30845) and current battery powers (31393/31395) for a reachability
+    and plausibility check, plus CmpBMS.OpMod (40236) to verify the
+    control register exists on this firmware (beta checklist item 2 —
+    some devices use 41259 instead). Never writes anything.
+    """
+    import asyncio
+
+    from .inverter.sma import (
+        REG_BATTERY_CHARGE_W,
+        REG_BATTERY_DISCHARGE_W,
+        REG_BATTERY_SOC,
+        REG_CMPBMS_OPMOD,
+        REG_DEVICE_TYPE,
+        REG_SERIAL,
+        SMA_UNIT_ID,
+        U32_NAN,
+        registers_to_u32,
+    )
+
+    REG_DEVICE_CLASS = 30051  # U32 enum — 8001=Solar-WR, 8007=Batterie-WR
+
+    result: dict = {"success": False}
+    try:
+        from pymodbus.client import AsyncModbusTcpClient
+    except ImportError:
+        result["error"] = "pymodbus nicht installiert."
+        return result
+
+    client = AsyncModbusTcpClient(host, port=port)
+    try:
+        try:
+            await asyncio.wait_for(client.connect(), timeout=5)
+        except asyncio.TimeoutError:
+            result["error"] = f"Timeout beim Verbindungsaufbau zu {host}:{port}."
+            return result
+        if not client.connected:
+            result["error"] = f"Keine Modbus-TCP-Verbindung zu {host}:{port}."
+            return result
+
+        import inspect
+        try:
+            sig = inspect.signature(client.read_holding_registers)
+            slave_kw = (
+                {"device_id": SMA_UNIT_ID}
+                if "device_id" in sig.parameters
+                else {"slave": SMA_UNIT_ID}
+            )
+        except (TypeError, ValueError):
+            slave_kw = {"slave": SMA_UNIT_ID}
+
+        async def _read_u32(address: int) -> int | None:
+            try:
+                r = await asyncio.wait_for(
+                    client.read_holding_registers(
+                        address=address, count=2, **slave_kw
+                    ),
+                    timeout=5,
+                )
+            except asyncio.TimeoutError:
+                return None
+            if r.isError():
+                return None
+            value = registers_to_u32(r.registers)
+            return None if value == U32_NAN else value
+
+        serial = await _read_u32(REG_SERIAL)
+        if serial is None:
+            result["error"] = (
+                "Modbus-Fehler beim Lesen der Seriennummer — ist der "
+                "Modbus-TCP-Server im SMA-Webinterface aktiviert (Port 502)?"
+            )
+            return result
+
+        device_class = await _read_u32(REG_DEVICE_CLASS)
+        device_type = await _read_u32(REG_DEVICE_TYPE)
+        soc = await _read_u32(REG_BATTERY_SOC)
+        charge_w = await _read_u32(REG_BATTERY_CHARGE_W)
+        discharge_w = await _read_u32(REG_BATTERY_DISCHARGE_W)
+        # CmpBMS.OpMod readable → the 40236 control path exists on this
+        # firmware. Read-only check; a failure is a warning, not a blocker
+        # (alternate address 41259 — see driver docstring).
+        opmod = await _read_u32(REG_CMPBMS_OPMOD)
+
+        result["success"] = True
+        result["is_sma"] = serial > 0
+        result["serial"] = serial
+        result["device_class"] = device_class
+        result["device_type"] = device_type
+        result["soc"] = soc
+        result["battery_charge_w"] = charge_w
+        result["battery_discharge_w"] = discharge_w
+        result["has_battery"] = soc is not None
+        result["opmod_register_ok"] = opmod is not None
+        result["opmod"] = opmod
+        return result
+    except Exception as exc:
+        result["error"] = f"Verbindungsfehler: {exc}"
+        return result
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "eeg_optimizer/probe_sma",
+        vol.Required("host"): str,
+        vol.Optional("port", default=502): int,
+    }
+)
+@websocket_api.async_response
+async def ws_probe_sma(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Read-only probe of an SMA inverter over Modbus TCP.
+
+    Used by the wizard's "Weiter" step to verify the entered IP points at
+    an SMA device with battery, and whether the CmpBMS control register
+    (40236) exists on this firmware.
+    """
+    host = (msg.get("host") or "").strip()
+    port = int(msg.get("port") or 502)
+    if not host:
+        connection.send_result(msg["id"], {
+            "success": False,
+            "error": "Keine IP-Adresse angegeben.",
+        })
+        return
+    result = await _probe_sma_modbus(host, port)
     connection.send_result(msg["id"], result)
 
 

@@ -59,6 +59,23 @@ const WIZARD_STEPS = [
 // Einspeisebegrenzung verfügbar (Watt- bzw. %-genaues Ladelimit).
 const FEEDIN_LIMIT_INVERTERS = ["huawei_sun2000", "fronius_gen24"];
 
+// Kostal ist im Wizard nur in DEV-Builds (Version "-dev") auswählbar, bis der
+// Entlade-Test (Register 1034) am Beta-Gerät verifiziert ist. Die Version kommt
+// aus dem Cache-Buster der Script-URL (js_url ...?v=<manifest-version>); ist sie
+// nicht ermittelbar, bleibt Kostal ausgeblendet (Prod-Verhalten). Bestehende
+// Kostal-Konfigurationen laufen überall weiter und zeigen die Karte weiterhin
+// an (kostalSelected-Ausnahme in _renderStep1).
+const KOSTAL_UI_ENABLED = (() => {
+  try {
+    const src = (document.currentScript && document.currentScript.src)
+      || Array.from(document.scripts, s => s.src).find(u => u.includes("eeg-optimizer-panel.js"))
+      || "";
+    return (new URL(src).searchParams.get("v") || "").includes("-dev");
+  } catch (e) {
+    return false;
+  }
+})();
+
 
 const WIZARD_DEFAULTS = {
   inverter_type: "huawei_sun2000",
@@ -99,6 +116,10 @@ const WIZARD_DEFAULTS = {
   solaredge_storage_backup_reserve: "",
   fronius_modbus_host: "",
   fronius_modbus_port: 502,
+  kostal_modbus_host: "",
+  kostal_modbus_port: 1502,
+  sma_modbus_host: "",
+  sma_modbus_port: 502,
   forecast_source: "solcast_solar",
   forecast_remaining_entity: "",
   forecast_tomorrow_entity: "",
@@ -161,6 +182,8 @@ const DIALOG_CONTENT = {
   solax: { file: "solax.html" },
   solaredge: { file: "solaredge.html" },
   fronius: { file: "fronius.html" },
+  kostal: { file: "kostal.html" },
+  sma: { file: "sma.html" },
   einspeisebegrenzung: { file: "einspeisebegrenzung.html" },
 };
 
@@ -1093,6 +1116,22 @@ class EegOptimizerPanel extends HTMLElement {
         const ok = await this._probeFroniusConnection();
         if (!ok) return;
       }
+      if (
+        this._wizardStep === 1 &&
+        this._wizardData.inverter_type === "kostal_plenticore" &&
+        this._wizardData.kostal_modbus_host
+      ) {
+        const ok = await this._probeKostalConnection();
+        if (!ok) return;
+      }
+      if (
+        this._wizardStep === 1 &&
+        this._wizardData.inverter_type === "sma_smart_energy" &&
+        this._wizardData.sma_modbus_host
+      ) {
+        const ok = await this._probeSmaConnection();
+        if (!ok) return;
+      }
 
       // Zum nächsten sichtbaren Schritt (überspringt bedingt versteckte).
       this._wizardStep = this._seekVisibleStep(this._wizardStep, 1);
@@ -1138,6 +1177,110 @@ class EegOptimizerPanel extends HTMLElement {
     }
   }
 
+  async _probeKostalConnection() {
+    const host = (this._wizardData.kostal_modbus_host || "").trim();
+    const port = parseInt(this._wizardData.kostal_modbus_port, 10) || 1502;
+    this._kostalProbing = true;
+    this._render();
+    try {
+      const res = await this._hass.callWS({
+        type: "eeg_optimizer/probe_kostal",
+        host,
+        port,
+      });
+      if (!res || !res.success) {
+        this._showValidationError(
+          `Kostal unter ${host}:${port} nicht erreichbar — ${res?.error || "unbekannter Fehler"}. Ist Modbus TCP im Kostal-Webserver aktiviert (Port 1502)?`
+        );
+        this._kostalProbeResult = null;
+        return false;
+      }
+      if (!res.is_kostal) {
+        this._showValidationError(
+          `Gerät unter ${host}:${port} antwortet, ist aber kein Kostal Plenticore (Produkt: ${res.product || "unbekannt"}). Bitte IP prüfen.`
+        );
+        this._kostalProbeResult = null;
+        return false;
+      }
+      // Batteriesteuerung noch nicht auf "Extern über Protokoll (Modbus TCP)"
+      // umgestellt (Installateur-Schritt): NICHT blockieren — der Nutzer darf
+      // die Einrichtung abschließen und den Installateur-Termin nachholen.
+      // Der Status wird als Hinweis im Modbus-Karten-Bereich angezeigt.
+      this._kostalProbeResult = res;
+      // Die Kostal-REST-Integration liefert keinen Kapazitätssensor — die
+      // Kapazität aus Modbus-Register 1068 vorbefüllen, sofern der Nutzer
+      // noch keinen eigenen Wert/Sensor gesetzt hat (Default = 10).
+      const cap = parseFloat(res.battery_capacity_kwh);
+      if (
+        cap > 0 &&
+        !this._wizardData.battery_capacity_sensor &&
+        (!this._wizardData.battery_capacity_kwh ||
+          parseFloat(this._wizardData.battery_capacity_kwh) === 10)
+      ) {
+        this._wizardData.battery_capacity_kwh = cap;
+      }
+      return true;
+    } catch (e) {
+      this._showValidationError(
+        `Kostal-Verbindungstest fehlgeschlagen: ${e?.message || e}`
+      );
+      this._kostalProbeResult = null;
+      return false;
+    } finally {
+      this._kostalProbing = false;
+      this._render();
+    }
+  }
+
+  async _probeSmaConnection() {
+    const host = (this._wizardData.sma_modbus_host || "").trim();
+    const port = parseInt(this._wizardData.sma_modbus_port, 10) || 502;
+    this._smaProbing = true;
+    this._render();
+    try {
+      const res = await this._hass.callWS({
+        type: "eeg_optimizer/probe_sma",
+        host,
+        port,
+      });
+      if (!res || !res.success) {
+        this._showValidationError(
+          `SMA unter ${host}:${port} nicht erreichbar — ${res?.error || "unbekannter Fehler"}. Ist der Modbus-TCP-Server im SMA-Webinterface aktiviert (Port 502)?`
+        );
+        this._smaProbeResult = null;
+        return false;
+      }
+      if (!res.is_sma) {
+        this._showValidationError(
+          `Gerät unter ${host}:${port} antwortet, liefert aber keine gültige SMA-Seriennummer. Bitte IP prüfen.`
+        );
+        this._smaProbeResult = null;
+        return false;
+      }
+      if (!res.has_battery) {
+        this._showValidationError(
+          `SMA-Gerät unter ${host}:${port} erkannt (Seriennr. ${res.serial}), aber es meldet keinen Batterie-Ladezustand. Ist das der Hybrid-/Batterie-Wechselrichter?`
+        );
+        this._smaProbeResult = null;
+        return false;
+      }
+      // OpMod-Register (40236) nicht lesbar: NICHT blockieren — manche
+      // Firmwares nutzen 41259 (Beta-Checkliste Punkt 2). Der Status wird
+      // als Hinweis im Modbus-Karten-Bereich angezeigt.
+      this._smaProbeResult = res;
+      return true;
+    } catch (e) {
+      this._showValidationError(
+        `SMA-Verbindungstest fehlgeschlagen: ${e?.message || e}`
+      );
+      this._smaProbeResult = null;
+      return false;
+    } finally {
+      this._smaProbing = false;
+      this._render();
+    }
+  }
+
   _validateCurrentStep() {
     switch (this._wizardStep) {
       case 1: { // Wechselrichter
@@ -1165,6 +1308,22 @@ class EegOptimizerPanel extends HTMLElement {
         }
         if (invType === "fronius_gen24" && !this._wizardData.fronius_modbus_host) {
           this._showValidationError("Bitte gib die Modbus IP-Adresse des Fronius Wechselrichters ein.");
+          return false;
+        }
+        if (invType === "kostal_plenticore" && invP && !invP.kostal_plenticore) {
+          this._showValidationError("Kostal Plenticore Integration nicht gefunden. Diese wird für die Sensoren benötigt. Klicke auf 'Anleitung' für Hilfe.");
+          return false;
+        }
+        if (invType === "kostal_plenticore" && !this._wizardData.kostal_modbus_host) {
+          this._showValidationError("Bitte gib die Modbus IP-Adresse des Kostal Wechselrichters ein.");
+          return false;
+        }
+        if (invType === "sma_smart_energy" && invP && !invP.sma) {
+          this._showValidationError("SMA Solar Integration nicht gefunden. Diese wird für die Sensoren benötigt. Klicke auf 'Anleitung' für Hilfe.");
+          return false;
+        }
+        if (invType === "sma_smart_energy" && !this._wizardData.sma_modbus_host) {
+          this._showValidationError("Bitte gib die Modbus IP-Adresse des SMA Wechselrichters ein.");
           return false;
         }
         return true;
@@ -1756,6 +1915,8 @@ class EegOptimizerPanel extends HTMLElement {
         p.solax_modbus && { key: "solax_gen4", label: "SolaX" },
         p.solaredge_modbus_multi && { key: "solaredge_storedge", label: "SolarEdge" },
         p.fronius && { key: "fronius_gen24", label: "Fronius" },
+        KOSTAL_UI_ENABLED && p.kostal_plenticore && { key: "kostal_plenticore", label: "Kostal" },
+        p.sma && { key: "sma_smart_energy", label: "SMA" },
       ].filter(Boolean).sort((a, b) => a.label.localeCompare(b.label));
       if (detected.length > 0) {
         this._wizardData.inverter_type = detected[0].key;
@@ -2303,9 +2464,15 @@ class EegOptimizerPanel extends HTMLElement {
         this._wizardLoading ? " disabled" : ""
       }>Fertig</button>`;
     } else {
-      const probing = !!this._froniusProbing;
+      const probing = !!this._froniusProbing || !!this._kostalProbing || !!this._smaProbing;
       const disabled = (this._isNextDisabled() || probing) ? " btn-disabled" : "";
-      const label = probing ? "Prüfe Fronius-Verbindung…" : "Weiter";
+      const label = this._froniusProbing
+        ? "Prüfe Fronius-Verbindung…"
+        : this._kostalProbing
+        ? "Prüfe Kostal-Verbindung…"
+        : this._smaProbing
+        ? "Prüfe SMA-Verbindung…"
+        : "Weiter";
       forwardBtn = `<button class="btn-primary${disabled}" data-action="next-step">${label}</button>`;
     }
 
@@ -2336,13 +2503,13 @@ class EegOptimizerPanel extends HTMLElement {
     // Step 1: block if no supported inverter installed or Hausverbrauch sensors missing
     if (step === 1) {
       const p = this._prerequisites;
-      if (p && !p.huawei_solar && !p.solax_modbus && !p.solaredge_modbus_multi && !p.fronius) return true;
+      if (p && !p.huawei_solar && !p.solax_modbus && !p.solaredge_modbus_multi && !p.fronius && !p.kostal_plenticore && !p.sma) return true;
       const d = this._wizardData;
       if (!d.inverter_type) return true;
       if (!d.pv_power_sensor) return true;
-      // Fronius requires the directional pair (charge/discharge, export/import).
-      // Other inverters use a single signed sensor each.
-      if (d.inverter_type === "fronius_gen24") {
+      // Fronius and SMA require the directional pair (charge/discharge,
+      // export/import). Other inverters use a single signed sensor each.
+      if (d.inverter_type === "fronius_gen24" || d.inverter_type === "sma_smart_energy") {
         if (!d.battery_power_charge_sensor || !d.battery_power_discharge_sensor) return true;
         if (!d.grid_power_export_sensor || !d.grid_power_import_sensor) return true;
       } else {
@@ -2380,10 +2547,12 @@ class EegOptimizerPanel extends HTMLElement {
       </ul>
       <h3 style="margin-bottom:8px">Getestete Setups</h3>
       <ul style="line-height:1.8;padding-left:20px">
-        <li>Huawei SUN2000 mit LUNA2000 Batteriespeicher</li>
-        <li>SolaX Gen4+ mit Triple Power Batteriespeicher</li>
-        <li>SolarEdge mit StorEdge Batteriespeicher (LG RESU, BYD, Energy Bank)</li>
         <li>Fronius Gen24 mit BYD Batteriespeicher</li>
+        <li>Huawei SUN2000 mit LUNA2000 Batteriespeicher</li>
+        ${KOSTAL_UI_ENABLED ? "<li>Kostal Plenticore (plus/G2/G3) mit BYD Batteriespeicher</li>" : ""}
+        <li>SMA Sunny Tripower Smart Energy / Sunny Boy Storage mit BYD Batteriespeicher</li>
+        <li>SolarEdge mit StorEdge Batteriespeicher (LG RESU, BYD, Energy Bank)</li>
+        <li>SolaX Gen4+ mit Triple Power Batteriespeicher</li>
       </ul>`;
   }
 
@@ -2395,11 +2564,15 @@ class EegOptimizerPanel extends HTMLElement {
     const solaxOk = p && p.solax_modbus;
     const solaredgeOk = p && p.solaredge_modbus_multi;
     const froniusOk = p && p.fronius;
+    const kostalOk = p && p.kostal_plenticore;
+    const smaOk = p && p.sma;
     const selected = this._wizardData.inverter_type || "";
     const huaweiSelected = selected === "huawei_sun2000";
     const solaxSelected = selected === "solax_gen4";
     const solaredgeSelected = selected === "solaredge_storedge";
     const froniusSelected = selected === "fronius_gen24";
+    const kostalSelected = selected === "kostal_plenticore";
+    const smaSelected = selected === "sma_smart_energy";
 
     const huaweiBadge = huaweiOk
       ? '<span class="status-badge installed">Installiert</span>'
@@ -2417,6 +2590,14 @@ class EegOptimizerPanel extends HTMLElement {
       ? '<span class="status-badge installed">Installiert</span>'
       : '<span class="status-badge missing">Nicht installiert</span>';
 
+    const kostalBadge = kostalOk
+      ? '<span class="status-badge installed">Installiert</span>'
+      : '<span class="status-badge missing">Nicht installiert</span>';
+
+    const smaBadge = smaOk
+      ? '<span class="status-badge installed">Installiert</span>'
+      : '<span class="status-badge missing">Nicht installiert</span>';
+
     const huaweiAutoDetect = "";
 
     const pvHelp = huaweiSelected
@@ -2425,6 +2606,10 @@ class EegOptimizerPanel extends HTMLElement {
       ? "Aktuelle PV-Produktion in W (SolarEdge: sensor.solaredge_[i1_]ac_power)."
       : froniusSelected
       ? "Aktuelle PV-Produktion in W (Fronius: sensor.*_power_photovoltaics oder *_pv_leistung)."
+      : kostalSelected
+      ? "Aktuelle PV-Produktion in W (Kostal: sensor.*_solar_power — Summe aller PV-Eingänge ohne Batterie)."
+      : smaSelected
+      ? "Aktuelle PV-Produktion in W (SMA: sensor.*_pv_power)."
       : "Aktuelle PV-Produktion in W (SolaX: sensor.solax_energy_dashboard_solax_solar_power).";
     const batteryHelp = huaweiSelected
       ? "Lade- und Entladeleistung der Batterie in W oder kW (Huawei: sensor.batteries_lade_entladeleistung)."
@@ -2432,6 +2617,8 @@ class EegOptimizerPanel extends HTMLElement {
       ? "Lade- und Entladeleistung der Batterie in W (SolarEdge: sensor.solaredge_[i1_]b1_dc_power)."
       : froniusSelected
       ? "Lade- und Entladeleistung der Batterie in W (Fronius: sensor.*_power_battery oder *_leistung_batterie). Bei Fronius-Installationen mit getrennten Lade-/Entladesensoren bitte den signed Sensor wählen."
+      : kostalSelected
+      ? "Lade- und Entladeleistung der Batterie in W (Kostal: sensor.*_battery_power — positiv = Entladen, wird automatisch umgerechnet)."
       : "Lade- und Entladeleistung der Batterie in W (SolaX: sensor.solax_energy_dashboard_solax_battery_power).";
     const gridHelp = huaweiSelected
       ? "Wirkleistung am Netzanschluss in W oder kW (Huawei: sensor.power_meter_wirkleistung)."
@@ -2439,6 +2626,8 @@ class EegOptimizerPanel extends HTMLElement {
       ? "Wirkleistung am Netzanschluss in W (SolarEdge: sensor.solaredge_[i1_]m1_ac_power)."
       : froniusSelected
       ? "Wirkleistung am Netzanschluss in W (Fronius: sensor.*_power_grid oder *_leistung_netz). Bei Fronius-Installationen mit getrennten Bezugs-/Einspeisesensoren bitte den signed Sensor wählen."
+      : kostalSelected
+      ? "Wirkleistung am Netzanschluss in W (Kostal: sensor.*_grid_power — positiv = Bezug, wird automatisch umgerechnet)."
       : "Wirkleistung am Netzanschluss in W (SolaX: sensor.solax_energy_dashboard_solax_grid_power).";
 
     // Build inverter cards, sort: detected first (alphabetically), then undetected (alphabetically)
@@ -2451,7 +2640,13 @@ class EegOptimizerPanel extends HTMLElement {
         logo: `<img src="https://brands.home-assistant.io/_/solaredge/logo.png" alt="SolarEdge" style="max-width:120px;max-height:60px;height:auto" onerror="this.outerHTML='<span style=font-size:32px>SolarEdge</span>'">` },
       { key: "fronius_gen24", label: "Fronius Gen24", subtitle: "mit BYD Batteriespeicher", detected: froniusOk, badge: froniusBadge, dialog: "fronius",
         logo: `<img src="https://brands.home-assistant.io/fronius/logo.png" alt="Fronius" style="max-width:120px;max-height:60px;height:auto" onerror="this.outerHTML='<span style=font-size:32px>Fronius</span>'">` },
-    ];
+      { key: "kostal_plenticore", label: "Kostal Plenticore", subtitle: "mit BYD Batteriespeicher", detected: kostalOk, badge: kostalBadge, dialog: "kostal",
+        logo: `<img src="https://brands.home-assistant.io/kostal_plenticore/logo.png" alt="Kostal" style="max-width:120px;max-height:60px;height:auto" onerror="this.outerHTML='<span style=font-size:32px>Kostal</span>'">` },
+      { key: "sma_smart_energy", label: "SMA Smart Energy", subtitle: "Tripower/Sunny Boy mit Batteriespeicher", detected: smaOk, badge: smaBadge, dialog: "sma",
+        logo: `<img src="https://brands.home-assistant.io/sma/logo.png" alt="SMA" style="max-width:120px;max-height:60px;height:auto" onerror="this.outerHTML='<span style=font-size:32px>SMA</span>'">` },
+    ].filter(inv =>
+      inv.key !== "kostal_plenticore" || KOSTAL_UI_ENABLED || kostalSelected
+    );
     inverterDefs.sort((a, b) => {
       if (a.detected !== b.detected) return a.detected ? -1 : 1;
       return a.label.localeCompare(b.label);
@@ -2473,7 +2668,7 @@ class EegOptimizerPanel extends HTMLElement {
       <div class="prereq-cards" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));gap:16px;margin-bottom:16px">
         ${inverterCards}
       </div>
-      ${huaweiSelected || solaxSelected || solaredgeSelected || froniusSelected ? `
+      ${huaweiSelected || solaxSelected || solaredgeSelected || froniusSelected || kostalSelected || smaSelected ? `
       <div class="card" style="padding:16px;margin-bottom:16px">
         <h3 style="margin:0 0 4px">Hausverbrauch-Sensoren</h3>
         <p style="font-size:13px;color:var(--secondary-text-color);margin:0 0 12px">
@@ -2530,6 +2725,41 @@ class EegOptimizerPanel extends HTMLElement {
             "Positiver W-Wert bei Bezug, 0 sonst (Fronius: sensor.*_leistung_netzbezug).",
             "sensor"
           )}
+        ` : smaSelected ? `
+          <p style="font-size:12px;color:var(--secondary-text-color);margin:8px 0 4px;line-height:1.5">
+            SMA liefert Batterie- und Netzleistung als <strong>zwei getrennte, immer positive Sensoren</strong>
+            (Lade-/Entladeleistung bzw. Einspeisung/Bezug). Trage je beide ein &mdash; die Integration kombiniert sie automatisch
+            zu signed Werten und legt die kombinierten Sensoren mit Verlaufsdaten an.
+            Hinweis: <code>sensor.*_grid_power</code> ist bei SMA die AC-Ausgangsleistung des Wechselrichters, NICHT der Netzanschluss &mdash; nicht verwenden.
+          </p>
+          ${this._entityPickerHtml(
+            "battery_power_charge_sensor",
+            this._wizardData.battery_power_charge_sensor,
+            "Batterie-Ladeleistung *",
+            "Positiver W-Wert beim Laden, 0 sonst (SMA: sensor.*_battery_power_charge_total).",
+            "sensor"
+          )}
+          ${this._entityPickerHtml(
+            "battery_power_discharge_sensor",
+            this._wizardData.battery_power_discharge_sensor,
+            "Batterie-Entladeleistung *",
+            "Positiver W-Wert beim Entladen, 0 sonst (SMA: sensor.*_battery_power_discharge_total).",
+            "sensor"
+          )}
+          ${this._entityPickerHtml(
+            "grid_power_export_sensor",
+            this._wizardData.grid_power_export_sensor,
+            "Netzeinspeisung *",
+            "Positiver W-Wert bei Einspeisung, 0 sonst (SMA: sensor.*_metering_power_supplied).",
+            "sensor"
+          )}
+          ${this._entityPickerHtml(
+            "grid_power_import_sensor",
+            this._wizardData.grid_power_import_sensor,
+            "Netzbezug *",
+            "Positiver W-Wert bei Bezug, 0 sonst (SMA: sensor.*_metering_power_absorbed).",
+            "sensor"
+          )}
         ` : `
           ${this._entityPickerHtml(
             "battery_power_sensor",
@@ -2553,6 +2783,13 @@ class EegOptimizerPanel extends HTMLElement {
           "Für Anlagen mit Generator-Wechselrichter über Meter 2 (sensor.solax_inverter_meter_2_measured_power).",
           "sensor"
         ) : ""}
+        ${kostalSelected ? this._entityPickerHtml(
+          "pv_power_sensor_2",
+          this._wizardData.pv_power_sensor_2,
+          "Zweiter PV-Sensor (optional)",
+          "Für Anlagen mit zweitem Kostal-Wechselrichter ohne Batterie (sensor.<name2>_solar_power) — wird automatisch erkannt und zur PV-Leistung addiert.",
+          "sensor"
+        ) : ""}
       </div>
       ${froniusSelected ? `
       <div class="card" style="padding:16px;margin-bottom:16px">
@@ -2574,6 +2811,68 @@ class EegOptimizerPanel extends HTMLElement {
                  style="width:100%;padding:8px;border:1px solid var(--divider-color);border-radius:4px;background:var(--card-background-color);color:var(--primary-text-color)">
           <div class="help-text">Standard: 502. Manche Installationen nutzen 1502.</div>
         </div>
+      </div>` : ""}
+      ${kostalSelected ? `
+      <div class="card" style="padding:16px;margin-bottom:16px">
+        <h3 style="margin:0 0 4px">Modbus TCP Verbindung</h3>
+        <p style="font-size:13px;color:var(--secondary-text-color);margin:0 0 12px">
+          IP-Adresse und Port für die direkte Modbus-Verbindung zum Wechselrichter (für Batterie-Steuerung).
+          Modbus TCP muss im Kostal-Webserver aktiviert sein (Einstellungen &rarr; Modbus/SunSpec) &mdash; siehe Anleitung.
+        </p>
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-weight:500;margin-bottom:4px">Modbus IP-Adresse *</label>
+          <input type="text" value="${this._wizardData.kostal_modbus_host || ""}"
+                 data-field="kostal_modbus_host" placeholder="z.B. 192.168.1.100"
+                 style="width:100%;padding:8px;border:1px solid var(--divider-color);border-radius:4px;background:var(--card-background-color);color:var(--primary-text-color)">
+          <div class="help-text">Die IP-Adresse des Kostal Wechselrichters (gleiche wie im Kostal-Webserver).</div>
+        </div>
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-weight:500;margin-bottom:4px">Modbus Port</label>
+          <input type="number" value="${this._wizardData.kostal_modbus_port || 1502}"
+                 data-field="kostal_modbus_port" min="1" max="65535"
+                 style="width:100%;padding:8px;border:1px solid var(--divider-color);border-radius:4px;background:var(--card-background-color);color:var(--primary-text-color)">
+          <div class="help-text">Standard bei Kostal: 1502 (nicht 502).</div>
+        </div>
+        ${this._kostalProbeResult ? (this._kostalProbeResult.battery_control_external ? `
+        <div style="padding:8px 12px;border-radius:4px;background:rgba(76,175,80,.12);color:var(--primary-text-color);font-size:13px">
+          &#10003; ${this._kostalProbeResult.product || "Kostal"} erkannt &mdash; externe Batteriesteuerung (Modbus) ist aktiv.
+        </div>` : `
+        <div style="padding:8px 12px;border-radius:4px;background:rgba(255,152,0,.15);color:var(--primary-text-color);font-size:13px">
+          &#9888; ${this._kostalProbeResult.product || "Kostal"} erkannt, aber die Batteriesteuerung steht noch auf <strong>Intern</strong>.
+          Die Umstellung auf &bdquo;Extern &uuml;ber Protokoll (Modbus TCP)&ldquo; erfordert den Installateur (siehe Anleitung, Schritt 3).
+          Du kannst die Einrichtung trotzdem abschlie&szlig;en &mdash; die Batterie-Steuerung funktioniert erst nach der Umstellung.
+        </div>`) : ""}
+      </div>` : ""}
+      ${smaSelected ? `
+      <div class="card" style="padding:16px;margin-bottom:16px">
+        <h3 style="margin:0 0 4px">Modbus TCP Verbindung</h3>
+        <p style="font-size:13px;color:var(--secondary-text-color);margin:0 0 12px">
+          IP-Adresse und Port für die direkte Modbus-Verbindung zum Wechselrichter (für Batterie-Steuerung).
+          Der Modbus-TCP-Server muss im SMA-Webinterface aktiviert sein (Ger&auml;teparameter &rarr; Externe Kommunikation &rarr; Modbus &rarr; TCP-Server) &mdash; siehe Anleitung.
+          Falls ein <strong>Sunny Home Manager 2.0</strong> verbaut ist, muss dessen &bdquo;prognosebasiertes Laden&ldquo; deaktiviert werden.
+        </p>
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-weight:500;margin-bottom:4px">Modbus IP-Adresse *</label>
+          <input type="text" value="${this._wizardData.sma_modbus_host || ""}"
+                 data-field="sma_modbus_host" placeholder="z.B. 192.168.1.100"
+                 style="width:100%;padding:8px;border:1px solid var(--divider-color);border-radius:4px;background:var(--card-background-color);color:var(--primary-text-color)">
+          <div class="help-text">Die IP-Adresse des SMA Wechselrichters (gleiche wie im SMA-Webinterface).</div>
+        </div>
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-weight:500;margin-bottom:4px">Modbus Port</label>
+          <input type="number" value="${this._wizardData.sma_modbus_port || 502}"
+                 data-field="sma_modbus_port" min="1" max="65535"
+                 style="width:100%;padding:8px;border:1px solid var(--divider-color);border-radius:4px;background:var(--card-background-color);color:var(--primary-text-color)">
+          <div class="help-text">Standard: 502 (Unit-ID 3 ist fest hinterlegt).</div>
+        </div>
+        ${this._smaProbeResult ? (this._smaProbeResult.opmod_register_ok ? `
+        <div style="padding:8px 12px;border-radius:4px;background:rgba(76,175,80,.12);color:var(--primary-text-color);font-size:13px">
+          &#10003; SMA-Ger&auml;t erkannt (Seriennr. ${this._smaProbeResult.serial}${this._smaProbeResult.soc != null ? `, Batterie-SOC ${this._smaProbeResult.soc}%` : ""}) &mdash; Steuerregister (CmpBMS) verf&uuml;gbar.
+        </div>` : `
+        <div style="padding:8px 12px;border-radius:4px;background:rgba(255,152,0,.15);color:var(--primary-text-color);font-size:13px">
+          &#9888; SMA-Ger&auml;t erkannt (Seriennr. ${this._smaProbeResult.serial}), aber das Steuerregister 40236 (CmpBMS.OpMod) ist nicht lesbar.
+          Manche Firmwares nutzen eine abweichende Adresse &mdash; bitte melde dich beim Support, bevor du die Steuerung aktivierst.
+        </div>`) : ""}
       </div>` : ""}
       ` : ""}
       <button class="btn-secondary" data-action="recheck-prerequisites">Erneut prüfen</button>`;
@@ -2883,6 +3182,8 @@ class EegOptimizerPanel extends HTMLElement {
           ? "z.B. 5.8 für Triple Power T58, 11.6 für zwei Module"
           : this._wizardData.inverter_type === "solaredge_storedge"
           ? "z.B. 9.8 für LG RESU10H, 4.8 für BYD LVS 4.0"
+          : this._wizardData.inverter_type === "sma_smart_energy"
+          ? "z.B. 10.2 für BYD Battery-Box Premium HVS 10.2 (SMA liefert keinen Kapazitätssensor)"
           : "Nutzbare Gesamtkapazität deines Batteriespeichers in kWh"}</div>
       </div>` : "";
 
@@ -3204,7 +3505,7 @@ class EegOptimizerPanel extends HTMLElement {
 
       <div class="summary-section">
         <h3>Wechselrichter</h3>
-        ${row("Typ", ({"huawei_sun2000": "Huawei SUN2000", "solax_gen4": "SolaX Gen4+", "solaredge_storedge": "SolarEdge StorEdge", "fronius_gen24": "Fronius Gen24"})[d.inverter_type] || d.inverter_type)}
+        ${row("Typ", ({"huawei_sun2000": "Huawei SUN2000", "solax_gen4": "SolaX Gen4+", "solaredge_storedge": "SolarEdge StorEdge", "fronius_gen24": "Fronius Gen24", "kostal_plenticore": "Kostal Plenticore", "sma_smart_energy": "SMA Smart Energy"})[d.inverter_type] || d.inverter_type)}
       </div>
 
       <div class="summary-section">
@@ -5401,7 +5702,7 @@ class EegOptimizerPanel extends HTMLElement {
           <ha-icon icon="mdi:chart-line" style="--mdc-icon-size:48px;color:var(--secondary-text-color);opacity:0.5"></ha-icon>
           <h3 style="margin:16px 0 8px;color:var(--secondary-text-color)">Verbrauchsdaten werden berechnet...</h3>
           <p style="color:var(--secondary-text-color);font-size:14px;margin:0">
-            Die historischen Verbrauchsdaten werden aus deinen Sensoren berechnet. Das kann beim ersten Start einige Sekunden dauern.
+            Die historischen Verbrauchsdaten werden aus deinen Sensoren berechnet. Das dauert beim ersten Start üblicherweise unter zwei Minuten. Ohne vorhandene Sensor-Historie füllt sich das Profil erst nach und nach — die Anzeige aktualisiert sich automatisch.
           </p>
         </div>
         ` : `

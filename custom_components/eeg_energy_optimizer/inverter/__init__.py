@@ -9,6 +9,8 @@ from .huawei import HuaweiInverter
 from .solax import SolaXInverter
 from .solaredge import SolarEdgeInverter
 from .fronius import FroniusInverter
+from .kostal import KostalInverter
+from .sma import SMAInverter
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -18,6 +20,8 @@ INVERTER_TYPES: dict[str, type[InverterBase]] = {
     "solax_gen4": SolaXInverter,
     "solaredge_storedge": SolarEdgeInverter,
     "fronius_gen24": FroniusInverter,
+    "kostal_plenticore": KostalInverter,
+    "sma_smart_energy": SMAInverter,
 }
 
 
