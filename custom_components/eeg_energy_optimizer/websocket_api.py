@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 import voluptuous as vol
 
@@ -27,14 +28,17 @@ from .const import (
     CONF_DISCHARGE_POWER_KW,
     CONF_ENABLE_FEEDIN_LIMIT,
     CONF_FEEDIN_LIMIT_KW,
+    CONF_FRONIUS_MODBUS_HOST,
     CONF_GRID_POWER_EXPORT_SENSOR,
     CONF_GRID_POWER_IMPORT_SENSOR,
     CONF_GRID_POWER_SENSOR,
     CONF_HUAWEI_DEVICE_ID,
     CONF_HUAWEI_DEVICE_IDS,
     CONF_INVERTER_TYPE,
+    CONF_KOSTAL_MODBUS_HOST,
     CONF_PV_POWER_SENSOR,
     CONF_PV_POWER_SENSOR_2,
+    CONF_SMA_MODBUS_HOST,
     CONF_TELEMETRY_ENABLED,
     DOMAIN,
     INVERTER_TYPE_HUAWEI,
@@ -231,12 +235,21 @@ FRONIUS_PAIR_SUFFIXES: dict[tuple[str, str], list[tuple[str, str]]] = {
 }
 
 # Kostal Plenticore (kostal_plenticore Core-Integration, REST) sensor
-# suffixes. Entity-IDs derive from the English sensor names ("Battery SoC",
-# "Battery Power", "Grid Power", "Solar Power" = Dc_P, sum of all PV inputs
-# WITHOUT battery). German variants included defensively in case a
-# localized install generated translated entity ids. Detection is
-# restricted to entities owned by kostal_plenticore config entries, so
-# loose suffixes cannot leak in foreign sensors. First match wins.
+# suffixes. Entity-IDs derive from the English sensor names. German
+# variants included defensively in case a localized install generated
+# translated entity ids. Detection is restricted to entities owned by
+# kostal_plenticore config entries, so loose suffixes cannot leak in
+# foreign sensors. First match wins.
+#
+# PV: "Solar Power" (Dc_P) ist auf Hybrid-Geräten die DC-GESAMTleistung
+# INKLUSIVE Batterie (Batterie hängt am DC-Bus) — bei nächtlicher
+# Entladung zeigt sie die Entladeleistung als "PV" (am Beta-Gerät
+# verifiziert 19.08.2026: solar_power 729 W bei echter PV 0 W und
+# Entladung 727 W). Der korrekte PV-Sensor ist "Sum power of all PV DC
+# inputs" (virtuelles Prozessdatum _virt_:pv_P = pv1+pv2+pv3, in HA Core
+# standardmäßig aktiviert) — daher zuerst. Dc_P bleibt als Fallback:
+# auf batterielosen Geräten ist er korrekt, und der Summensensor könnte
+# manuell deaktiviert worden sein.
 KOSTAL_SENSOR_SUFFIXES: dict[str, list[str]] = {
     CONF_BATTERY_SOC_SENSOR: [
         "battery_soc",
@@ -253,6 +266,8 @@ KOSTAL_SENSOR_SUFFIXES: dict[str, list[str]] = {
         "netzleistung",
     ],
     CONF_PV_POWER_SENSOR: [
+        "sum_power_of_all_pv_dc_inputs",
+        "summe_leistung_aller_pv_dc_eingange",
         "solar_power",
         "solarleistung",
         "pv_leistung",
@@ -792,6 +807,33 @@ async def ws_check_prerequisites(
     connection.send_result(msg["id"], result)
 
 
+def _source_entry_host(entry) -> str | None:
+    """Extrahiere einen reinen Host/IP aus dem Config-Entry einer Quell-
+    Integration (fronius / kostal_plenticore / sma).
+
+    Alle drei Core-Integrationen speichern den Wechselrichter unter
+    ``entry.data["host"]`` — dieselbe Adresse, unter der auch Modbus TCP
+    erreichbar ist. Fronius erlaubt bei der Einrichtung auch eine volle
+    URL (z. B. ``http://192.168.1.5/``), daher wird ein Schema/Pfad
+    abgestreift, bevor der Wert als Modbus-Host vorgeschlagen wird.
+    """
+    host = entry.data.get("host")
+    if not isinstance(host, str) or not host.strip():
+        return None
+    host = host.strip()
+    if "://" in host:
+        host = urlsplit(host).hostname or ""
+    return host.rstrip("/") or None
+
+
+def _first_loaded_entry_host(entries) -> str | None:
+    """Host des ersten geladenen Config-Entries (Fallback: erster Entry)."""
+    for entry in entries:
+        if entry.state.value == "loaded":
+            return _source_entry_host(entry)
+    return _source_entry_host(entries[0]) if entries else None
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "eeg_optimizer/detect_sensors",
@@ -1057,6 +1099,12 @@ async def ws_detect_sensors(
             "detected": True,
             "sensors": sensors,
         }
+        # Modbus-Host-Vorschlag: der Gen24 spricht Solar API und Modbus TCP
+        # über dieselbe Adresse — die kennt der fronius-Config-Entry bereits,
+        # der Nutzer muss sie nicht erneut abtippen.
+        modbus_host = _first_loaded_entry_host(fronius_entries)
+        if modbus_host:
+            result[CONF_FRONIUS_MODBUS_HOST] = modbus_host
         connection.send_result(msg["id"], result)
         return
 
@@ -1148,6 +1196,18 @@ async def ws_detect_sensors(
             "detected": True,
             "sensors": sensors,
         }
+        # Modbus-Host-Vorschlag: bewusst der PRIMARY-Entry (Inverter MIT
+        # Batterie) — bei Multi-Inverter-Setups muss die Modbus-Steuerung
+        # den Master mit Batterie treffen, nicht den PV-only-Slave.
+        modbus_host = None
+        if primary_id is not None:
+            primary_entry = hass.config_entries.async_get_entry(primary_id)
+            if primary_entry is not None:
+                modbus_host = _source_entry_host(primary_entry)
+        if modbus_host is None:
+            modbus_host = _first_loaded_entry_host(kostal_entries)
+        if modbus_host:
+            result[CONF_KOSTAL_MODBUS_HOST] = modbus_host
         connection.send_result(msg["id"], result)
         return
 
@@ -1217,6 +1277,11 @@ async def ws_detect_sensors(
             "detected": True,
             "sensors": sensors,
         }
+        # Modbus-Host-Vorschlag: WebConnect und Modbus TCP laufen über
+        # dieselbe Geräteadresse aus dem sma-Config-Entry.
+        modbus_host = _first_loaded_entry_host(sma_entries)
+        if modbus_host:
+            result[CONF_SMA_MODBUS_HOST] = modbus_host
         connection.send_result(msg["id"], result)
         return
 

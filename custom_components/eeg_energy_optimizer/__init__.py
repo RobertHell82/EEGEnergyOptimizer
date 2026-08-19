@@ -27,6 +27,7 @@ from .const import (
     CONF_PV_POWER_SENSOR,
     CONF_PV_POWER_SENSOR_2,
     CONF_BATTERY_POWER_SENSOR,
+    CONF_BATTERY_POWER_SENSOR_2,
     CONF_BATTERY_POWER_CHARGE_SENSOR,
     CONF_BATTERY_POWER_DISCHARGE_SENSOR,
     CONF_GRID_POWER_SENSOR,
@@ -1862,6 +1863,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+# Config-Schlüssel, deren Änderung einen VOLLEN Reload erfordert: Die
+# Plattform-Entities (PV-Leistung, Hausverbrauch, Netz-/Batterieleistung,
+# Prognosen) sowie Inverter- und Forecast-Provider-Objekte cachen ihre
+# Config bei der Konstruktion. Der Hot-Reload unten tauscht nur den
+# Optimizer — nach einer geänderten Sensor-Zuordnung lasen die Sensoren
+# sonst bis zum nächsten HA-Neustart die alten Entity-IDs (Beta-Befund
+# 19.08.2026: Optimizer nutzte den neuen PV-Sensor, Dashboard den alten).
+_RELOAD_CONFIG_KEYS = frozenset({
+    CONF_INVERTER_TYPE,
+    CONF_BATTERY_SOC_SENSOR,
+    CONF_BATTERY_CAPACITY_SENSOR,
+    CONF_PV_POWER_SENSOR,
+    CONF_PV_POWER_SENSOR_2,
+    CONF_BATTERY_POWER_SENSOR,
+    CONF_BATTERY_POWER_SENSOR_2,
+    CONF_GRID_POWER_SENSOR,
+    CONF_BATTERY_POWER_CHARGE_SENSOR,
+    CONF_BATTERY_POWER_DISCHARGE_SENSOR,
+    CONF_GRID_POWER_EXPORT_SENSOR,
+    CONF_GRID_POWER_IMPORT_SENSOR,
+})
+# Präfixe decken Inverter-Anbindung (Modbus-Hosts/Ports, Geräte-IDs,
+# Steuer-Entities) und Forecast-Quellen ab, ohne jeden Key einzeln zu pflegen.
+_RELOAD_CONFIG_PREFIXES = (
+    "fronius_", "huawei_", "kostal_", "sma_", "solaredge_", "solax_",
+    "forecast_",
+)
+
+
+def _requires_full_reload(old: dict, new: dict) -> bool:
+    """True, wenn sich ein Reload-pflichtiger Config-Schlüssel geändert hat."""
+    for key in set(old) | set(new):
+        if key in _RELOAD_CONFIG_KEYS or key.startswith(_RELOAD_CONFIG_PREFIXES):
+            if old.get(key) != new.get(key):
+                return True
+    return False
+
+
 async def _async_update_listener(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> None:
@@ -1874,6 +1913,19 @@ async def _async_update_listener(
 
     if not data.get("platforms_loaded"):
         # Wizard just finished — need full reload to create platforms/sensors
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+
+    # Sensor-Zuordnung / Inverter-Anbindung geändert → voller Reload, damit
+    # Entities, Inverter und Provider mit der neuen Config neu entstehen.
+    # Reine Einstellungs-Änderungen nehmen weiterhin den Hot-Reload-Pfad,
+    # damit der Optimizer-Tageszustand (Hysterese, aktive Zustände) erhalten
+    # bleibt.
+    if _requires_full_reload(data.get("config") or {}, config):
+        _LOGGER.info(
+            "EEG Energy Optimizer: Sensor-/Inverter-Konfiguration geändert — "
+            "voller Reload"
+        )
         await hass.config_entries.async_reload(entry.entry_id)
         return
 

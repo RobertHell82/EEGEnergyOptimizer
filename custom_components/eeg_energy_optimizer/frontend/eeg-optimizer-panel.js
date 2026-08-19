@@ -59,22 +59,11 @@ const WIZARD_STEPS = [
 // Einspeisebegrenzung verfügbar (Watt- bzw. %-genaues Ladelimit).
 const FEEDIN_LIMIT_INVERTERS = ["huawei_sun2000", "fronius_gen24"];
 
-// Kostal ist im Wizard nur in DEV-Builds (Version "-dev") auswählbar, bis der
-// Entlade-Test (Register 1034) am Beta-Gerät verifiziert ist. Die Version kommt
-// aus dem Cache-Buster der Script-URL (js_url ...?v=<manifest-version>); ist sie
-// nicht ermittelbar, bleibt Kostal ausgeblendet (Prod-Verhalten). Bestehende
-// Kostal-Konfigurationen laufen überall weiter und zeigen die Karte weiterhin
-// an (kostalSelected-Ausnahme in _renderStep1).
-const KOSTAL_UI_ENABLED = (() => {
-  try {
-    const src = (document.currentScript && document.currentScript.src)
-      || Array.from(document.scripts, s => s.src).find(u => u.includes("eeg-optimizer-panel.js"))
-      || "";
-    return (new URL(src).searchParams.get("v") || "").includes("-dev");
-  } catch (e) {
-    return false;
-  }
-})();
+// Kostal ist im Wizard wieder in allen Builds auswählbar (seit 1.3.13-dev).
+// Der Flag bleibt als Schalter erhalten, falls ein Treiber künftig erneut
+// vorübergehend aus Release-Builds ausgeblendet werden soll (DEV-Erkennung
+// über den Cache-Buster der Script-URL, siehe Git-Historie zu 1.3.11).
+const KOSTAL_UI_ENABLED = true;
 
 
 const WIZARD_DEFAULTS = {
@@ -2001,6 +1990,15 @@ class EegOptimizerPanel extends HTMLElement {
             if (sensors[key]) this._wizardData[key] = sensors[key];
           }
         }
+        // Modbus-Host aus der Quell-Integration (fronius / kostal_plenticore /
+        // sma) vorbefüllen — deren Config-Entry kennt die Geräteadresse
+        // bereits, der Nutzer muss sie nicht erneut abtippen. Nur wenn das
+        // Feld noch leer ist, damit eine bewusste Eingabe erhalten bleibt.
+        for (const key of ["fronius_modbus_host", "kostal_modbus_host", "sma_modbus_host"]) {
+          if (this._detectedSensors[key] && !this._wizardData[key]) {
+            this._wizardData[key] = this._detectedSensors[key];
+          }
+        }
         // SolaX-Steuer-Entities: Server löst sie per Suffix-Scan auf (auch bei
         // neueren solax_modbus-Versionen mit Mode-Suffixen wie _mode_1_7) —
         // daher direkt übernehmen, ohne solax_prefix vorauszusetzen.
@@ -2607,7 +2605,7 @@ class EegOptimizerPanel extends HTMLElement {
       : froniusSelected
       ? "Aktuelle PV-Produktion in W (Fronius: sensor.*_power_photovoltaics oder *_pv_leistung)."
       : kostalSelected
-      ? "Aktuelle PV-Produktion in W (Kostal: sensor.*_solar_power — Summe aller PV-Eingänge ohne Batterie)."
+      ? "Aktuelle PV-Produktion in W (Kostal: sensor.*_sum_power_of_all_pv_dc_inputs — Summe aller PV-Eingänge. Achtung: *_solar_power enthält auch die Batterieentladung und ist ungeeignet)."
       : smaSelected
       ? "Aktuelle PV-Produktion in W (SMA: sensor.*_pv_power)."
       : "Aktuelle PV-Produktion in W (SolaX: sensor.solax_energy_dashboard_solax_solar_power).";
@@ -2787,7 +2785,7 @@ class EegOptimizerPanel extends HTMLElement {
           "pv_power_sensor_2",
           this._wizardData.pv_power_sensor_2,
           "Zweiter PV-Sensor (optional)",
-          "Für Anlagen mit zweitem Kostal-Wechselrichter ohne Batterie (sensor.<name2>_solar_power) — wird automatisch erkannt und zur PV-Leistung addiert.",
+          "Für Anlagen mit zweitem Kostal-Wechselrichter ohne Batterie (sensor.<name2>_sum_power_of_all_pv_dc_inputs) — wird automatisch erkannt und zur PV-Leistung addiert.",
           "sensor"
         ) : ""}
       </div>
