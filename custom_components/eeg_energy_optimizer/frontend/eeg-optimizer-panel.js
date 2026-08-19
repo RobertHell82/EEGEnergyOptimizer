@@ -59,22 +59,11 @@ const WIZARD_STEPS = [
 // Einspeisebegrenzung verfügbar (Watt- bzw. %-genaues Ladelimit).
 const FEEDIN_LIMIT_INVERTERS = ["huawei_sun2000", "fronius_gen24"];
 
-// Kostal ist im Wizard nur in DEV-Builds (Version "-dev") auswählbar, bis der
-// Entlade-Test (Register 1034) am Beta-Gerät verifiziert ist. Die Version kommt
-// aus dem Cache-Buster der Script-URL (js_url ...?v=<manifest-version>); ist sie
-// nicht ermittelbar, bleibt Kostal ausgeblendet (Prod-Verhalten). Bestehende
-// Kostal-Konfigurationen laufen überall weiter und zeigen die Karte weiterhin
-// an (kostalSelected-Ausnahme in _renderStep1).
-const KOSTAL_UI_ENABLED = (() => {
-  try {
-    const src = (document.currentScript && document.currentScript.src)
-      || Array.from(document.scripts, s => s.src).find(u => u.includes("eeg-optimizer-panel.js"))
-      || "";
-    return (new URL(src).searchParams.get("v") || "").includes("-dev");
-  } catch (e) {
-    return false;
-  }
-})();
+// Kostal ist im Wizard wieder in allen Builds auswählbar (seit 1.3.13-dev).
+// Der Flag bleibt als Schalter erhalten, falls ein Treiber künftig erneut
+// vorübergehend aus Release-Builds ausgeblendet werden soll (DEV-Erkennung
+// über den Cache-Buster der Script-URL, siehe Git-Historie zu 1.3.11).
+const KOSTAL_UI_ENABLED = true;
 
 
 const WIZARD_DEFAULTS = {
