@@ -2423,3 +2423,70 @@ class TestHouseLoadEntryGuard:
         )
         assert should is True
         assert REASON_HOUSE_LOAD_EXCEEDS_DISCHARGE not in blocked_by
+
+
+class TestMorningMinSocGuard:
+    """Morgen-Einspeisung startet erst ab dem konfigurierten Min-SOC.
+
+    Nutzer-Feedback: SOC 7% bei Min-SOC 10% → Batterie zuerst auf 10%
+    laden, dann blockieren. Exit-Hysterese (2%) verhindert Pendeln, wenn
+    der Hausverbrauch den SOC an der Schwelle wieder anknabbert.
+    """
+
+    def _snap(self, **overrides):
+        # 08:00, Sonnenaufgang 05:30, PV-Überschuss → ohne SOC-Guard würde
+        # die Morgen-Einspeisung aktivieren (Default-Fenster bis 11:00).
+        now = datetime(2026, 6, 15, 8, 0, tzinfo=timezone.utc)
+        sunrise = datetime(2026, 6, 15, 5, 30, tzinfo=timezone.utc)
+        base = dict(
+            now=now,
+            sunrise=sunrise,
+            sunrise_today=sunrise,
+            pv_remaining_today_kwh=40.0,
+            consumption_today_kwh=10.0,
+        )
+        base.update(overrides)
+        return _make_snapshot(**base)
+
+    def test_soc_below_min_blocks_entry(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """SOC 7% < Min-SOC 10% → kein Start, Batterie darf laden."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        block, _, blocked_by = opt._should_block_charging(
+            self._snap(battery_soc=7.0)
+        )
+        assert block is False
+        assert REASON_SOC_BELOW_MIN in blocked_by
+
+    def test_soc_at_min_allows_entry(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """SOC exakt auf Min-SOC → Morgen-Einspeisung startet."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        block, reasons, _ = opt._should_block_charging(
+            self._snap(battery_soc=10.0)
+        )
+        assert block is True
+        assert REASON_SOC_BELOW_MIN not in reasons
+
+    def test_active_state_survives_small_soc_dip(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Aktive Blockierung + SOC 8.5% (≥ Min-SOC − 2%) → bleibt aktiv."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        opt._last_eval_zustand = STATE_MORGEN_EINSPEISUNG
+        block, _, _ = opt._should_block_charging(self._snap(battery_soc=8.5))
+        assert block is True
+
+    def test_active_state_stops_below_hysteresis(
+        self, mock_hass, mock_inverter, mock_coordinator, mock_provider
+    ):
+        """Aktive Blockierung + SOC 7.5% (< Min-SOC − 2%) → Abbruch."""
+        opt = _make_optimizer(mock_hass, mock_inverter, mock_coordinator, mock_provider)
+        opt._last_eval_zustand = STATE_MORGEN_EINSPEISUNG
+        block, _, blocked_by = opt._should_block_charging(
+            self._snap(battery_soc=7.5)
+        )
+        assert block is False
+        assert REASON_SOC_BELOW_MIN in blocked_by

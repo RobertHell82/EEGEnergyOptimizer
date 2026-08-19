@@ -174,6 +174,14 @@ FEEDIN_STEP_UP_KW = 0.5               # feste Schrittweite beim Hochtasten
 FEEDIN_DEADBAND_KW = 0.15             # Toleranzband am unteren Limit-Rand (Anti-Oszillation)
 FEEDIN_ENTER_MARGIN_KW = 0.2          # Feedforward-Start, wenn Einspeisung beim Eintritt ≥ Limit − Marge
 FEEDIN_SOC_HEADROOM_PCT = 98          # ab diesem SOC keine Aufnahme mehr → inaktiv
+
+# Morgen-Einspeisung / Einspeisebegrenzung: Unter dem konfigurierten Min-SOC
+# wird das Laden nie blockiert bzw. gedrosselt — die Batterie lädt zuerst auf
+# die Notreserve (Nutzer-Feedback Aug 2026). Die Exit-Hysterese verhindert,
+# dass ein vom Hausverbrauch angeknabberter SOC direkt an der Schwelle die
+# Ladeblockierung im 30-Sekunden-Takt ein- und ausschaltet: Eintritt erst ab
+# Min-SOC, Abbruch einer laufenden Blockierung erst unter Min-SOC − Hysterese.
+MIN_SOC_BLOCK_EXIT_HYSTERESIS_PCT = 2.0
 FEEDIN_INITIAL_ESTIMATE_FACTOR = 0.8  # konservativer Feedforward-Startwert beim Eintritt
 
 DEFAULT_UEBERSCHUSS_SCHWELLE = 1.25

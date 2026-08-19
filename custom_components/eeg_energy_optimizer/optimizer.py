@@ -62,6 +62,7 @@ from .const import (
     INVERTER_TYPE_HUAWEI,
     INVERTER_TYPE_SMA,
     MANUAL_OVERRIDE_MAX_HOURS,
+    MIN_SOC_BLOCK_EXIT_HYSTERESIS_PCT,
     MODE_EIN,
     MODE_TEST,
     RESERVE_ENTRY_BONUS_PCT,
@@ -1258,6 +1259,30 @@ class EEGOptimizer:
         if not (window_start <= snap.now <= morning_end):
             return (False, [], [REASON_OUTSIDE_MORNING_WINDOW])
 
+        # Guard 4: Batterie unter der konfigurierten Notreserve (Min-SOC) —
+        # erst auf Min-SOC laden, dann Morgen-Einspeisung (Nutzer-Feedback:
+        # SOC 7% bei Min-SOC 10% → zuerst auf 10% laden). Läuft die
+        # Blockierung bereits, gilt die Exit-Hysterese: Der Hausverbrauch
+        # kann den SOC an der Schwelle wieder anknabbern (Blockierung
+        # verhindert nur das Laden, nicht die Hausversorgung) — ohne
+        # Hysterese würde die Ladeblockierung im 30-s-Takt pendeln.
+        # SOC=None erreicht diesen Code nie (zentraler Guard in _evaluate
+        # → Normalbetrieb); die Prüfung bleibt als Defensive für direkte
+        # Aufrufe (Tests, künftige Pfade).
+        if snap.battery_soc is not None:
+            is_active = self._last_eval_zustand == STATE_MORGEN_EINSPEISUNG
+            soc_threshold = (
+                self._min_soc - MIN_SOC_BLOCK_EXIT_HYSTERESIS_PCT
+                if is_active
+                else float(self._min_soc)
+            )
+            if snap.battery_soc < soc_threshold:
+                return (
+                    False,
+                    [],
+                    [REASON_IN_MORNING_WINDOW, REASON_SOC_BELOW_MIN],
+                )
+
         # Ab hier: im Fenster
         in_window_blocked: list[str] = [REASON_IN_MORNING_WINDOW]
 
@@ -1349,6 +1374,20 @@ class EEGOptimizer:
         if snap.battery_soc >= FEEDIN_SOC_HEADROOM_PCT:
             self._reset_feedin()
             return (False, 0.0, [], [REASON_FEEDIN_LIMIT_BATTERY_FULL])
+
+        # Guard 4b: Batterie unter der konfigurierten Notreserve (Min-SOC) —
+        # das Laden wird nie gedrosselt, solange die Notreserve nicht
+        # erreicht ist (gleiche Regel + Exit-Hysterese wie Morgen-
+        # Einspeisung; mit Ladeleistung 0 wäre die Drosselung sonst eine
+        # Ladeblockierung trotz kritisch leerer Batterie).
+        soc_threshold = (
+            self._min_soc - MIN_SOC_BLOCK_EXIT_HYSTERESIS_PCT
+            if self._feedin_active
+            else float(self._min_soc)
+        )
+        if snap.battery_soc < soc_threshold:
+            self._reset_feedin()
+            return (False, 0.0, [], [REASON_SOC_BELOW_MIN])
 
         # Guard 5: nur tagsüber (ab 1 h vor Sonnenaufgang, analog Morgen-
         # Fenster). Nachts ist die Tagesprognose noch "unverbraucht" und würde
