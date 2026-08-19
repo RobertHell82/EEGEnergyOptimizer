@@ -7,6 +7,17 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.4.0-dev] - 2026-08-19
+
+> Bündelt die DEV-Iterationen 1.3.12-dev bis 1.3.14-dev und schließt die Kostal-Steuerverifikation ab.
+
+### Verifiziert (Kostal-Beta)
+
+- **Entlade-Test bestanden:** Register 1034 mit positivem Sollwert entlädt die Batterie aktiv über den Hausverbrauch hinaus ins Netz (gemessen: 4,06 kW Entladung, 3,35 kW Netzeinspeisung). Die österreichische Gradientensperre trat nicht auf.
+- **Stopp & Rückgabe bestanden:** Nach dem Stopp (Sollwert 0, Ladelimit-Restore) endet der Keepalive sauber; der Wechselrichter kehrt nach Ablauf des Modbus-Watchdog-Timeouts zur internen Batterie-Automatik zurück. Empfehlung: Watchdog-Timeout am Gerät auf 60 s stellen (Guide, Schritt 3) — je kürzer der Timeout, desto kleiner die Übergabe-Lücke nach einem Stopp.
+- **Hinweis G1-Geräte:** Der Batterie-DC-Eingang der Plenticore-plus-Serie (G1) begrenzt die Entladeleistung hardwareseitig auf ~4 kW (≈13 A) — die konfigurierte Entladeleistung sollte daran ausgerichtet werden.
+- Damit ist die Kostal-Steuerung vollständig am Beta-Gerät verifiziert; offen bleibt nur die Einspeisebegrenzung (Register-Encoding bei Teillimit unbestätigt, Feature bleibt für Kostal deaktiviert).
+
 ## [1.3.14-dev] - 2026-08-19
 
 ### Behoben
