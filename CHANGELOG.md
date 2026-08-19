@@ -7,6 +7,23 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.11] - 2026-08-19
+
+> Release bündelt die DEV-Iterationen 1.3.8-dev bis 1.3.11-dev.
+
+### Hinzugefügt
+
+- **SMA Smart Energy wird als sechster Wechselrichter-Typ unterstützt.** Sunny Tripower Smart Energy (STP 5.0–10.0 SE), Sunny Boy Storage und Sunny Boy Smart Energy mit Batteriespeicher. Steuerung über direkte Modbus-TCP-Verbindung (externes Batteriemanagement/CmpBMS) mit Watchdog-Failsafe: Fällt Home Assistant aus, kehrt der Wechselrichter automatisch zur internen Batterie-Automatik zurück. Steuertests und Produktivbetrieb an der ersten Anlage bestätigt.
+
+### Geändert
+
+- **Morgen-Einspeisung startet erst ab dem konfigurierten Min-SOC:** Unter der Notreserve lädt die Batterie zuerst, dann beginnt die Ladeblockierung (2% Exit-Hysterese gegen Pendeln). Dieselbe Regel gilt für die Einspeisebegrenzung.
+- **Kostal Plenticore ist in Vorbereitung:** Der Treiber wird derzeit an einer Beta-Anlage verifiziert und ist im Einrichtungsassistenten von Release-Builds noch nicht auswählbar (nur in DEV-Builds sichtbar). Bestehende Kostal-Konfigurationen laufen unverändert weiter.
+
+### Behoben
+
+- Panel zeigte nach der Ersteinrichtung minutenlang „Verbrauchsdaten werden berechnet…" — das Verbrauchsprofil wird jetzt direkt nach dem Hausverbrauch-Backfill aktualisiert.
+
 ## [1.3.11-dev] - 2026-08-19
 
 ### Geändert
