@@ -7,6 +7,21 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.4.0] - 2026-08-19
+
+> Release entspricht der DEV-Iteration 1.4.0-dev und bündelt 1.3.12-dev bis 1.4.0-dev.
+
+### Hinzugefügt
+
+- **Kostal Plenticore wird als Wechselrichter unterstützt (Beta):** plus/G2/G3 mit Batteriespeicher, Steuerung über direkte Modbus-TCP-Verbindung mit Watchdog-Failsafe. Entladung ins Netz, Ladeblockierung und Stopp/Rückgabe an der Beta-Anlage verifiziert; Details und Grenzen (G1 ~4 kW) im Kostal-Guide.
+- **SMA Smart Energy** (seit 1.3.11 produktiv): Sunny Tripower Smart Energy, Sunny Boy Storage und Sunny Boy Smart Energy mit Batteriespeicher.
+- **Modbus-IP wird automatisch vorbefüllt** (Fronius, Kostal, SMA): Der Einrichtungsassistent übernimmt die Adresse aus der installierten Quell-Integration.
+
+### Behoben
+
+- **Kostal: Falscher PV-Sensor bei der Auto-Erkennung** — `solar_power` (Dc_P) enthält die Batterieentladung; die Erkennung nutzt jetzt `sum_power_of_all_pv_dc_inputs`. Bestehende Kostal-Konfigurationen: PV-Sensor einmalig im Assistenten umstellen.
+- **Sensor-Änderungen im Assistenten wirken sofort** — die Integration lädt nach geänderten Sensor-Zuordnungen automatisch komplett neu (bisher erst nach HA-Neustart sichtbar).
+
 ## [1.4.0-dev] - 2026-08-19
 
 > Bündelt die DEV-Iterationen 1.3.12-dev bis 1.3.14-dev und schließt die Kostal-Steuerverifikation ab.
