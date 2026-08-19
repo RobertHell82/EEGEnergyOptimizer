@@ -7,11 +7,13 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
-## [1.3.10-dev] - 2026-08-18
+## [1.3.11-dev] - 2026-08-19
 
 ### Geändert
 
 - **Morgen-Einspeisung startet erst ab dem konfigurierten Min-SOC** (Nutzer-Feedback): Liegt der Batterie-SOC unter der Notreserve (z.B. 7% bei Min-SOC 10%), lädt die Batterie zuerst auf den Min-SOC, dann beginnt die Ladeblockierung. Eine laufende Blockierung bricht erst ab, wenn der SOC mehr als 2% unter den Min-SOC fällt (Anti-Pendeln, da der Hausverbrauch den SOC während der Blockierung wieder senken kann). Dieselbe Regel gilt für die Einspeisebegrenzung — das Laden wird nie gedrosselt, solange die Notreserve nicht erreicht ist.
+
+## [1.3.10-dev] - 2026-08-18
 
 ### Behoben
 
