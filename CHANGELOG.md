@@ -7,6 +7,20 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.13-dev] - 2026-08-19
+
+### Hinzugefügt
+
+- **Modbus-IP wird automatisch vorbefüllt** (Fronius, Kostal, SMA): Der Einrichtungsassistent übernimmt die IP-Adresse des Wechselrichters aus der bereits installierten Quell-Integration — bei Kostal-Multi-Inverter-Anlagen vom Master mit Batterie. Eine manuell eingegebene Adresse wird nie überschrieben.
+
+### Geändert
+
+- **Kostal Plenticore ist wieder in allen Builds im Einrichtungsassistenten auswählbar** (Beta). Die DEV-only-Ausblendung aus 1.3.11 ist aufgehoben.
+
+### Behoben
+
+- **Kostal: Falscher PV-Sensor bei der Auto-Erkennung.** Der bisher gewählte `solar_power`-Sensor (Dc_P) misst die DC-Gesamtleistung **inklusive Batterie** — bei nächtlicher Entladung erschien die Entladeleistung als PV-Produktion und der berechnete Hausverbrauch zählte sie doppelt (verfälschte damit auch das gelernte Verbrauchsprofil). Die Erkennung wählt jetzt `sum_power_of_all_pv_dc_inputs` (echte Summe aller PV-Eingänge). **Bestehende Kostal-Konfigurationen:** PV-Sensor im Assistenten manuell auf `sensor.<name>_sum_power_of_all_pv_dc_inputs` umstellen (ebenso den zweiten PV-Sensor, falls konfiguriert).
+
 ## [1.3.11] - 2026-08-19
 
 > Release bündelt die DEV-Iterationen 1.3.8-dev bis 1.3.11-dev.
