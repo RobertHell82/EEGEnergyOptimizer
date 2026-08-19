@@ -7,6 +7,12 @@ Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
 > Hinweis: DEV-Repo nutzt Patch-Versionen (1.x.y); Release-Versionen werden im Release-Repo getaggt.
 
+## [1.3.14-dev] - 2026-08-19
+
+### Behoben
+
+- **Geänderte Sensor-Zuordnungen wurden erst nach einem HA-Neustart wirksam.** Nach einem Save im Einrichtungsassistenten rechnete der Optimizer sofort mit den neuen Sensoren, die Dashboard-Sensoren (PV-Leistung, Hausverbrauch, Netz-/Batterieleistung, Prognosen) blieben aber auf den alten Entity-IDs. Jetzt lädt die Integration bei geänderten Sensor-, Wechselrichter- oder Prognose-Einstellungen automatisch komplett neu; reine Einstellungs-Änderungen (Zeiten, Schwellwerte) behalten wie bisher den Zustand des laufenden Tages.
+
 ## [1.3.13-dev] - 2026-08-19
 
 ### Hinzugefügt
