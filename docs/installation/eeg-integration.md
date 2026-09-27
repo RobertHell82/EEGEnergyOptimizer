@@ -1,5 +1,9 @@
 # EEG Energy Optimizer über HACS installieren
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)** — diese Seite dort: [docs/installation/eeg-integration.md](https://github.com/RobertHell82/EEGEnergyOptimizer2/blob/main/docs/installation/eeg-integration.md).
+
 Der EEG Energy Optimizer wird als **benutzerdefiniertes Repository** (Custom Repository) über HACS installiert.
 
 > [!NOTE]

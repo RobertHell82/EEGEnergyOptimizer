@@ -1,5 +1,9 @@
 # Fronius Gen24 einrichten
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)** — diese Seite dort: [docs/guides/fronius.md](https://github.com/RobertHell82/EEGEnergyOptimizer2/blob/main/docs/guides/fronius.md).
+
 ## 1. Fronius Integration in Home Assistant
 
 Die native Fronius Integration wird für das Lesen der Sensoren (PV, Batterie, SOC, Netz) benötigt:

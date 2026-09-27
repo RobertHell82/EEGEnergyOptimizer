@@ -1,5 +1,9 @@
 # SMA Smart Energy einrichten
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)** — diese Seite dort: [docs/guides/sma.md](https://github.com/RobertHell82/EEGEnergyOptimizer2/blob/main/docs/guides/sma.md).
+
 > [!NOTE]
 > Unterstützt werden **Sunny Tripower Smart Energy** (STP 5.0–10.0 SE), **Sunny Boy Storage** (SBS 3.7/5.0/6.0) und **Sunny Boy Smart Energy** — jeweils mit Batteriespeicher (z.B. BYD Battery-Box). Sunny Island wird nicht unterstützt.
 

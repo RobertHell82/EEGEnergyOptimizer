@@ -1,5 +1,9 @@
 # Inbetriebnahme deines EEG-Geräts (Home Assistant Green)
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)** — diese Seite dort: [docs/deployment/inbetriebnahme.md](https://github.com/RobertHell82/EEGEnergyOptimizer2/blob/main/docs/deployment/inbetriebnahme.md).
+
 Dein Home Assistant Green wurde bereits vorbereitet: Alle benötigten Programme,
 der EEG Energy Optimizer und der Fernzugang sind installiert. Diese Anleitung
 führt dich durch die wenigen Schritte, bis dein System läuft.

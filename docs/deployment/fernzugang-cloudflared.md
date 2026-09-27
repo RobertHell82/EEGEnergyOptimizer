@@ -1,5 +1,9 @@
 # Fernzugang einrichten (Cloudflare Tunnel)
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)** — diese Seite dort: [docs/deployment/fernzugang-cloudflared.md](https://github.com/RobertHell82/EEGEnergyOptimizer2/blob/main/docs/deployment/fernzugang-cloudflared.md).
+
 Mit dieser Anleitung machst du deinen Home Assistant direkt unter einer eigenen Internetadresse verfügbar - ohne zusätzliche Kosten.
 Der Zugang läuft über einen sogenannten **Cloudflare Tunnel**: Dein Home Assistant baut die Verbindung selbst nach außen auf und bleibt von außen unsichtbar.
 

@@ -1,5 +1,16 @@
 # EEG Energy Optimizer
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)**.
+>
+> **Umstieg in HACS:** HACS → oben rechts ⋮ → *Benutzerdefinierte Repositories* →
+> `https://github.com/RobertHell82/EEGEnergyOptimizer2` als Typ *Integration* hinzufügen →
+> *EEG Energy Optimizer* aus diesem neuen Repository herunterladen → Home Assistant neu starten.
+> Beide Versionen verwenden denselben Integrationsordner, Version 2 ersetzt Version 1 an Ort und Stelle
+> und übernimmt die Einrichtung beim ersten Start. Danach im Panel die Einstellungen durchsehen —
+> Version 2 plant mit einem Fahrplan und fragt einige neue Werte ab (Tarife, Anlage).
+
 HACS-kompatible Home Assistant Integration für vorausschauendes Batteriemanagement, optimiert für Energiegemeinschaften (EEG) im DACH-Raum.
 
 ## Funktionen

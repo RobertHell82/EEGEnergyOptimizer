@@ -1,5 +1,9 @@
 # Huawei Akkukapazität-Sensor aktivieren
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)** — diese Seite dort: [docs/guides/capacity_sensor.md](https://github.com/RobertHell82/EEGEnergyOptimizer2/blob/main/docs/guides/capacity_sensor.md).
+
 Der Sensor für die Akkukapazität ist bei Huawei Solar standardmäßig deaktiviert (Diagnostic-Sensor). So aktivierst du ihn:
 
 1. Gehe zu **Einstellungen → Geräte & Dienste**

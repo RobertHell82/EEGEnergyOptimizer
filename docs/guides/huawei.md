@@ -1,5 +1,9 @@
 # Huawei Solar Integration einrichten
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)** — diese Seite dort: [docs/guides/huawei.md](https://github.com/RobertHell82/EEGEnergyOptimizer2/blob/main/docs/guides/huawei.md).
+
 > [!NOTE]
 > **EMMA-Energiemanagement:** Wird Home Assistant über das Huawei-EMMA angebunden, tragen die Sensoren den Präfix `sensor.emma_…`. Die EMMA-Einspeiseleistung liefert das Netz-Vorzeichen umgekehrt gegenüber der direkten SUN2000-Anbindung — der EEG Energy Optimizer erkennt solche Sensoren automatisch und dreht das Netz-Vorzeichen entsprechend um (die Batterieleistung folgt der normalen Konvention und bleibt unverändert). Trage die `sensor.emma_*`-Entitäten einfach in der Sensor-Zuordnung ein.
 

@@ -1,5 +1,9 @@
 # Entwickler-Hinweise: Dokumentation
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)** — diese Seite dort: [docs/DEVELOPMENT.md](https://github.com/RobertHell82/EEGEnergyOptimizer2/blob/main/docs/DEVELOPMENT.md).
+
 > Diese Datei richtet sich an Entwickler. Die Enduser-Dokumentation startet in [README.md](README.md).
 
 ## Synchronisation mit dem Panel

@@ -1,5 +1,9 @@
 # HACS auf Home Assistant installieren
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)** — diese Seite dort: [docs/installation/hacs.md](https://github.com/RobertHell82/EEGEnergyOptimizer2/blob/main/docs/installation/hacs.md).
+
 [HACS](https://hacs.xyz/) (Home Assistant Community Store) ist die Voraussetzung, um den EEG Energy Optimizer und mehrere benötigte Integrationen (z.B. Solcast, Huawei Solar, SolaX Modbus, SolarEdge Modbus Multi) zu installieren.
 
 > [!NOTE]

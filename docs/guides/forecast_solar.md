@@ -1,5 +1,9 @@
 # Forecast.Solar einrichten
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)** — diese Seite dort: [docs/guides/forecast_solar.md](https://github.com/RobertHell82/EEGEnergyOptimizer2/blob/main/docs/guides/forecast_solar.md).
+
 ## 1. Integration hinzufügen
 
 1. Gehe zu **Einstellungen → Geräte & Dienste → Integration hinzufügen**

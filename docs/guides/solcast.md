@@ -1,5 +1,9 @@
 # Solcast Solar einrichten
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)** — diese Seite dort: [docs/guides/solcast.md](https://github.com/RobertHell82/EEGEnergyOptimizer2/blob/main/docs/guides/solcast.md).
+
 ## 1. Registrierung bei Solcast
 
 1. Gehe auf [toolkit.solcast.com.au](https://toolkit.solcast.com.au/) um dich zu registrieren.

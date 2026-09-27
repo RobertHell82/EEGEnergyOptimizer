@@ -1,5 +1,9 @@
 # SolarEdge Modbus Multi einrichten
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)**.
+
 ## 1. Wechselrichter vorbereiten
 
 Modbus TCP muss am Wechselrichter aktiviert sein. Je nach Modell gibt es zwei Varianten:

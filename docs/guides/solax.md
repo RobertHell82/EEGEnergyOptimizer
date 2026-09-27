@@ -1,5 +1,9 @@
 # SolaX Modbus einrichten
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)** — diese Seite dort: [docs/guides/solax.md](https://github.com/RobertHell82/EEGEnergyOptimizer2/blob/main/docs/guides/solax.md).
+
 ## 1. Unterstützte Wechselrichter
 
 Nur **Gen4, Gen5 und Gen6** Wechselrichter werden unterstützt. Ältere Generationen (Gen2/Gen3) haben keine Remote Control Funktion.

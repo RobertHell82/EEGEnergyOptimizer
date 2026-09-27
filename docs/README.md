@@ -1,5 +1,9 @@
 # EEG Energy Optimizer — Dokumentation
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)** — diese Seite dort: [docs/README.md](https://github.com/RobertHell82/EEGEnergyOptimizer2/blob/main/docs/README.md).
+
 Willkommen! Hier findest du alle Anleitungen, um den EEG Energy Optimizer zu installieren und einzurichten — von der HACS-Installation bis zur Wechselrichter-Anbindung.
 
 ## 📦 Vorbereitetes EEG-Gerät erhalten?

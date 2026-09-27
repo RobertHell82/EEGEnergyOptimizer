@@ -1,5 +1,9 @@
 # Kostal Plenticore einrichten
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)** — diese Seite dort: [docs/guides/kostal.md](https://github.com/RobertHell82/EEGEnergyOptimizer2/blob/main/docs/guides/kostal.md).
+
 ## 1. Kostal Plenticore Integration in Home Assistant
 
 Die native Kostal-Integration wird für das Lesen der Sensoren (PV, Batterie, SOC, Netz, Hausverbrauch) benötigt:

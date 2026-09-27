@@ -1,5 +1,9 @@
 # Einspeisebegrenzung optimieren
 
+> [!CAUTION]
+> **Diese Version (1.x) ist veraltet und wird nicht mehr weiterentwickelt.**
+> Der EEG Energy Optimizer geht als Version 2 weiter: **[EEGEnergyOptimizer2](https://github.com/RobertHell82/EEGEnergyOptimizer2)**.
+
 Viele Netzbetreiber begrenzen, wie viel Leistung deine PV-Anlage ins Netz einspeisen darf (z. B. 4 kW). Normalerweise lädt die Batterie zuerst mit voller Leistung — ist sie voll, **regelt der Wechselrichter alles über dem Limit ab, und diese Energie geht verloren**.
 
 Diese Optimierung dreht das um: Solange die Batterie laut Prognose heute sicher noch voll wird, speist der PV-Überschuss **bis zum erlaubten Limit ins Netz** ein — nur der Anteil darüber lädt die Batterie. So wird maximal in die Energiegemeinschaft eingespeist, nichts abgeregelt, und die Batterie füllt sich trotzdem — verteilt über den Tag.
